@@ -1,7 +1,6 @@
 """Shared helpers for invoking an agent with structured output and a graceful fallback.
 
-The Portfolio Manager, Trader, and Research Manager all follow the same
-canonical pattern:
+Structured-output agents follow the same canonical pattern:
 
 1. At agent creation, wrap the LLM with ``with_structured_output(Schema)``
    so the model returns a typed Pydantic instance. If the provider does

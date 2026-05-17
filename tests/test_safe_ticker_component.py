@@ -11,7 +11,7 @@ from tradingagents.dataflows.utils import safe_ticker_component
 @pytest.mark.unit
 class TestSafeTickerComponent(unittest.TestCase):
     def test_accepts_common_ticker_formats(self):
-        for ticker in ("AAPL", "BRK-B", "BRK.A", "0700.HK", "7203.T", "BHP.AX", "^GSPC"):
+        for ticker in ("AAPL", "BRK-B", "BRK.A", "0700.HK", "7203.T", "BHP.AX", "^GSPC", "ES=F"):
             self.assertEqual(safe_ticker_component(ticker), ticker)
 
     def test_rejects_path_separators(self):

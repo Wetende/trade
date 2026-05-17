@@ -24,8 +24,10 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["deep_think_llm"] == "gpt-5.4"
     assert dc.DEFAULT_CONFIG["quick_think_llm"] == "gpt-5.4-mini"
     assert dc.DEFAULT_CONFIG["backend_url"] is None
-    assert dc.DEFAULT_CONFIG["max_debate_rounds"] == 1
     assert dc.DEFAULT_CONFIG["checkpoint_enabled"] is False
+    assert dc.DEFAULT_CONFIG["timeframe"] == "15m"
+    assert dc.DEFAULT_CONFIG["confirmation_timeframe"] == "30m"
+    assert dc.DEFAULT_CONFIG["market_timezone"] == "America/New_York"
 
 
 def test_string_overrides(monkeypatch):
@@ -36,24 +38,18 @@ def test_string_overrides(monkeypatch):
         TRADINGAGENTS_QUICK_THINK_LLM="gemini-3-flash-preview",
         TRADINGAGENTS_LLM_BACKEND_URL="https://example.invalid/v1",
         TRADINGAGENTS_OUTPUT_LANGUAGE="Chinese",
+        TRADINGAGENTS_TIMEFRAME="15m",
+        TRADINGAGENTS_CONFIRMATION_TIMEFRAME="30m",
+        TRADINGAGENTS_MARKET_TIMEZONE="America/New_York",
     )
     assert dc.DEFAULT_CONFIG["llm_provider"] == "google"
     assert dc.DEFAULT_CONFIG["deep_think_llm"] == "gemini-3-pro-preview"
     assert dc.DEFAULT_CONFIG["quick_think_llm"] == "gemini-3-flash-preview"
     assert dc.DEFAULT_CONFIG["backend_url"] == "https://example.invalid/v1"
     assert dc.DEFAULT_CONFIG["output_language"] == "Chinese"
-
-
-def test_int_coercion(monkeypatch):
-    dc = _reload_with_env(
-        monkeypatch,
-        TRADINGAGENTS_MAX_DEBATE_ROUNDS="3",
-        TRADINGAGENTS_MAX_RISK_ROUNDS="2",
-    )
-    assert dc.DEFAULT_CONFIG["max_debate_rounds"] == 3
-    assert isinstance(dc.DEFAULT_CONFIG["max_debate_rounds"], int)
-    assert dc.DEFAULT_CONFIG["max_risk_discuss_rounds"] == 2
-    assert isinstance(dc.DEFAULT_CONFIG["max_risk_discuss_rounds"], int)
+    assert dc.DEFAULT_CONFIG["timeframe"] == "15m"
+    assert dc.DEFAULT_CONFIG["confirmation_timeframe"] == "30m"
+    assert dc.DEFAULT_CONFIG["market_timezone"] == "America/New_York"
 
 
 @pytest.mark.parametrize(
@@ -73,20 +69,10 @@ def test_empty_env_value_is_passthrough(monkeypatch):
     dc = _reload_with_env(
         monkeypatch,
         TRADINGAGENTS_LLM_PROVIDER="",
-        TRADINGAGENTS_MAX_DEBATE_ROUNDS="",
+        TRADINGAGENTS_TIMEFRAME="",
     )
     assert dc.DEFAULT_CONFIG["llm_provider"] == "openai"
-    assert dc.DEFAULT_CONFIG["max_debate_rounds"] == 1
-
-
-def test_invalid_int_raises(monkeypatch):
-    """Garbage int values should surface a ValueError at import, not silently misconfigure."""
-    monkeypatch.setenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", "not-a-number")
-    with pytest.raises(ValueError):
-        importlib.reload(default_config_module)
-    # Restore module state for subsequent tests in this process
-    monkeypatch.delenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", raising=False)
-    importlib.reload(default_config_module)
+    assert dc.DEFAULT_CONFIG["timeframe"] == "15m"
 
 
 def test_unknown_env_var_is_ignored(monkeypatch):

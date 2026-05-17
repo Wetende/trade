@@ -13,10 +13,10 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_QUICK_THINK_LLM":      "quick_think_llm",
     "TRADINGAGENTS_LLM_BACKEND_URL":      "backend_url",
     "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
-    "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
-    "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
-    "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
+    "TRADINGAGENTS_TIMEFRAME":            "timeframe",
+    "TRADINGAGENTS_CONFIRMATION_TIMEFRAME": "confirmation_timeframe",
+    "TRADINGAGENTS_MARKET_TIMEZONE":      "market_timezone",
 }
 
 
@@ -45,11 +45,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
-    "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
-    # Optional cap on the number of resolved memory log entries. When set,
-    # the oldest resolved entries are pruned once this limit is exceeded.
-    # Pending entries are never pruned. None disables rotation entirely.
-    "memory_log_max_entries": None,
     # LLM settings
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.4",
@@ -70,52 +65,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
     "output_language": "English",
-    # Debate and discussion settings
-    "max_debate_rounds": 1,
-    "max_risk_discuss_rounds": 1,
-    "max_recur_limit": 100,
-    # News / data fetching parameters
-    # Increase for longer lookback strategies or to broaden macro coverage;
-    # decrease to reduce token usage in agent prompts.
-    "news_article_limit": 20,             # max articles per ticker (ticker-news)
-    "global_news_article_limit": 10,      # max articles for global/macro news
-    "global_news_lookback_days": 7,       # macro news lookback window
-    # Search queries used by get_global_news for macro headlines. Extend or
-    # replace to broaden geographic / sector coverage.
-    "global_news_queries": [
-        "Federal Reserve interest rates inflation",
-        "S&P 500 earnings GDP economic outlook",
-        "geopolitical risk trade war sanctions",
-        "ECB Bank of England BOJ central bank policy",
-        "oil commodities supply chain energy",
-    ],
-    # Data vendor configuration
-    # Category-level configuration (default for all tools in category)
+    # Price Action Playbook settings
+    "timeframe": "15m",
+    "confirmation_timeframe": "30m",
+    "market_timezone": "America/New_York",
+    "max_recur_limit": 20,
+    # Data vendor configuration: keep only core OHLC fetching for now.
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        "core_stock_apis": "yfinance",
     },
-    # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
-        # Example: "get_stock_data": "alpha_vantage",  # Override category default
-    },
-    # Benchmark for alpha calculation in the reflection layer.
-    # ``benchmark_ticker`` (when set) overrides the suffix map for all
-    # tickers; leave it None to use ``benchmark_map`` for auto-detection
-    # based on the ticker's exchange suffix. SPY remains the US default
-    # so the reflection label keeps reading "Alpha vs SPY" for US tickers
-    # while non-US tickers get their regional index automatically.
-    "benchmark_ticker": None,
-    "benchmark_map": {
-        ".NS":  "^NSEI",    # NSE India (Nifty 50)
-        ".BO":  "^BSESN",   # BSE India (Sensex)
-        ".T":   "^N225",    # Tokyo (Nikkei 225)
-        ".HK":  "^HSI",     # Hong Kong (Hang Seng)
-        ".L":   "^FTSE",    # London (FTSE 100)
-        ".TO":  "^GSPTSE",  # Toronto (TSX Composite)
-        ".AX":  "^AXJO",    # Australia (ASX 200)
-        "":     "SPY",      # default for US-listed tickers (no suffix)
     },
 })

@@ -1,24 +1,20 @@
-import os
 import re
-import json
-import pandas as pd
 from datetime import date, timedelta, datetime
 from typing import Annotated
 
 SavePathType = Annotated[str, "File path to save data. If None, data is not saved."]
 
-# Tickers can contain letters, digits, dot, dash, underscore, and caret
-# (for index symbols like ^GSPC). Anything else is rejected so the value
+# Tickers can contain letters, digits, dot, dash, underscore, caret, and equals
+# (for index symbols like ^GSPC and futures like ES=F). Anything else is rejected so the value
 # never escapes a containing directory when interpolated into a path.
-_TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^]+$")
+_TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^=]+$")
 
 
 def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     """Validate ``value`` is safe to interpolate into a filesystem path.
 
     Tickers come from user CLI input or from LLM tool calls, both of which
-    can be influenced by attacker-controlled content (e.g. prompt injection
-    embedded in fetched news). Without validation, a value like
+    can be influenced by attacker-controlled content. Without validation, a value like
     ``"../../../etc/foo"`` flows into ``os.path.join`` / ``Path /`` and
     escapes the configured cache, checkpoint, or results directory.
 
@@ -41,7 +37,7 @@ def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     return value
 
 
-def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) -> None:
+def save_output(data, tag: str, save_path: SavePathType = None) -> None:
     if save_path:
         data.to_csv(save_path, encoding="utf-8")
         print(f"{tag} saved to {save_path}")

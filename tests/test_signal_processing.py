@@ -1,90 +1,51 @@
-"""Tests for the shared rating heuristic and the SignalProcessor adapter.
-
-The Portfolio Manager produces a typed PortfolioDecision via structured
-output and renders it to markdown that always contains a ``**Rating**: X``
-header.  The deterministic heuristic in ``tradingagents.agents.utils.rating``
-is therefore sufficient to extract the rating downstream — no second LLM
-call is needed — and SignalProcessor is now a thin adapter that delegates
-to it.
-"""
+"""Tests for BUY/SELL/HOLD extraction from trade plans."""
 
 import pytest
 
-from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
-from tradingagents.graph.signal_processing import SignalProcessor
-
-
-# ---------------------------------------------------------------------------
-# Heuristic parser
-# ---------------------------------------------------------------------------
+from tradingagents.graph.signal_processing import SignalProcessor, parse_trade_action
 
 
 @pytest.mark.unit
-class TestParseRating:
+class TestParseTradeAction:
     def test_explicit_label_buy(self):
-        assert parse_rating("Rating: Buy\nReasoning here.") == "Buy"
+        assert parse_trade_action("**Action**: BUY\nReasoning here.") == "BUY"
 
-    def test_explicit_label_overweight(self):
-        assert parse_rating("Rating: Overweight\nDetails.") == "Overweight"
+    def test_explicit_label_sell(self):
+        assert parse_trade_action("**Action**: SELL\nBreakdown confirmed.") == "SELL"
 
-    def test_explicit_label_with_markdown_bold_value(self):
-        # Regression: Rating: **Sell** — markdown around the value.
-        assert parse_rating("Rating: **Sell**\nExit immediately.") == "Sell"
+    def test_explicit_label_hold(self):
+        assert parse_trade_action("**Action**: HOLD\nNo valid setup.") == "HOLD"
 
-    def test_explicit_label_with_markdown_bold_label(self):
-        assert parse_rating("**Rating**: Underweight\nTrim exposure.") == "Underweight"
+    def test_plain_action_label_buy(self):
+        assert parse_trade_action("Action: BUY\nReasoning here.") == "BUY"
 
-    def test_rendered_pm_markdown_shape(self):
-        # The exact shape produced by render_pm_decision must always parse.
-        text = (
-            "**Rating**: Buy\n\n"
-            "**Executive Summary**: Enter at $189-192, 6% portfolio cap.\n\n"
-            "**Investment Thesis**: AI capex cycle intact; institutional flows constructive."
-        )
-        assert parse_rating(text) == "Buy"
+    def test_plain_recommendation_label_sell(self):
+        assert parse_trade_action("Recommendation: SELL\nBreakdown confirmed.") == "SELL"
 
-    def test_explicit_label_wins_over_prose_with_markdown(self):
-        text = (
-            "The buy thesis is weakened by guidance.\n"
-            "Rating: **Sell**\n"
-            "Exit before earnings."
-        )
-        assert parse_rating(text) == "Sell"
+    def test_plain_decision_label_hold(self):
+        assert parse_trade_action("Decision: HOLD\nNo setup.") == "HOLD"
 
-    def test_no_rating_returns_default(self):
-        assert parse_rating("No clear directional signal at this time.") == "Hold"
+    def test_negated_action_words_default_to_hold(self):
+        assert parse_trade_action("No BUY or SELL setup is present.") == "HOLD"
 
-    def test_no_rating_custom_default(self):
-        assert parse_rating("Plain prose.", default="Underweight") == "Underweight"
+    def test_unlabeled_prose_defaults_to_hold(self):
+        assert parse_trade_action("The correct response is sell until a retest forms.") == "HOLD"
 
-    def test_all_five_tiers_recognised(self):
-        for r in RATINGS_5_TIER:
-            assert parse_rating(f"Rating: {r}") == r
-
-
-# ---------------------------------------------------------------------------
-# SignalProcessor: thin adapter over the heuristic
-# ---------------------------------------------------------------------------
+    def test_no_action_returns_hold(self):
+        assert parse_trade_action("No clear directional setup.") == "HOLD"
 
 
 @pytest.mark.unit
 class TestSignalProcessor:
-    def test_returns_rating_from_pm_markdown(self):
+    def test_returns_action_from_trade_plan(self):
         sp = SignalProcessor()
-        md = "**Rating**: Overweight\n\n**Executive Summary**: Build gradually."
-        assert sp.process_signal(md) == "Overweight"
+        assert sp.process_signal("**Action**: BUY\n\n**Setup**: The Breakout") == "BUY"
 
     def test_makes_no_llm_calls(self):
-        """SignalProcessor must not invoke the LLM it was constructed with —
-        the rating is parseable from the rendered PM markdown directly."""
         from unittest.mock import MagicMock
 
         llm = MagicMock()
         sp = SignalProcessor(llm)
-        sp.process_signal("Rating: Buy\nDetails.")
+        sp.process_signal("**Action**: HOLD")
         llm.invoke.assert_not_called()
         llm.with_structured_output.assert_not_called()
-
-    def test_default_when_no_rating_present(self):
-        sp = SignalProcessor()
-        assert sp.process_signal("Plain prose without a recommendation.") == "Hold"

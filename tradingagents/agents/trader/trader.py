@@ -1,4 +1,4 @@
-"""Trader: turns the Research Manager's investment plan into a concrete transaction proposal."""
+"""Trader: converts the price-action report into a trade plan."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import functools
 
 from langchain_core.messages import AIMessage
 
-from tradingagents.agents.schemas import TraderProposal, render_trader_proposal
+from tradingagents.agents.schemas import TradePlan, render_trade_plan
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_language_instruction,
@@ -18,47 +18,51 @@ from tradingagents.agents.utils.structured import (
 
 
 def create_trader(llm):
-    structured_llm = bind_structured(llm, TraderProposal, "Trader")
+    structured_llm = bind_structured(llm, TradePlan, "Trader")
 
     def trader_node(state, name):
-        company_name = state["company_of_interest"]
-        instrument_context = build_instrument_context(company_name)
-        investment_plan = state["investment_plan"]
+        symbol = state["company_of_interest"]
+        instrument_context = build_instrument_context(symbol)
+        report = state["price_action_report"]
+        timeframe = state["timeframe"]
+        confirmation_timeframe = state["confirmation_timeframe"]
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a trading agent analyzing market data to make investment decisions. "
-                    "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
-                    "Anchor your reasoning in the analysts' reports and the research plan."
+                    "You are a price-action trader. Trade only the playbook: "
+                    "The Breakout, Buys/Sells off Support/Resistance, and The Break and Retest. "
+                    "If the analyst report does not confirm a valid setup, output HOLD. "
+                    "Do not use fundamentals, news, sentiment, MACD, RSI, or other indicators."
                     + get_language_instruction()
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Based on a comprehensive analysis by a team of analysts, here is an investment "
-                    f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
-                    f"insights from current technical market trends, macroeconomic indicators, and "
-                    f"social media sentiment. Use this plan as a foundation for evaluating your next "
-                    f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
-                    f"Leverage these insights to make an informed and strategic decision."
+                    f"{instrument_context}\n"
+                    f"Trading timeframe: {timeframe}\n"
+                    f"Confirmation timeframe: {confirmation_timeframe}\n\n"
+                    f"Price Action Analyst report:\n{report}\n\n"
+                    "Return a BUY, SELL, or HOLD trade plan. For BUY/SELL include a limit "
+                    "entry, stop loss, take profit, setup name, confidence, checklist status, "
+                    "and concise reason. For HOLD, leave prices null and explain which rule failed."
                 ),
             },
         ]
 
-        trader_plan = invoke_structured_or_freetext(
+        trade_plan = invoke_structured_or_freetext(
             structured_llm,
             llm,
             messages,
-            render_trader_proposal,
+            render_trade_plan,
             "Trader",
         )
 
         return {
-            "messages": [AIMessage(content=trader_plan)],
-            "trader_investment_plan": trader_plan,
+            "messages": [AIMessage(content=trade_plan)],
+            "trade_plan": trade_plan,
             "sender": name,
         }
 
