@@ -196,6 +196,8 @@ def _float_env(name: str, default: float) -> float:
 def _asdict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
+    if isinstance(value, dict):
+        return dict(value)
     if hasattr(value, "_asdict"):
         return dict(value._asdict())
     if hasattr(value, "__dict__"):
@@ -207,6 +209,7 @@ class MT5Broker:
     def __init__(self, config: MT5ConnectionConfig, mt5_module: Any | None = None):
         self.config = config
         self._mt5 = mt5_module
+        self._connected = False
 
     def _module(self):
         if self._mt5 is not None:
@@ -223,6 +226,7 @@ class MT5Broker:
 
     def connect(self) -> dict[str, Any]:
         mt5 = self._module()
+        self._connected = False
         init_kwargs = {
             "login": self.config.login,
             "password": self.config.password,
@@ -250,6 +254,7 @@ class MT5Broker:
                 f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
             )
         tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        self._connected = True
 
         return {
             "connected": True,
@@ -294,28 +299,52 @@ class MT5Broker:
             )
 
     def _constants(self) -> dict[str, Any]:
-        mt5 = self._module()
         return {
-            "TRADE_ACTION_PENDING": getattr(mt5, "TRADE_ACTION_PENDING"),
-            "TRADE_ACTION_REMOVE": getattr(mt5, "TRADE_ACTION_REMOVE"),
-            "TRADE_ACTION_SLTP": getattr(mt5, "TRADE_ACTION_SLTP"),
-            "BUY_LIMIT": getattr(mt5, "ORDER_TYPE_BUY_LIMIT"),
-            "SELL_LIMIT": getattr(mt5, "ORDER_TYPE_SELL_LIMIT"),
-            "ORDER_TIME_GTC": getattr(mt5, "ORDER_TIME_GTC"),
-            "ORDER_FILLING_RETURN": getattr(mt5, "ORDER_FILLING_RETURN"),
-            "TRADE_RETCODE_DONE": getattr(mt5, "TRADE_RETCODE_DONE"),
-            "TRADE_RETCODE_PLACED": getattr(mt5, "TRADE_RETCODE_PLACED"),
+            "TRADE_ACTION_PENDING": self._constant("TRADE_ACTION_PENDING"),
+            "TRADE_ACTION_REMOVE": self._constant("TRADE_ACTION_REMOVE"),
+            "TRADE_ACTION_SLTP": self._constant("TRADE_ACTION_SLTP"),
+            "BUY_LIMIT": self._constant("ORDER_TYPE_BUY_LIMIT"),
+            "SELL_LIMIT": self._constant("ORDER_TYPE_SELL_LIMIT"),
+            "ORDER_TIME_GTC": self._constant("ORDER_TIME_GTC"),
+            "ORDER_FILLING_RETURN": self._constant("ORDER_FILLING_RETURN"),
+            "TRADE_RETCODE_DONE": self._constant("TRADE_RETCODE_DONE"),
+            "TRADE_RETCODE_PLACED": self._constant("TRADE_RETCODE_PLACED"),
+        }
+
+    def _constant(self, name: str) -> Any:
+        mt5 = self._module()
+        try:
+            return getattr(mt5, name)
+        except AttributeError as exc:
+            raise MT5BrokerError(f"missing MT5 constant: {name}") from exc
+
+    def _symbolic_maps(self) -> dict[str, dict[str, Any]]:
+        constants = self._constants()
+        return {
+            "action": {
+                "TRADE_ACTION_PENDING": constants["TRADE_ACTION_PENDING"],
+                "TRADE_ACTION_REMOVE": constants["TRADE_ACTION_REMOVE"],
+                "TRADE_ACTION_SLTP": constants["TRADE_ACTION_SLTP"],
+            },
+            "type": {
+                "BUY_LIMIT": constants["BUY_LIMIT"],
+                "SELL_LIMIT": constants["SELL_LIMIT"],
+            },
+            "type_time": {"ORDER_TIME_GTC": constants["ORDER_TIME_GTC"]},
+            "type_filling": {
+                "ORDER_FILLING_RETURN": constants["ORDER_FILLING_RETURN"]
+            },
         }
 
     def _materialize_request(self, request: dict[str, Any]) -> dict[str, Any]:
-        constants = self._constants()
+        symbolic_maps = self._symbolic_maps()
         converted = dict(request)
         for field in ("action", "type", "type_time", "type_filling"):
             if field not in converted:
                 continue
             value = self._symbolic_value(converted[field], field)
             try:
-                converted[field] = constants[value]
+                converted[field] = symbolic_maps[field][value]
             except KeyError as exc:
                 raise MT5BrokerError(
                     f"unknown MT5 request {field} value: {value}"
@@ -323,33 +352,52 @@ class MT5Broker:
         return converted
 
     def _send(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._assert_active_session()
         mt5 = self._module()
         result = mt5.order_send(request)
         result_data = _asdict(result)
-        constants = self._constants()
-        ok_retcode = {
-            constants["TRADE_RETCODE_DONE"],
-            constants["TRADE_RETCODE_PLACED"],
-        }
+        ok_retcode = self._success_retcodes_for_action(request.get("action"))
         ok = result_data.get("retcode") in ok_retcode
+        echoed_request = _asdict(result_data.get("request")) or dict(request)
         response = {
             "ok": ok,
             "retcode": result_data.get("retcode"),
             "order": result_data.get("order"),
             "deal": result_data.get("deal"),
             "comment": result_data.get("comment"),
-            "request": dict(request),
+            "request": echoed_request,
         }
         if not ok:
             response["last_error"] = mt5.last_error()
         return response
 
-    def place_pending_order(self, request: dict[str, Any]) -> dict[str, Any]:
-        self._validate_pending_order_request(request)
-        return self._send(self._materialize_request(request))
+    def _assert_active_session(self) -> None:
+        if not self._connected:
+            raise MT5BrokerError("MT5 broker is not connected")
+        mt5 = self._module()
+        account = _asdict(mt5.account_info())
+        if not account:
+            raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
+        self._assert_expected_account(account)
 
-    def _validate_pending_order_request(self, request: dict[str, Any]) -> None:
+    def _success_retcodes_for_action(self, action: Any) -> set[Any]:
+        constants = self._constants()
+        if action == constants["TRADE_ACTION_PENDING"]:
+            return {
+                constants["TRADE_RETCODE_DONE"],
+                constants["TRADE_RETCODE_PLACED"],
+            }
+        return {constants["TRADE_RETCODE_DONE"]}
+
+    def place_pending_order(self, request: dict[str, Any]) -> dict[str, Any]:
+        validated = self._validate_pending_order_request(request)
+        return self._send(self._materialize_request(validated))
+
+    def _validate_pending_order_request(
+        self, request: dict[str, Any]
+    ) -> dict[str, Any]:
         required_fields = (
+            "action",
             "symbol",
             "volume",
             "type",
@@ -362,14 +410,22 @@ class MT5Broker:
             "type_time",
             "type_filling",
         )
+        allowed_fields = set(required_fields)
+        extra_fields = sorted(set(request) - allowed_fields)
+        if extra_fields:
+            raise MT5BrokerError(
+                f"unexpected MT5 request field: {extra_fields[0]}"
+            )
+
+        for field in required_fields:
+            if field not in request:
+                raise MT5BrokerError(f"missing required MT5 request field: {field}")
+
         if request.get("action") != "TRADE_ACTION_PENDING":
             if not isinstance(request.get("action"), str):
                 raise MT5BrokerError("action must be symbolic TRADE_ACTION_PENDING")
             raise MT5BrokerError("action must be TRADE_ACTION_PENDING")
 
-        for field in required_fields:
-            if field not in request:
-                raise MT5BrokerError(f"missing required MT5 request field: {field}")
         for field in ("action", "type", "type_time", "type_filling"):
             self._symbolic_value(request[field], field)
 
@@ -382,10 +438,12 @@ class MT5Broker:
                 raise MT5BrokerError("type must be symbolic BUY_LIMIT or SELL_LIMIT")
             raise MT5BrokerError("type must be BUY_LIMIT or SELL_LIMIT")
 
-        for field in ("volume", "price", "sl", "tp"):
-            self._positive_float(request[field], field)
+        numbers = {
+            field: self._positive_float(request[field], field)
+            for field in ("volume", "price", "sl", "tp")
+        }
         if not math.isclose(
-            float(request["volume"]),
+            numbers["volume"],
             self.config.volume,
             rel_tol=0.0,
             abs_tol=1e-12,
@@ -396,6 +454,7 @@ class MT5Broker:
             raise MT5BrokerError("magic must match configured MT5 magic")
         if request["deviation"] != self.config.deviation:
             raise MT5BrokerError("deviation must match configured MT5 deviation")
+        return {**request, **numbers}
 
     @staticmethod
     def _symbolic_value(value: Any, field: str) -> str:
@@ -405,6 +464,8 @@ class MT5Broker:
 
     @staticmethod
     def _positive_float(value: Any, name: str) -> float:
+        if isinstance(value, bool):
+            raise MT5BrokerError(f"{name} must be positive and finite")
         try:
             number = float(value)
         except (TypeError, ValueError) as exc:
