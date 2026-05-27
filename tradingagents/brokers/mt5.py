@@ -13,6 +13,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from tradingagents.agents.schemas import OrderProposal
+
 
 class MT5BrokerError(RuntimeError):
     """Raised when the MT5 terminal bridge cannot connect or inspect symbols."""
@@ -88,12 +90,27 @@ class MT5ConnectionConfig:
 
 
 class MT5OrderRequestBuilder:
+    """Build symbolic MT5 order requests from validated local proposals.
+
+    The returned request uses stable string values such as
+    ``"TRADE_ACTION_PENDING"``, ``"BUY_LIMIT"``, and ``"ORDER_TIME_GTC"``.
+    ``MT5Broker`` materializes those symbolic values into MetaTrader5 module
+    constants before calling ``order_send()``.
+    """
+
     def __init__(self, config: MT5ConnectionConfig):
         self.config = config
 
     def _round_price(self, value: float, symbol_info: dict[str, Any]) -> float:
+        price = float(value)
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError("MT5 price must be positive and finite")
+
         digits = int(symbol_info.get("digits") or 2)
-        return round(float(value), digits)
+        tick_size = float(symbol_info.get("trade_tick_size") or 0)
+        if tick_size > 0:
+            price = round(price / tick_size) * tick_size
+        return round(price, digits)
 
     def _order_type(self, side: Any) -> str:
         side_value = str(getattr(side, "value", side)).upper()
@@ -105,12 +122,15 @@ class MT5OrderRequestBuilder:
 
     def build_pending_limit_request(
         self,
-        proposal: Any,
+        proposal: OrderProposal,
         symbol_info: dict[str, Any],
     ) -> dict[str, Any]:
         status = str(getattr(proposal.status, "value", proposal.status)).upper()
         if status != "PROPOSED":
             raise ValueError("MT5 execution requires a PROPOSED order proposal")
+        order_type = str(getattr(proposal, "order_type", "")).strip().upper()
+        if order_type != "LIMIT":
+            raise ValueError("MT5 execution requires LIMIT order proposals")
         if (
             proposal.entry_price is None
             or proposal.stop_loss is None

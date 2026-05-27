@@ -1,5 +1,6 @@
-import json
-from pathlib import Path
+import math
+
+import pytest
 
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
 from tradingagents.brokers.mt5 import MT5ConnectionConfig, MT5OrderRequestBuilder
@@ -43,14 +44,20 @@ def test_build_buy_limit_request_rounds_prices():
 
     request = builder.build_pending_limit_request(_proposal(), symbol)
 
-    assert request["symbol"] == "XAUUSD"
-    assert request["volume"] == 0.01
-    assert request["price"] == 2450.12
-    assert request["sl"] == 2447.99
-    assert request["tp"] == 2456.79
-    assert request["deviation"] == 20
-    assert request["magic"] == 150015
-    assert request["comment"] == "TradingAgents demo"
+    assert request == {
+        "action": "TRADE_ACTION_PENDING",
+        "symbol": "XAUUSD",
+        "volume": 0.01,
+        "type": "BUY_LIMIT",
+        "price": 2450.12,
+        "sl": 2447.99,
+        "tp": 2456.79,
+        "deviation": 20,
+        "magic": 150015,
+        "comment": "TradingAgents demo",
+        "type_time": "ORDER_TIME_GTC",
+        "type_filling": "ORDER_FILLING_RETURN",
+    }
 
 
 def test_build_request_rejects_no_trade_proposal():
@@ -63,12 +70,23 @@ def test_build_request_rejects_no_trade_proposal():
     proposal = _proposal()
     proposal.status = OrderStatus.NO_TRADE
 
-    try:
+    with pytest.raises(ValueError, match="PROPOSED"):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
-    except ValueError as exc:
-        assert "PROPOSED" in str(exc)
-    else:
-        raise AssertionError("expected request builder to reject NO_TRADE")
+
+
+def test_build_request_rejects_non_limit_proposal():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+    proposal = _proposal()
+    proposal.order_type = "MARKET"
+
+    with pytest.raises(ValueError, match="LIMIT order proposals"):
+        builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
 
 
 def test_build_sell_limit_request_maps_side():
@@ -97,12 +115,8 @@ def test_build_request_rejects_symbol_mismatch():
     proposal = _proposal()
     proposal.symbol = "EURUSD"
 
-    try:
+    with pytest.raises(ValueError, match="does not match"):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
-    except ValueError as exc:
-        assert "does not match" in str(exc)
-    else:
-        raise AssertionError("expected request builder to reject symbol mismatch")
 
 
 def test_build_request_rejects_missing_levels():
@@ -116,10 +130,41 @@ def test_build_request_rejects_missing_levels():
     proposal = _proposal()
     proposal.take_profit = None
 
-    try:
+    with pytest.raises(
+        ValueError,
+        match="entry_price, stop_loss, and take_profit",
+    ):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
-    except ValueError as exc:
-        assert "entry_price, stop_loss, and take_profit" in str(exc)
-    else:
-        raise AssertionError("expected request builder to reject missing levels")
 
+
+def test_build_request_snaps_prices_to_trade_tick_size():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+
+    request = builder.build_pending_limit_request(
+        _proposal(),
+        {"name": "XAUUSD", "digits": 2, "trade_tick_size": 0.05},
+    )
+
+    assert request["price"] == 2450.10
+
+
+@pytest.mark.parametrize("bad_price", [math.nan, math.inf, -math.inf, 0, -1])
+def test_build_request_rejects_non_positive_or_non_finite_prices(bad_price):
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+    proposal = _proposal()
+    proposal.entry_price = bad_price
+
+    with pytest.raises(ValueError, match="price must be positive"):
+        builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
