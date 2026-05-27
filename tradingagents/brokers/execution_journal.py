@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import threading
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -17,6 +19,7 @@ from tradingagents.dataflows.utils import safe_ticker_component
 _CYCLE_MARKER = "<cycle>"
 _MAX_NORMALIZE_DEPTH = 64
 _EVENT_TYPE_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_WRITE_LOCK = threading.Lock()
 
 
 def _normalize_payload_value(
@@ -24,8 +27,12 @@ def _normalize_payload_value(
     seen: set[int] | None = None,
     depth: int = 0,
 ) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, bool)):
         return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     if depth > _MAX_NORMALIZE_DEPTH:
         return _CYCLE_MARKER
     if isinstance(value, (datetime, date)):
@@ -107,7 +114,58 @@ class ExecutionJournal:
             "symbol": self.symbol,
             "payload": _normalize_payload_value(payload),
         }
-        line = (json.dumps(event, sort_keys=True) + "\n").encode("utf-8")
+        line = (json.dumps(event, allow_nan=False, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+        self._append_line_descriptor_relative(safe_symbol, line)
+
+        return journal_path
+
+    def _append_line_descriptor_relative(self, safe_symbol: str, line: bytes) -> None:
+        self.results_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+        if os.name != "posix" or not hasattr(os, "O_DIRECTORY"):
+            self._append_line_path_fallback(safe_symbol, line)
+            return
+
+        # Descriptor-relative opens keep all child lookups anchored under
+        # results_dir. This is a local containment guard for execution artifacts,
+        # not a complete multi-user sandbox.
+        resolved_results_dir = self.results_dir.resolve(strict=True)
+        dir_flags = os.O_RDONLY | os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            dir_flags |= os.O_NOFOLLOW
+
+        results_fd = os.open(resolved_results_dir, dir_flags)
+        try:
+            self._chmod_owner_only(results_fd, 0o700)
+            symbol_fd = self._open_child_dir(results_fd, safe_symbol)
+            try:
+                self._chmod_owner_only(symbol_fd, 0o700)
+                journal_fd = self._open_child_dir(symbol_fd, "execution_journal")
+                try:
+                    self._chmod_owner_only(journal_fd, 0o700)
+                    event_fd = self._open_event_file(journal_fd)
+                    try:
+                        self._chmod_owner_only(event_fd, 0o600)
+                        with _WRITE_LOCK:
+                            self._write_all(event_fd, line)
+                    finally:
+                        os.close(event_fd)
+                finally:
+                    os.close(journal_fd)
+            finally:
+                os.close(symbol_fd)
+        finally:
+            os.close(results_fd)
+
+    def _append_line_path_fallback(self, safe_symbol: str, line: bytes) -> None:
+        journal_dir = self.results_dir / safe_symbol / "execution_journal"
+        self._ensure_contained(journal_dir)
+        journal_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        journal_path = journal_dir / self.filename
+        self._ensure_contained(journal_path)
+
         open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
             open_flags |= os.O_NOFOLLOW
@@ -117,15 +175,43 @@ class ExecutionJournal:
             0o600,
         )
         try:
-            # This is a local containment guard against accidental path escapes,
-            # not a complete multi-user sandbox. Re-check after opening to reduce
-            # the practical symlink race window for this local results directory.
             self._ensure_contained(journal_path)
-            self._write_all(fd, line)
+            self._chmod_owner_only(fd, 0o600)
+            with _WRITE_LOCK:
+                self._write_all(fd, line)
         finally:
             os.close(fd)
 
-        return journal_path
+    def _open_child_dir(self, parent_fd: int, name: str) -> int:
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+
+        dir_flags = os.O_RDONLY | os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            dir_flags |= os.O_NOFOLLOW
+        try:
+            return os.open(name, dir_flags, dir_fd=parent_fd)
+        except OSError as exc:
+            raise ValueError(
+                f"unsafe execution journal directory component: {name!r}"
+            ) from exc
+
+    def _open_event_file(self, journal_fd: int) -> int:
+        open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+        try:
+            return os.open(self.filename, open_flags, 0o600, dir_fd=journal_fd)
+        except OSError as exc:
+            raise ValueError("unsafe execution journal file path") from exc
+
+    def _chmod_owner_only(self, fd: int, mode: int) -> None:
+        try:
+            os.fchmod(fd, mode)
+        except OSError:
+            pass
 
     def _write_all(self, fd: int, data: bytes) -> None:
         offset = 0
