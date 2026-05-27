@@ -51,10 +51,12 @@ class MT5ConnectionConfig:
             raise MT5BrokerError("MT5 volume must be positive")
         object.__setattr__(self, "volume", volume)
         object.__setattr__(
-            self, "deviation", _coerce_int_guard(self.deviation, "MT5 deviation")
+            self,
+            "deviation",
+            _coerce_nonnegative_int_guard(self.deviation, "MT5 deviation"),
         )
         object.__setattr__(
-            self, "magic", _coerce_int_guard(self.magic, "MT5 magic")
+            self, "magic", _coerce_nonnegative_int_guard(self.magic, "MT5 magic")
         )
 
     @classmethod
@@ -93,8 +95,8 @@ class MT5ConnectionConfig:
             expected_server=os.environ.get("TRADINGAGENTS_MT5_EXPECTED_SERVER")
             or os.environ["TRADINGAGENTS_MT5_SERVER"],
             volume=_float_env("TRADINGAGENTS_MT5_VOLUME", 0.01),
-            deviation=_int_env("TRADINGAGENTS_MT5_DEVIATION", 20),
-            magic=_int_env("TRADINGAGENTS_MT5_MAGIC", 150015),
+            deviation=_nonnegative_int_env("TRADINGAGENTS_MT5_DEVIATION", 20),
+            magic=_nonnegative_int_env("TRADINGAGENTS_MT5_MAGIC", 150015),
         )
 
 
@@ -193,6 +195,15 @@ def _int_env(name: str, default: int | None = None) -> int | None:
         raise MT5BrokerError(f"{name} must be numeric") from exc
 
 
+def _nonnegative_int_env(name: str, default: int) -> int:
+    value = _int_env(name, default)
+    if value is None:
+        return default
+    if value < 0:
+        raise MT5BrokerError(f"{name} must be non-negative")
+    return value
+
+
 def _float_env(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw in (None, ""):
@@ -203,14 +214,20 @@ def _float_env(name: str, default: float) -> float:
         raise MT5BrokerError(f"{name} must be numeric") from exc
 
 
-def _coerce_int_guard(value: Any, name: str) -> int:
+def _coerce_nonnegative_int_guard(value: Any, name: str) -> int:
     if isinstance(value, bool):
         raise MT5BrokerError(f"{name} must be numeric")
     if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    raise MT5BrokerError(f"{name} must be numeric")
+        number = value
+    elif isinstance(value, str) and value.isdigit():
+        number = int(value)
+    elif isinstance(value, str) and value.startswith("-") and value[1:].isdigit():
+        raise MT5BrokerError(f"{name} must be non-negative")
+    else:
+        raise MT5BrokerError(f"{name} must be numeric")
+    if number < 0:
+        raise MT5BrokerError(f"{name} must be non-negative")
+    return number
 
 
 def _asdict(value: Any) -> dict[str, Any]:
@@ -258,23 +275,34 @@ class MT5Broker:
         if not mt5.initialize(**init_kwargs):
             raise MT5BrokerError(f"MT5 initialize failed: {mt5.last_error()}")
 
-        account = _asdict(mt5.account_info())
-        if not account:
-            raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
-        self._assert_expected_account(account)
+        try:
+            account = _asdict(mt5.account_info())
+            if not account:
+                raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
+            self._assert_expected_account(account)
 
-        if not mt5.symbol_select(self.config.symbol, True):
-            raise MT5BrokerError(
-                f"MT5 could not select symbol {self.config.symbol}: {mt5.last_error()}"
-            )
+            if not mt5.symbol_select(self.config.symbol, True):
+                raise MT5BrokerError(
+                    f"MT5 could not select symbol {self.config.symbol}: {mt5.last_error()}"
+                )
 
-        symbol_info = _asdict(mt5.symbol_info(self.config.symbol))
-        if not symbol_info:
-            raise MT5BrokerError(
-                f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
-            )
-        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
-        self._connected = True
+            symbol_info = _asdict(mt5.symbol_info(self.config.symbol))
+            if not symbol_info:
+                raise MT5BrokerError(
+                    f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
+                )
+            tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+            if not tick:
+                raise MT5BrokerError(
+                    f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
+                )
+            self._connected = True
+        except Exception:
+            self._connected = False
+            shutdown = getattr(mt5, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+            raise
 
         return {
             "connected": True,
@@ -402,10 +430,11 @@ class MT5Broker:
             raise MT5BrokerError("MT5 broker is not connected")
         mt5 = self._module()
         terminal_info = getattr(mt5, "terminal_info", None)
-        if callable(terminal_info):
-            terminal = _asdict(terminal_info())
-            if not terminal or terminal.get("connected") is not True:
-                raise MT5BrokerError("MT5 terminal is not connected")
+        if not callable(terminal_info):
+            raise MT5BrokerError("MT5 terminal_info is unavailable")
+        terminal = _asdict(terminal_info())
+        if not terminal or terminal.get("connected") is not True:
+            raise MT5BrokerError("MT5 terminal is not connected")
         account = _asdict(mt5.account_info())
         if not account:
             raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
@@ -520,10 +549,16 @@ class MT5Broker:
         if isinstance(value, bool):
             raise MT5BrokerError(f"{name} must be an integer")
         if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
-        raise MT5BrokerError(f"{name} must be an integer")
+            number = value
+        elif isinstance(value, str) and value.isdigit():
+            number = int(value)
+        elif isinstance(value, str) and value.startswith("-") and value[1:].isdigit():
+            raise MT5BrokerError(f"{name} must be non-negative")
+        else:
+            raise MT5BrokerError(f"{name} must be an integer")
+        if number < 0:
+            raise MT5BrokerError(f"{name} must be non-negative")
+        return number
 
     @staticmethod
     def _positive_ticket(value: Any, name: str) -> int:

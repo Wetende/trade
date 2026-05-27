@@ -182,6 +182,25 @@ def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
 @pytest.mark.parametrize(
     ("name", "value"),
     (
+        ("TRADINGAGENTS_MT5_DEVIATION", "-1"),
+        ("TRADINGAGENTS_MT5_MAGIC", "-1"),
+    ),
+)
+def test_mt5_config_rejects_negative_integer_guard_env_values(
+    monkeypatch, name, value
+):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(MT5BrokerError, match=f"{name} must be non-negative"):
+        MT5ConnectionConfig.from_env()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
         ("TRADINGAGENTS_MT5_VOLUME", "not-a-number"),
         ("TRADINGAGENTS_MT5_DEVIATION", "not-a-number"),
         ("TRADINGAGENTS_MT5_MAGIC", "not-a-number"),
@@ -227,6 +246,29 @@ def test_mt5_config_rejects_direct_non_demo_execution_mode():
             password="secret",
             server="ExampleBroker-Demo",
             account_mode="live",
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    (
+        ({"deviation": -1}, "MT5 deviation must be non-negative"),
+        ({"magic": -1}, "MT5 magic must be non-negative"),
+        ({"deviation": "-1"}, "MT5 deviation must be non-negative"),
+        ({"magic": "-1"}, "MT5 magic must be non-negative"),
+        ({"deviation": True}, "MT5 deviation must be numeric"),
+        ({"magic": False}, "MT5 magic must be numeric"),
+        ({"deviation": 1.0}, "MT5 deviation must be numeric"),
+        ({"magic": 1.0}, "MT5 magic must be numeric"),
+    ),
+)
+def test_mt5_config_rejects_direct_invalid_integer_guards(kwargs, match):
+    with pytest.raises(MT5BrokerError, match=match):
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            **kwargs,
         )
 
 
@@ -375,6 +417,26 @@ def test_mt5_broker_rechecks_expected_account_before_order_send():
     assert fake_mt5.sent_requests == []
 
 
+def test_mt5_broker_rejects_missing_terminal_info_before_order_send():
+    class NoTerminalInfoMT5(FakeMT5):
+        terminal_info = None
+
+    fake_mt5 = NoTerminalInfoMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 terminal_info is unavailable"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
 def test_mt5_broker_rejects_real_account_on_connect():
     fake_mt5 = FakeMT5()
     fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
@@ -388,6 +450,24 @@ def test_mt5_broker_rejects_real_account_on_connect():
     with pytest.raises(MT5BrokerError, match="MT5 demo account is required"):
         MT5Broker(config, mt5_module=fake_mt5).connect()
 
+    assert fake_mt5.shutdown_called is True
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_shuts_down_after_wrong_account_connect_failure():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        expected_login=987654321,
+    )
+
+    with pytest.raises(MT5BrokerError, match="unexpected MT5 account login"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
+
+    assert fake_mt5.shutdown_called is True
     assert fake_mt5.sent_requests == []
 
 
@@ -409,6 +489,33 @@ def test_mt5_broker_rechecks_demo_account_before_order_send():
     assert fake_mt5.sent_requests == []
 
 
+@pytest.mark.parametrize(
+    ("method_name", "args"),
+    (
+        ("cancel_order", (111222,)),
+        ("modify_position_stops", (222333, 2447.99, 2456.79)),
+    ),
+)
+def test_mt5_broker_management_actions_recheck_real_account_before_send(
+    method_name, args
+):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
+
+    with pytest.raises(MT5BrokerError, match="MT5 demo account is required"):
+        getattr(broker, method_name)(*args)
+
+    assert fake_mt5.sent_requests == []
+
+
 def test_mt5_broker_rejects_disconnected_terminal_before_order_send():
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(
@@ -423,6 +530,33 @@ def test_mt5_broker_rejects_disconnected_terminal_before_order_send():
 
     with pytest.raises(MT5BrokerError, match="MT5 terminal is not connected"):
         broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+@pytest.mark.parametrize(
+    ("method_name", "args"),
+    (
+        ("cancel_order", (111222,)),
+        ("modify_position_stops", (222333, 2447.99, 2456.79)),
+    ),
+)
+def test_mt5_broker_management_actions_recheck_disconnected_terminal_before_send(
+    method_name, args
+):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    fake_mt5.terminal_connected = False
+
+    with pytest.raises(MT5BrokerError, match="MT5 terminal is not connected"):
+        getattr(broker, method_name)(*args)
 
     assert fake_mt5.sent_requests == []
 
@@ -651,7 +785,9 @@ def test_mt5_broker_normalizes_magic_and_deviation_before_send():
         ("magic", True, "magic must be an integer"),
         ("deviation", False, "deviation must be an integer"),
         ("magic", "150015.0", "magic must be an integer"),
-        ("deviation", -1, "deviation must match configured MT5 deviation"),
+        ("magic", -1, "magic must be non-negative"),
+        ("deviation", "-1", "deviation must be non-negative"),
+        ("deviation", -1, "deviation must be non-negative"),
     ),
 )
 def test_mt5_broker_rejects_invalid_integer_guards(field, value, match):
