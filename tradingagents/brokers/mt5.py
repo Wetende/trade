@@ -90,12 +90,11 @@ class MT5ConnectionConfig:
 
 
 class MT5OrderRequestBuilder:
-    """Build symbolic MT5 order requests from validated local proposals.
+    """Build local symbolic MT5 order requests from validated proposals.
 
-    The returned request uses stable string values such as
-    ``"TRADE_ACTION_PENDING"``, ``"BUY_LIMIT"``, and ``"ORDER_TIME_GTC"``.
-    ``MT5Broker`` materializes those symbolic values into MetaTrader5 module
-    constants before calling ``order_send()``.
+    The returned dict is a stable internal contract; it is not passed directly
+    to MetaTrader5.order_send until a broker action layer materializes symbolic
+    fields into MetaTrader5 constants.
     """
 
     def __init__(self, config: MT5ConnectionConfig):
@@ -106,7 +105,8 @@ class MT5OrderRequestBuilder:
         if not math.isfinite(price) or price <= 0:
             raise ValueError("MT5 price must be positive and finite")
 
-        digits = int(symbol_info.get("digits") or 2)
+        raw_digits = symbol_info.get("digits")
+        digits = 2 if raw_digits in (None, "") else int(raw_digits)
         tick_size = float(symbol_info.get("trade_tick_size") or 0)
         if tick_size > 0:
             price = round(price / tick_size) * tick_size

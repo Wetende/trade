@@ -152,10 +152,32 @@ def test_build_request_snaps_prices_to_trade_tick_size():
     )
 
     assert request["price"] == 2450.10
+    assert request["sl"] == 2448.00
+    assert request["tp"] == 2456.80
 
 
+def test_build_request_preserves_digits_zero():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+
+    request = builder.build_pending_limit_request(_proposal(), {"digits": 0})
+
+    assert request["price"] == 2450
+    assert request["sl"] == 2448
+    assert request["tp"] == 2457
+
+
+@pytest.mark.parametrize("price_field", ["entry_price", "stop_loss", "take_profit"])
 @pytest.mark.parametrize("bad_price", [math.nan, math.inf, -math.inf, 0, -1])
-def test_build_request_rejects_non_positive_or_non_finite_prices(bad_price):
+def test_build_request_rejects_non_positive_or_non_finite_prices(
+    price_field,
+    bad_price,
+):
     builder = MT5OrderRequestBuilder(
         MT5ConnectionConfig(
             login=123456789,
@@ -164,7 +186,7 @@ def test_build_request_rejects_non_positive_or_non_finite_prices(bad_price):
         )
     )
     proposal = _proposal()
-    proposal.entry_price = bad_price
+    setattr(proposal, price_field, bad_price)
 
     with pytest.raises(ValueError, match="price must be positive"):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
