@@ -87,6 +87,59 @@ class MT5ConnectionConfig:
         )
 
 
+class MT5OrderRequestBuilder:
+    def __init__(self, config: MT5ConnectionConfig):
+        self.config = config
+
+    def _round_price(self, value: float, symbol_info: dict[str, Any]) -> float:
+        digits = int(symbol_info.get("digits") or 2)
+        return round(float(value), digits)
+
+    def _order_type(self, side: Any) -> str:
+        side_value = str(getattr(side, "value", side)).upper()
+        if side_value == "BUY":
+            return "BUY_LIMIT"
+        if side_value == "SELL":
+            return "SELL_LIMIT"
+        raise ValueError(f"unsupported proposal side for MT5 limit order: {side_value}")
+
+    def build_pending_limit_request(
+        self,
+        proposal: Any,
+        symbol_info: dict[str, Any],
+    ) -> dict[str, Any]:
+        status = str(getattr(proposal.status, "value", proposal.status)).upper()
+        if status != "PROPOSED":
+            raise ValueError("MT5 execution requires a PROPOSED order proposal")
+        if (
+            proposal.entry_price is None
+            or proposal.stop_loss is None
+            or proposal.take_profit is None
+        ):
+            raise ValueError(
+                "MT5 execution requires entry_price, stop_loss, and take_profit"
+            )
+        if proposal.symbol != self.config.symbol:
+            raise ValueError(
+                f"proposal symbol {proposal.symbol} does not match MT5 symbol {self.config.symbol}"
+            )
+
+        return {
+            "action": "TRADE_ACTION_PENDING",
+            "symbol": self.config.symbol,
+            "volume": self.config.volume,
+            "type": self._order_type(proposal.side),
+            "price": self._round_price(proposal.entry_price, symbol_info),
+            "sl": self._round_price(proposal.stop_loss, symbol_info),
+            "tp": self._round_price(proposal.take_profit, symbol_info),
+            "deviation": self.config.deviation,
+            "magic": self.config.magic,
+            "comment": "TradingAgents demo",
+            "type_time": "ORDER_TIME_GTC",
+            "type_filling": "ORDER_FILLING_RETURN",
+        }
+
+
 def _int_env(name: str, default: int | None = None) -> int | None:
     raw = os.environ.get(name)
     if raw in (None, ""):
