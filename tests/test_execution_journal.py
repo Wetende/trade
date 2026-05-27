@@ -258,29 +258,23 @@ def test_append_rejects_non_regular_journal_target(tmp_path):
         os.mkfifo(fifo_path)
     except (NotImplementedError, OSError) as exc:
         pytest.skip(f"FIFOs are not supported: {exc}")
-    reader_ready = threading.Event()
-    reader_done = threading.Event()
+    result = {}
 
-    def read_fifo():
-        reader_ready.set()
+    def append_to_fifo():
         try:
-            fd = os.open(fifo_path, os.O_RDONLY)
-            try:
-                os.read(fd, 4096)
-            finally:
-                os.close(fd)
-        finally:
-            reader_done.set()
+            ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD").append(
+                "order_submitted",
+                {},
+            )
+        except Exception as exc:
+            result["exception"] = exc
 
-    reader = threading.Thread(target=read_fifo, daemon=True)
-    reader.start()
-    assert reader_ready.wait(timeout=2)
-
-    journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
-
-    with pytest.raises(ValueError, match="regular file"):
-        journal.append("order_submitted", {})
-    reader_done.wait(timeout=2)
+    worker = threading.Thread(target=append_to_fifo)
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert isinstance(result.get("exception"), ValueError)
+    assert "regular file" in str(result["exception"])
 
 
 def test_concurrent_appends_produce_complete_json_lines(tmp_path):

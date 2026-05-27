@@ -173,11 +173,18 @@ class ExecutionJournal:
         open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
             open_flags |= os.O_NOFOLLOW
-        fd = os.open(
-            journal_path,
-            open_flags,
-            0o600,
-        )
+        if hasattr(os, "O_NONBLOCK"):
+            open_flags |= os.O_NONBLOCK
+        try:
+            fd = os.open(
+                journal_path,
+                open_flags,
+                0o600,
+            )
+        except OSError as exc:
+            raise ValueError(
+                "unsafe execution journal file path or non-regular file target"
+            ) from exc
         try:
             self._ensure_contained(journal_path)
             self._ensure_regular_file(fd)
@@ -206,10 +213,14 @@ class ExecutionJournal:
         open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
             open_flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            open_flags |= os.O_NONBLOCK
         try:
             return os.open(self.filename, open_flags, 0o600, dir_fd=journal_fd)
         except OSError as exc:
-            raise ValueError("unsafe execution journal file path") from exc
+            raise ValueError(
+                "unsafe execution journal file path or non-regular file target"
+            ) from exc
 
     def _ensure_regular_file(self, fd: int) -> None:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
