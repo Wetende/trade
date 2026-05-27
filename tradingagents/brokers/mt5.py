@@ -8,6 +8,7 @@ and server time are verified.
 from __future__ import annotations
 
 import importlib
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -30,6 +31,20 @@ class MT5ConnectionConfig:
     volume: float = 0.01
     deviation: int = 20
     magic: int = 150015
+
+    def __post_init__(self) -> None:
+        account_mode = self.account_mode.strip().lower()
+        if account_mode != "demo":
+            raise MT5BrokerError("MT5 demo mode is required for automated execution")
+        object.__setattr__(self, "account_mode", account_mode)
+
+        try:
+            volume = float(self.volume)
+        except (TypeError, ValueError) as exc:
+            raise MT5BrokerError("MT5 volume must be numeric") from exc
+        if not math.isfinite(volume) or volume <= 0:
+            raise MT5BrokerError("MT5 volume must be positive")
+        object.__setattr__(self, "volume", volume)
 
     @classmethod
     def from_env(cls) -> "MT5ConnectionConfig":

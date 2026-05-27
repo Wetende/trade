@@ -90,6 +90,17 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     assert config.magic == 150015
 
 
+def test_mt5_config_normalizes_direct_demo_account_mode():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        account_mode=" DEMO ",
+    )
+
+    assert config.account_mode == "demo"
+
+
 def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
     monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
@@ -103,6 +114,37 @@ def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
     assert config.magic == 0
 
 
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("TRADINGAGENTS_MT5_VOLUME", "not-a-number"),
+        ("TRADINGAGENTS_MT5_DEVIATION", "not-a-number"),
+        ("TRADINGAGENTS_MT5_MAGIC", "not-a-number"),
+    ),
+)
+def test_mt5_config_rejects_invalid_numeric_env_values(monkeypatch, name, value):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(MT5BrokerError, match=f"{name} must be numeric"):
+        MT5ConnectionConfig.from_env()
+
+
+@pytest.mark.parametrize("value", ("nan", "inf", "-inf", "0", "-0.01"))
+def test_mt5_config_rejects_non_positive_or_non_finite_volume_env(
+    monkeypatch, value
+):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_VOLUME", value)
+
+    with pytest.raises(MT5BrokerError, match="MT5 volume must be positive"):
+        MT5ConnectionConfig.from_env()
+
+
 def test_mt5_config_rejects_non_demo_execution_mode(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
     monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
@@ -111,6 +153,29 @@ def test_mt5_config_rejects_non_demo_execution_mode(monkeypatch):
 
     with pytest.raises(MT5BrokerError, match="demo mode is required"):
         MT5ConnectionConfig.from_env()
+
+
+def test_mt5_config_rejects_direct_non_demo_execution_mode():
+    with pytest.raises(MT5BrokerError, match="demo mode is required"):
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            account_mode="live",
+        )
+
+
+@pytest.mark.parametrize(
+    "volume", (float("nan"), float("inf"), float("-inf"), 0, -0.01)
+)
+def test_mt5_config_rejects_direct_invalid_volume(volume):
+    with pytest.raises(MT5BrokerError, match="MT5 volume must be positive"):
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            volume=volume,
+        )
 
 
 def test_mt5_config_requires_credentials(monkeypatch):
