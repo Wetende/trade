@@ -38,6 +38,10 @@ class MT5ConnectionConfig:
         if account_mode != "demo":
             raise MT5BrokerError("MT5 demo mode is required for automated execution")
         object.__setattr__(self, "account_mode", account_mode)
+        if self.expected_login is None:
+            object.__setattr__(self, "expected_login", self.login)
+        if self.expected_server is None:
+            object.__setattr__(self, "expected_server", self.server)
 
         try:
             volume = float(self.volume)
@@ -46,6 +50,12 @@ class MT5ConnectionConfig:
         if not math.isfinite(volume) or volume <= 0:
             raise MT5BrokerError("MT5 volume must be positive")
         object.__setattr__(self, "volume", volume)
+        object.__setattr__(
+            self, "deviation", _coerce_int_guard(self.deviation, "MT5 deviation")
+        )
+        object.__setattr__(
+            self, "magic", _coerce_int_guard(self.magic, "MT5 magic")
+        )
 
     @classmethod
     def from_env(cls) -> "MT5ConnectionConfig":
@@ -193,6 +203,16 @@ def _float_env(name: str, default: float) -> float:
         raise MT5BrokerError(f"{name} must be numeric") from exc
 
 
+def _coerce_int_guard(value: Any, name: str) -> int:
+    if isinstance(value, bool):
+        raise MT5BrokerError(f"{name} must be numeric")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    raise MT5BrokerError(f"{name} must be numeric")
+
+
 def _asdict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
@@ -289,6 +309,12 @@ class MT5Broker:
     def _assert_expected_account(self, account: dict[str, Any]) -> None:
         login = account.get("login")
         server = account.get("server")
+        trade_mode = account.get("trade_mode")
+        demo_trade_mode = self._constant("ACCOUNT_TRADE_MODE_DEMO")
+        if trade_mode != demo_trade_mode:
+            raise MT5BrokerError(
+                f"MT5 demo account is required: got trade_mode {trade_mode}"
+            )
         if self.config.expected_login is not None and login != self.config.expected_login:
             raise MT5BrokerError(
                 f"unexpected MT5 account login: got {login}, expected {self.config.expected_login}"
@@ -375,6 +401,11 @@ class MT5Broker:
         if not self._connected:
             raise MT5BrokerError("MT5 broker is not connected")
         mt5 = self._module()
+        terminal_info = getattr(mt5, "terminal_info", None)
+        if callable(terminal_info):
+            terminal = _asdict(terminal_info())
+            if not terminal or terminal.get("connected") is not True:
+                raise MT5BrokerError("MT5 terminal is not connected")
         account = _asdict(mt5.account_info())
         if not account:
             raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
@@ -449,12 +480,22 @@ class MT5Broker:
             abs_tol=1e-12,
         ):
             raise MT5BrokerError("volume must match configured MT5 volume")
+        if request["type"] == "BUY_LIMIT" and not (
+            numbers["sl"] < numbers["price"] < numbers["tp"]
+        ):
+            raise MT5BrokerError("invalid BUY levels for MT5 limit order")
+        if request["type"] == "SELL_LIMIT" and not (
+            numbers["tp"] < numbers["price"] < numbers["sl"]
+        ):
+            raise MT5BrokerError("invalid SELL levels for MT5 limit order")
 
-        if request["magic"] != self.config.magic:
+        magic = self._int_value(request["magic"], "magic")
+        deviation = self._int_value(request["deviation"], "deviation")
+        if magic != self.config.magic:
             raise MT5BrokerError("magic must match configured MT5 magic")
-        if request["deviation"] != self.config.deviation:
+        if deviation != self.config.deviation:
             raise MT5BrokerError("deviation must match configured MT5 deviation")
-        return {**request, **numbers}
+        return {**request, **numbers, "magic": magic, "deviation": deviation}
 
     @staticmethod
     def _symbolic_value(value: Any, field: str) -> str:
@@ -475,16 +516,28 @@ class MT5Broker:
         return number
 
     @staticmethod
+    def _int_value(value: Any, name: str) -> int:
+        if isinstance(value, bool):
+            raise MT5BrokerError(f"{name} must be an integer")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        raise MT5BrokerError(f"{name} must be an integer")
+
+    @staticmethod
     def _positive_ticket(value: Any, name: str) -> int:
         if isinstance(value, bool):
             raise MT5BrokerError(f"{name} ticket must be a positive number")
-        try:
-            number = float(value)
-        except (TypeError, ValueError) as exc:
-            raise MT5BrokerError(f"{name} ticket must be a positive number") from exc
-        if not math.isfinite(number) or number <= 0 or not number.is_integer():
+        if isinstance(value, int):
+            ticket = value
+        elif isinstance(value, str) and value.isdigit():
+            ticket = int(value)
+        else:
             raise MT5BrokerError(f"{name} ticket must be a positive number")
-        return int(number)
+        if ticket <= 0:
+            raise MT5BrokerError(f"{name} ticket must be a positive number")
+        return ticket
 
     def cancel_order(self, ticket: int) -> dict[str, Any]:
         order_ticket = self._positive_ticket(ticket, "order")
@@ -512,6 +565,7 @@ class MT5Broker:
         )
 
     def shutdown(self) -> None:
+        self._connected = False
         if self._mt5 is None:
             return
         shutdown = getattr(self._mt5, "shutdown", None)

@@ -11,6 +11,8 @@ class FakeMT5:
     TRADE_ACTION_PENDING = 5
     TRADE_ACTION_REMOVE = 8
     TRADE_ACTION_SLTP = 6
+    ACCOUNT_TRADE_MODE_DEMO = 0
+    ACCOUNT_TRADE_MODE_REAL = 2
     ORDER_TYPE_BUY_LIMIT = 2
     ORDER_TYPE_SELL_LIMIT = 3
     ORDER_TIME_GTC = 0
@@ -24,7 +26,10 @@ class FakeMT5:
         self.order_retcode = self.TRADE_RETCODE_DONE
         self.account_login = 123456789
         self.account_server = "ExampleBroker-Demo"
+        self.account_trade_mode = self.ACCOUNT_TRADE_MODE_DEMO
+        self.terminal_connected = True
         self.result_request = None
+        self.order_send_returns_none = False
 
     def initialize(self, **kwargs):
         self.initialized_with = kwargs
@@ -43,7 +48,11 @@ class FakeMT5:
             leverage=100,
             balance=100000.0,
             equity=100000.0,
+            trade_mode=self.account_trade_mode,
         )
+
+    def terminal_info(self):
+        return SimpleNamespace(connected=self.terminal_connected)
 
     def symbol_select(self, symbol, visible):
         self.selected_symbols.append((symbol, visible))
@@ -68,6 +77,8 @@ class FakeMT5:
 
     def order_send(self, request):
         self.sent_requests.append(request)
+        if self.order_send_returns_none:
+            return None
         result_request = self.result_request
         if result_request == "echo":
             result_request = SimpleNamespace(**request)
@@ -127,6 +138,32 @@ def test_mt5_config_normalizes_direct_demo_account_mode():
     )
 
     assert config.account_mode == "demo"
+
+
+def test_mt5_config_defaults_direct_expected_account_guards():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+    )
+
+    assert config.expected_login == 123456789
+    assert config.expected_server == "ExampleBroker-Demo"
+
+
+def test_mt5_config_normalizes_direct_integer_guards():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        deviation="20",
+        magic="150015",
+    )
+
+    assert config.deviation == 20
+    assert config.magic == 150015
+    assert isinstance(config.deviation, int)
+    assert isinstance(config.magic, int)
 
 
 def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
@@ -338,6 +375,77 @@ def test_mt5_broker_rechecks_expected_account_before_order_send():
     assert fake_mt5.sent_requests == []
 
 
+def test_mt5_broker_rejects_real_account_on_connect():
+    fake_mt5 = FakeMT5()
+    fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+
+    with pytest.raises(MT5BrokerError, match="MT5 demo account is required"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rechecks_demo_account_before_order_send():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
+
+    with pytest.raises(MT5BrokerError, match="MT5 demo account is required"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rejects_disconnected_terminal_before_order_send():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    fake_mt5.terminal_connected = False
+
+    with pytest.raises(MT5BrokerError, match="MT5 terminal is not connected"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rejects_order_send_after_shutdown():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    broker.shutdown()
+
+    with pytest.raises(MT5BrokerError, match="MT5 broker is not connected"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.shutdown_called is True
+    assert fake_mt5.sent_requests == []
+
+
 def _valid_pending_request():
     return {
         "action": "TRADE_ACTION_PENDING",
@@ -515,6 +623,84 @@ def test_mt5_broker_normalizes_pending_order_numbers_before_send():
     )
 
 
+def test_mt5_broker_normalizes_magic_and_deviation_before_send():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    request = _valid_pending_request()
+    request["magic"] = "150015"
+    request["deviation"] = "20"
+
+    result = broker.place_pending_order(request)
+
+    assert result["request"]["magic"] == 150015
+    assert result["request"]["deviation"] == 20
+    assert isinstance(result["request"]["magic"], int)
+    assert isinstance(result["request"]["deviation"], int)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("magic", True, "magic must be an integer"),
+        ("deviation", False, "deviation must be an integer"),
+        ("magic", "150015.0", "magic must be an integer"),
+        ("deviation", -1, "deviation must match configured MT5 deviation"),
+    ),
+)
+def test_mt5_broker_rejects_invalid_integer_guards(field, value, match):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    request = _valid_pending_request()
+    request[field] = value
+
+    with pytest.raises(MT5BrokerError, match=match):
+        broker.place_pending_order(request)
+
+    assert fake_mt5.sent_requests == []
+
+
+@pytest.mark.parametrize(
+    ("order_type", "price", "sl", "tp", "match"),
+    (
+        ("BUY_LIMIT", 2450.12, 2451.00, 2456.79, "invalid BUY levels"),
+        ("BUY_LIMIT", 2450.12, 2447.99, 2449.00, "invalid BUY levels"),
+        ("SELL_LIMIT", 2450.12, 2451.00, 2456.79, "invalid SELL levels"),
+        ("SELL_LIMIT", 2450.12, 2449.00, 2448.00, "invalid SELL levels"),
+    ),
+)
+def test_mt5_broker_rejects_invalid_pending_level_ordering(
+    order_type, price, sl, tp, match
+):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    request = _valid_pending_request()
+    request.update({"type": order_type, "price": price, "sl": sl, "tp": tp})
+
+    with pytest.raises(MT5BrokerError, match=match):
+        broker.place_pending_order(request)
+
+    assert fake_mt5.sent_requests == []
+
+
 @pytest.mark.parametrize(
     ("field", "config_value", "match"),
     (
@@ -600,6 +786,29 @@ def test_mt5_broker_reports_non_success_retcode_with_last_error():
     assert result["request"]["type_filling"] == FakeMT5.ORDER_FILLING_RETURN
 
 
+def test_mt5_broker_reports_order_send_none_as_structured_failure():
+    fake_mt5 = FakeMT5()
+    fake_mt5.order_send_returns_none = True
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.place_pending_order(_valid_pending_request())
+
+    assert result["ok"] is False
+    assert result["retcode"] is None
+    assert result["order"] is None
+    assert result["deal"] is None
+    assert result["comment"] is None
+    assert result["last_error"] == (0, "ok")
+    assert result["request"] == fake_mt5.sent_requests[0]
+
+
 def test_mt5_broker_prefers_result_request_echo_when_available():
     fake_mt5 = FakeMT5()
     fake_mt5.result_request = SimpleNamespace(
@@ -675,6 +884,37 @@ def test_mt5_broker_wraps_missing_mt5_constants():
         broker._materialize_request({"action": "TRADE_ACTION_PENDING"})
 
 
+def test_mt5_broker_wraps_missing_demo_trade_mode_constant():
+    class MissingDemoModeMT5(FakeMT5):
+        def __init__(self):
+            self.initialized_with = None
+            self.selected_symbols = []
+            self.shutdown_called = False
+            self.sent_requests = []
+            self.order_retcode = self.TRADE_RETCODE_DONE
+            self.account_login = 123456789
+            self.account_server = "ExampleBroker-Demo"
+            self.account_trade_mode = 0
+            self.terminal_connected = True
+            self.result_request = None
+            self.order_send_returns_none = False
+
+        @property
+        def ACCOUNT_TRADE_MODE_DEMO(self):
+            raise AttributeError("ACCOUNT_TRADE_MODE_DEMO")
+
+    fake_mt5 = MissingDemoModeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+
+    with pytest.raises(MT5BrokerError, match="missing MT5 constant: ACCOUNT_TRADE_MODE_DEMO"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     (
@@ -748,7 +988,25 @@ def test_mt5_broker_cancel_rejects_placed_retcode():
     assert result["last_error"] == (0, "ok")
 
 
-@pytest.mark.parametrize("ticket", (0, -1, "abc", None, True, 1.5, "1.5"))
+def test_mt5_broker_preserves_large_integer_ticket_exactly():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    ticket = 1234567890123456789
+
+    result = broker.cancel_order(str(ticket))
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["order"] == ticket
+
+
+@pytest.mark.parametrize("ticket", (0, -1, "abc", None, True, 1.5, 123.0, "1.5"))
 def test_mt5_broker_rejects_invalid_cancel_ticket(ticket):
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(
@@ -804,7 +1062,7 @@ def test_mt5_broker_modify_stops_rejects_placed_retcode():
     assert result["last_error"] == (0, "ok")
 
 
-@pytest.mark.parametrize("ticket", (0, -1, "abc", None, False, 2.25, "2.25"))
+@pytest.mark.parametrize("ticket", (0, -1, "abc", None, False, 2.25, 123.0, "2.25"))
 def test_mt5_broker_rejects_invalid_modify_position_ticket(ticket):
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(
