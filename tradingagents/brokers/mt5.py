@@ -151,6 +151,7 @@ class MT5Broker:
         account = _asdict(mt5.account_info())
         if not account:
             raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
+        self._assert_expected_account(account)
 
         if not mt5.symbol_select(self.config.symbol, True):
             raise MT5BrokerError(
@@ -193,6 +194,18 @@ class MT5Broker:
                 "server_time": tick.get("time"),
             },
         }
+
+    def _assert_expected_account(self, account: dict[str, Any]) -> None:
+        login = account.get("login")
+        server = account.get("server")
+        if self.config.expected_login is not None and login != self.config.expected_login:
+            raise MT5BrokerError(
+                f"unexpected MT5 account login: got {login}, expected {self.config.expected_login}"
+            )
+        if self.config.expected_server and server != self.config.expected_server:
+            raise MT5BrokerError(
+                f"unexpected MT5 account server: got {server}, expected {self.config.expected_server}"
+            )
 
     def shutdown(self) -> None:
         if self._mt5 is None:

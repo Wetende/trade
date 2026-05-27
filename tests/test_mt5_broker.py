@@ -204,3 +204,33 @@ def test_mt5_broker_connects_and_reads_symbol_specs():
     assert result["account"]["server"] == "ExampleBroker-Demo"
     assert result["symbol"]["name"] == "XAUUSD"
     assert result["symbol"]["volume_min"] == 0.01
+
+
+def test_mt5_broker_rejects_unexpected_account_login():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        expected_login=987654321,
+        expected_server="ExampleBroker-Demo",
+    )
+
+    with pytest.raises(MT5BrokerError, match="unexpected MT5 account login"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
+
+
+def test_mt5_broker_rejects_unexpected_account_server():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        expected_login=123456789,
+        expected_server="OtherBroker-Demo",
+    )
+
+    with pytest.raises(MT5BrokerError, match="unexpected MT5 account server"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
