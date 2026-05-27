@@ -284,6 +284,12 @@ def _valid_pending_request():
         ("symbol", "EURUSD", "symbol must match configured MT5 symbol"),
         ("type", "BUY_STOP", "type must be BUY_LIMIT or SELL_LIMIT"),
         ("type", FakeMT5.ORDER_TYPE_BUY_LIMIT, "type must be symbolic"),
+        ("type_time", FakeMT5.ORDER_TIME_GTC, "type_time must be symbolic"),
+        (
+            "type_filling",
+            FakeMT5.ORDER_FILLING_RETURN,
+            "type_filling must be symbolic",
+        ),
     ),
 )
 def test_mt5_broker_rejects_unsafe_pending_order_fields(field, value, match):
@@ -377,6 +383,23 @@ def test_mt5_broker_rejects_pending_order_guard_mismatch(
     assert fake_mt5.sent_requests == []
 
 
+def test_mt5_broker_rejects_pending_order_volume_mismatch():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        volume=0.02,
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+
+    with pytest.raises(MT5BrokerError, match="volume must match configured MT5 volume"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
 def test_mt5_broker_accepts_placed_retcode():
     fake_mt5 = FakeMT5()
     fake_mt5.order_retcode = FakeMT5.TRADE_RETCODE_PLACED
@@ -433,6 +456,42 @@ def test_mt5_broker_rejects_unknown_symbolic_request_value():
                 "type_filling": "ORDER_FILLING_RETURN",
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("action", FakeMT5.TRADE_ACTION_PENDING, "action must be symbolic"),
+        ("type", FakeMT5.ORDER_TYPE_BUY_LIMIT, "type must be symbolic"),
+        ("type_time", FakeMT5.ORDER_TIME_GTC, "type_time must be symbolic"),
+        (
+            "type_filling",
+            FakeMT5.ORDER_FILLING_RETURN,
+            "type_filling must be symbolic",
+        ),
+    ),
+)
+def test_mt5_broker_rejects_raw_symbolic_field_materialization(
+    field, value, match
+):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    request = {
+        "action": "TRADE_ACTION_PENDING",
+        "type": "BUY_LIMIT",
+        "type_time": "ORDER_TIME_GTC",
+        "type_filling": "ORDER_FILLING_RETURN",
+    }
+    request[field] = value
+
+    with pytest.raises(MT5BrokerError, match=match):
+        broker._materialize_request(request)
 
 
 def test_mt5_broker_cancels_order():

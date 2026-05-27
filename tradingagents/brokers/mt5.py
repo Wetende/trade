@@ -311,14 +311,15 @@ class MT5Broker:
         constants = self._constants()
         converted = dict(request)
         for field in ("action", "type", "type_time", "type_filling"):
-            value = converted.get(field)
-            if isinstance(value, str):
-                try:
-                    converted[field] = constants[value]
-                except KeyError as exc:
-                    raise MT5BrokerError(
-                        f"unknown MT5 request {field} value: {value}"
-                    ) from exc
+            if field not in converted:
+                continue
+            value = self._symbolic_value(converted[field], field)
+            try:
+                converted[field] = constants[value]
+            except KeyError as exc:
+                raise MT5BrokerError(
+                    f"unknown MT5 request {field} value: {value}"
+                ) from exc
         return converted
 
     def _send(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -368,6 +369,8 @@ class MT5Broker:
         for field in required_fields:
             if field not in request:
                 raise MT5BrokerError(f"missing required MT5 request field: {field}")
+        for field in ("action", "type", "type_time", "type_filling"):
+            self._symbolic_value(request[field], field)
 
         if request["symbol"] != self.config.symbol:
             raise MT5BrokerError(
@@ -380,11 +383,24 @@ class MT5Broker:
 
         for field in ("volume", "price", "sl", "tp"):
             self._positive_float(request[field], field)
+        if not math.isclose(
+            float(request["volume"]),
+            self.config.volume,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise MT5BrokerError("volume must match configured MT5 volume")
 
         if request["magic"] != self.config.magic:
             raise MT5BrokerError("magic must match configured MT5 magic")
         if request["deviation"] != self.config.deviation:
             raise MT5BrokerError("deviation must match configured MT5 deviation")
+
+    @staticmethod
+    def _symbolic_value(value: Any, field: str) -> str:
+        if not isinstance(value, str):
+            raise MT5BrokerError(f"{field} must be symbolic")
+        return value
 
     @staticmethod
     def _positive_float(value: Any, name: str) -> float:
