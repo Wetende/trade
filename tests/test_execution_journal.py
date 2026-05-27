@@ -1,5 +1,6 @@
 import json
 import math
+import multiprocessing
 import threading
 import time
 from collections import namedtuple
@@ -15,6 +16,24 @@ import pytest
 from pydantic import BaseModel
 
 from tradingagents.brokers.execution_journal import ExecutionJournal
+
+
+def _append_with_short_writes(results_dir, index, barrier):
+    real_write = os.write
+
+    def short_write(fd, data):
+        if len(data) > 1:
+            written = real_write(fd, data[: len(data) // 2])
+            time.sleep(0.002)
+            return written
+        return real_write(fd, data)
+
+    os.write = short_write
+    barrier.wait(timeout=10)
+    ExecutionJournal(results_dir=results_dir, symbol="EURUSD").append(
+        "order_submitted",
+        {"index": index},
+    )
 
 
 def _read_events(path):
@@ -206,8 +225,9 @@ def test_append_rejects_symbol_symlink_that_escapes_results_dir(tmp_path):
 
     journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unsafe execution journal directory component"):
         journal.append("order_submitted", {})
+    assert not (outside / "execution_journal" / "mt5_demo_events.jsonl").exists()
 
 
 def test_append_rejects_execution_journal_symlink_that_escapes_results_dir(tmp_path):
@@ -223,8 +243,44 @@ def test_append_rejects_execution_journal_symlink_that_escapes_results_dir(tmp_p
 
     journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unsafe execution journal directory component"):
         journal.append("order_submitted", {})
+    assert not (outside / "mt5_demo_events.jsonl").exists()
+
+
+def test_append_rejects_non_regular_journal_target(tmp_path):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFOs are not supported")
+    journal_dir = tmp_path / "XAUUSD" / "execution_journal"
+    journal_dir.mkdir(parents=True)
+    fifo_path = journal_dir / "mt5_demo_events.jsonl"
+    try:
+        os.mkfifo(fifo_path)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"FIFOs are not supported: {exc}")
+    reader_ready = threading.Event()
+    reader_done = threading.Event()
+
+    def read_fifo():
+        reader_ready.set()
+        try:
+            fd = os.open(fifo_path, os.O_RDONLY)
+            try:
+                os.read(fd, 4096)
+            finally:
+                os.close(fd)
+        finally:
+            reader_done.set()
+
+    reader = threading.Thread(target=read_fifo, daemon=True)
+    reader.start()
+    assert reader_ready.wait(timeout=2)
+
+    journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
+
+    with pytest.raises(ValueError, match="regular file"):
+        journal.append("order_submitted", {})
+    reader_done.wait(timeout=2)
 
 
 def test_concurrent_appends_produce_complete_json_lines(tmp_path):
@@ -284,6 +340,34 @@ def test_concurrent_short_writes_produce_complete_json_lines(tmp_path, monkeypat
         paths = list(executor.map(append_event, range(total_events)))
 
     lines = paths[0].read_text(encoding="utf-8").splitlines()
+    assert len(lines) == total_events
+    events = [json.loads(line) for line in lines]
+    assert {event["payload"]["index"] for event in events} == set(range(total_events))
+
+
+def test_multiprocess_short_writes_produce_complete_json_lines(tmp_path):
+    if os.name != "posix":
+        pytest.skip("multiprocess short-write interleaving test requires POSIX")
+    total_events = 12
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(total_events)
+    processes = [
+        context.Process(
+            target=_append_with_short_writes,
+            args=(str(tmp_path), index, barrier),
+        )
+        for index in range(total_events)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=10)
+    for process in processes:
+        assert process.exitcode == 0
+
+    path = tmp_path / "EURUSD" / "execution_journal" / "mt5_demo_events.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == total_events
     events = [json.loads(line) for line in lines]
     assert {event["payload"]["index"] for event in events} == set(range(total_events))

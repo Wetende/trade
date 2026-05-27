@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import stat
 import threading
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
@@ -15,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from tradingagents.dataflows.utils import safe_ticker_component
+
+if os.name == "posix":
+    import fcntl
+else:  # pragma: no cover - only used on platforms without POSIX locking.
+    fcntl = None
 
 _CYCLE_MARKER = "<cycle>"
 _MAX_NORMALIZE_DEPTH = 64
@@ -102,11 +108,7 @@ class ExecutionJournal:
             raise ValueError("event_type must contain only letters, digits, or underscores")
 
         safe_symbol = safe_ticker_component(self.symbol)
-        journal_dir = self.results_dir / safe_symbol / "execution_journal"
-        self._ensure_contained(journal_dir)
-        journal_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        journal_path = journal_dir / self.filename
-        self._ensure_contained(journal_path)
+        journal_path = self.results_dir / safe_symbol / "execution_journal" / self.filename
 
         event = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -125,6 +127,8 @@ class ExecutionJournal:
         self.results_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 
         if os.name != "posix" or not hasattr(os, "O_DIRECTORY"):
+            # This fallback is weaker than the POSIX dir-fd path and is only
+            # used when descriptor-relative directory semantics are unavailable.
             self._append_line_path_fallback(safe_symbol, line)
             return
 
@@ -147,9 +151,9 @@ class ExecutionJournal:
                     self._chmod_owner_only(journal_fd, 0o700)
                     event_fd = self._open_event_file(journal_fd)
                     try:
+                        self._ensure_regular_file(event_fd)
                         self._chmod_owner_only(event_fd, 0o600)
-                        with _WRITE_LOCK:
-                            self._write_all(event_fd, line)
+                        self._locked_write_all(event_fd, line)
                     finally:
                         os.close(event_fd)
                 finally:
@@ -176,9 +180,9 @@ class ExecutionJournal:
         )
         try:
             self._ensure_contained(journal_path)
+            self._ensure_regular_file(fd)
             self._chmod_owner_only(fd, 0o600)
-            with _WRITE_LOCK:
-                self._write_all(fd, line)
+            self._locked_write_all(fd, line)
         finally:
             os.close(fd)
 
@@ -207,11 +211,26 @@ class ExecutionJournal:
         except OSError as exc:
             raise ValueError("unsafe execution journal file path") from exc
 
+    def _ensure_regular_file(self, fd: int) -> None:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("execution journal target must be a regular file")
+
     def _chmod_owner_only(self, fd: int, mode: int) -> None:
         try:
             os.fchmod(fd, mode)
         except OSError:
             pass
+
+    def _locked_write_all(self, fd: int, data: bytes) -> None:
+        with _WRITE_LOCK:
+            if fcntl is None:
+                self._write_all(fd, data)
+                return
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                self._write_all(fd, data)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
 
     def _write_all(self, fd: int, data: bytes) -> None:
         offset = 0
