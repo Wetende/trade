@@ -1,8 +1,11 @@
 import json
+import threading
 from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -123,6 +126,41 @@ def test_append_rejects_blank_event_type(tmp_path, event_type):
         journal.append(event_type, {})
 
 
+@pytest.mark.parametrize(
+    "event_type",
+    [" order_submitted", "order_submitted ", "order-submitted", "order\nsubmitted"],
+)
+def test_append_rejects_event_type_with_invalid_characters(tmp_path, event_type):
+    journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
+
+    with pytest.raises(ValueError, match="event_type"):
+        journal.append(event_type, {})
+
+
+def test_append_normalizes_cyclic_payloads(tmp_path):
+    journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
+    cyclic_dict = {"name": "parent"}
+    cyclic_list = ["first"]
+    cyclic_object = SimpleNamespace(name="sdk")
+    cyclic_dict["self"] = cyclic_dict
+    cyclic_list.append(cyclic_list)
+    cyclic_object.self = cyclic_object
+
+    path = journal.append(
+        "order_submitted",
+        {
+            "dict": cyclic_dict,
+            "list": cyclic_list,
+            "object": cyclic_object,
+        },
+    )
+
+    payload = _read_events(path)[0]["payload"]
+    assert payload["dict"] == {"name": "parent", "self": "<cycle>"}
+    assert payload["list"] == ["first", "<cycle>"]
+    assert payload["object"] == {"name": "sdk", "self": "<cycle>"}
+
+
 def test_append_rejects_symbol_symlink_that_escapes_results_dir(tmp_path):
     outside = tmp_path.parent / f"{tmp_path.name}_outside"
     outside.mkdir(exist_ok=True)
@@ -138,14 +176,36 @@ def test_append_rejects_symbol_symlink_that_escapes_results_dir(tmp_path):
         journal.append("order_submitted", {})
 
 
-def test_multiple_low_level_appends_produce_complete_json_lines(tmp_path):
+def test_concurrent_appends_produce_complete_json_lines(tmp_path):
+    total_events = 40
+    barrier = threading.Barrier(total_events)
+
+    def append_event(index):
+        journal = ExecutionJournal(results_dir=tmp_path, symbol="EURUSD")
+        barrier.wait(timeout=5)
+        return journal.append("order_submitted", {"index": index})
+
+    with ThreadPoolExecutor(max_workers=total_events) as executor:
+        paths = list(executor.map(append_event, range(total_events)))
+
+    assert len(set(paths)) == 1
+    lines = paths[0].read_text(encoding="utf-8").splitlines()
+    assert len(lines) == total_events
+    events = [json.loads(line) for line in lines]
+    assert {event["payload"]["index"] for event in events} == set(range(total_events))
+
+
+def test_append_retries_short_low_level_writes(tmp_path, monkeypatch):
+    real_write = os.write
+
+    def short_write(fd, data):
+        if len(data) > 1:
+            return real_write(fd, data[: len(data) // 2])
+        return real_write(fd, data)
+
+    monkeypatch.setattr(os, "write", short_write)
     journal = ExecutionJournal(results_dir=tmp_path, symbol="EURUSD")
 
-    path = journal.append("event_0", {"index": 0})
-    for index in range(1, 20):
-        journal.append(f"event_{index}", {"index": index})
+    path = journal.append("order_submitted", {"index": 1})
 
-    lines = path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 20
-    events = [json.loads(line) for line in lines]
-    assert [event["payload"]["index"] for event in events] == list(range(20))
+    assert _read_events(path)[0]["payload"] == {"index": 1}
