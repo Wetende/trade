@@ -67,8 +67,8 @@ class MT5ConnectionConfig:
             expected_server=os.environ.get("TRADINGAGENTS_MT5_EXPECTED_SERVER")
             or os.environ["TRADINGAGENTS_MT5_SERVER"],
             volume=_float_env("TRADINGAGENTS_MT5_VOLUME", 0.01),
-            deviation=_int_env("TRADINGAGENTS_MT5_DEVIATION", 20) or 20,
-            magic=_int_env("TRADINGAGENTS_MT5_MAGIC", 150015) or 150015,
+            deviation=_int_env("TRADINGAGENTS_MT5_DEVIATION", 20),
+            magic=_int_env("TRADINGAGENTS_MT5_MAGIC", 150015),
         )
 
 

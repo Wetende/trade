@@ -90,6 +90,19 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     assert config.magic == 150015
 
 
+def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_DEVIATION", "0")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_MAGIC", "0")
+
+    config = MT5ConnectionConfig.from_env()
+
+    assert config.deviation == 0
+    assert config.magic == 0
+
+
 def test_mt5_config_rejects_non_demo_execution_mode(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
     monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
