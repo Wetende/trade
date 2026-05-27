@@ -1,8 +1,7 @@
-"""MetaTrader 5 demo-account connection probe.
+"""MetaTrader 5 demo-account broker adapter.
 
-This adapter intentionally starts with read-only account and symbol checks.
-Order placement can be layered on after the terminal connection, symbol specs,
-and server time are verified.
+This adapter verifies demo-account connection details and supports guarded demo
+order actions for pending limit orders, order cancellation, and stop updates.
 """
 
 from __future__ import annotations
@@ -305,6 +304,7 @@ class MT5Broker:
             "ORDER_TIME_GTC": getattr(mt5, "ORDER_TIME_GTC"),
             "ORDER_FILLING_RETURN": getattr(mt5, "ORDER_FILLING_RETURN"),
             "TRADE_RETCODE_DONE": getattr(mt5, "TRADE_RETCODE_DONE"),
+            "TRADE_RETCODE_PLACED": getattr(mt5, "TRADE_RETCODE_PLACED"),
         }
 
     def _materialize_request(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -313,14 +313,24 @@ class MT5Broker:
         for field in ("action", "type", "type_time", "type_filling"):
             value = converted.get(field)
             if isinstance(value, str):
-                converted[field] = constants[value]
+                try:
+                    converted[field] = constants[value]
+                except KeyError as exc:
+                    raise MT5BrokerError(
+                        f"unknown MT5 request {field} value: {value}"
+                    ) from exc
         return converted
 
     def _send(self, request: dict[str, Any]) -> dict[str, Any]:
         mt5 = self._module()
         result = mt5.order_send(request)
         result_data = _asdict(result)
-        ok = result_data.get("retcode") == self._constants()["TRADE_RETCODE_DONE"]
+        constants = self._constants()
+        ok_retcode = {
+            constants["TRADE_RETCODE_DONE"],
+            constants["TRADE_RETCODE_PLACED"],
+        }
+        ok = result_data.get("retcode") in ok_retcode
         response = {
             "ok": ok,
             "retcode": result_data.get("retcode"),
@@ -333,25 +343,92 @@ class MT5Broker:
         return response
 
     def place_pending_order(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._validate_pending_order_request(request)
         return self._send(self._materialize_request(request))
 
+    def _validate_pending_order_request(self, request: dict[str, Any]) -> None:
+        required_fields = (
+            "symbol",
+            "volume",
+            "type",
+            "price",
+            "sl",
+            "tp",
+            "deviation",
+            "magic",
+            "comment",
+            "type_time",
+            "type_filling",
+        )
+        if request.get("action") != "TRADE_ACTION_PENDING":
+            if not isinstance(request.get("action"), str):
+                raise MT5BrokerError("action must be symbolic TRADE_ACTION_PENDING")
+            raise MT5BrokerError("action must be TRADE_ACTION_PENDING")
+
+        for field in required_fields:
+            if field not in request:
+                raise MT5BrokerError(f"missing required MT5 request field: {field}")
+
+        if request["symbol"] != self.config.symbol:
+            raise MT5BrokerError(
+                f"symbol must match configured MT5 symbol {self.config.symbol}"
+            )
+        if request["type"] not in {"BUY_LIMIT", "SELL_LIMIT"}:
+            if not isinstance(request["type"], str):
+                raise MT5BrokerError("type must be symbolic BUY_LIMIT or SELL_LIMIT")
+            raise MT5BrokerError("type must be BUY_LIMIT or SELL_LIMIT")
+
+        for field in ("volume", "price", "sl", "tp"):
+            self._positive_float(request[field], field)
+
+        if request["magic"] != self.config.magic:
+            raise MT5BrokerError("magic must match configured MT5 magic")
+        if request["deviation"] != self.config.deviation:
+            raise MT5BrokerError("deviation must match configured MT5 deviation")
+
+    @staticmethod
+    def _positive_float(value: Any, name: str) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise MT5BrokerError(f"{name} must be positive and finite") from exc
+        if not math.isfinite(number) or number <= 0:
+            raise MT5BrokerError(f"{name} must be positive and finite")
+        return number
+
+    @staticmethod
+    def _positive_ticket(value: Any, name: str) -> int:
+        if isinstance(value, bool):
+            raise MT5BrokerError(f"{name} ticket must be a positive number")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise MT5BrokerError(f"{name} ticket must be a positive number") from exc
+        if not math.isfinite(number) or number <= 0 or not number.is_integer():
+            raise MT5BrokerError(f"{name} ticket must be a positive number")
+        return int(number)
+
     def cancel_order(self, ticket: int) -> dict[str, Any]:
+        order_ticket = self._positive_ticket(ticket, "order")
         return self._send(
             self._materialize_request(
-                {"action": "TRADE_ACTION_REMOVE", "order": int(ticket)}
+                {"action": "TRADE_ACTION_REMOVE", "order": order_ticket}
             )
         )
 
     def modify_position_stops(
         self, position_ticket: int, stop_loss: float, take_profit: float
     ) -> dict[str, Any]:
+        ticket = self._positive_ticket(position_ticket, "position")
+        stop = self._positive_float(stop_loss, "stop_loss")
+        target = self._positive_float(take_profit, "take_profit")
         return self._send(
             self._materialize_request(
                 {
                     "action": "TRADE_ACTION_SLTP",
-                    "position": int(position_ticket),
-                    "sl": float(stop_loss),
-                    "tp": float(take_profit),
+                    "position": ticket,
+                    "sl": stop,
+                    "tp": target,
                 }
             )
         )
