@@ -257,6 +257,11 @@ def test_mt5_broker_sends_pending_order_request():
     assert result["order"] == 111222
     assert fake_mt5.sent_requests[0]["action"] == FakeMT5.TRADE_ACTION_PENDING
     assert fake_mt5.sent_requests[0]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+    assert result["request"] == fake_mt5.sent_requests[0]
+    assert result["request"]["action"] == FakeMT5.TRADE_ACTION_PENDING
+    assert result["request"]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+    assert result["request"]["type_time"] == FakeMT5.ORDER_TIME_GTC
+    assert result["request"]["type_filling"] == FakeMT5.ORDER_FILLING_RETURN
 
 
 def _valid_pending_request():
@@ -433,6 +438,11 @@ def test_mt5_broker_reports_non_success_retcode_with_last_error():
     assert result["ok"] is False
     assert result["retcode"] == 10030
     assert result["last_error"] == (0, "ok")
+    assert result["request"] == fake_mt5.sent_requests[0]
+    assert result["request"]["action"] == FakeMT5.TRADE_ACTION_PENDING
+    assert result["request"]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+    assert result["request"]["type_time"] == FakeMT5.ORDER_TIME_GTC
+    assert result["request"]["type_filling"] == FakeMT5.ORDER_FILLING_RETURN
 
 
 def test_mt5_broker_rejects_unknown_symbolic_request_value():

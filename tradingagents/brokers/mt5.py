@@ -338,6 +338,7 @@ class MT5Broker:
             "order": result_data.get("order"),
             "deal": result_data.get("deal"),
             "comment": result_data.get("comment"),
+            "request": dict(request),
         }
         if not ok:
             response["last_error"] = mt5.last_error()
