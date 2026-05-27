@@ -98,7 +98,11 @@ def test_build_sell_limit_request_maps_side():
         )
     )
 
-    request = builder.build_pending_limit_request(_proposal(TradeAction.SELL), {"digits": 2})
+    proposal = _proposal(TradeAction.SELL)
+    proposal.stop_loss = 2456.789
+    proposal.take_profit = 2447.987
+
+    request = builder.build_pending_limit_request(proposal, {"digits": 2})
 
     assert request["type"] == "SELL_LIMIT"
 
@@ -119,6 +123,23 @@ def test_build_request_rejects_symbol_mismatch():
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
 
 
+def test_build_request_rejects_symbol_info_name_mismatch():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="symbol info EURUSD does not match MT5 symbol XAUUSD",
+    ):
+        builder.build_pending_limit_request(_proposal(), {"name": "EURUSD", "digits": 2})
+
+
 def test_build_request_rejects_missing_levels():
     builder = MT5OrderRequestBuilder(
         MT5ConnectionConfig(
@@ -134,6 +155,35 @@ def test_build_request_rejects_missing_levels():
         ValueError,
         match="entry_price, stop_loss, and take_profit",
     ):
+        builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
+
+
+def test_build_request_rejects_invalid_buy_levels():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+    proposal = _proposal()
+    proposal.stop_loss = 2451.00
+
+    with pytest.raises(ValueError, match="invalid BUY levels"):
+        builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
+
+
+def test_build_request_rejects_invalid_sell_levels():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+        )
+    )
+    proposal = _proposal(TradeAction.SELL)
+
+    with pytest.raises(ValueError, match="invalid SELL levels"):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
 
 

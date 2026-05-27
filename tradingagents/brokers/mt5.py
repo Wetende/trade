@@ -143,15 +143,29 @@ class MT5OrderRequestBuilder:
             raise ValueError(
                 f"proposal symbol {proposal.symbol} does not match MT5 symbol {self.config.symbol}"
             )
+        symbol_name = symbol_info.get("name")
+        if symbol_name and symbol_name != self.config.symbol:
+            raise ValueError(
+                f"symbol info {symbol_name} does not match MT5 symbol {self.config.symbol}"
+            )
+
+        entry = self._round_price(proposal.entry_price, symbol_info)
+        stop = self._round_price(proposal.stop_loss, symbol_info)
+        target = self._round_price(proposal.take_profit, symbol_info)
+        request_type = self._order_type(proposal.side)
+        if request_type == "BUY_LIMIT" and not (stop < entry < target):
+            raise ValueError("invalid BUY levels for MT5 limit order")
+        if request_type == "SELL_LIMIT" and not (target < entry < stop):
+            raise ValueError("invalid SELL levels for MT5 limit order")
 
         return {
             "action": "TRADE_ACTION_PENDING",
             "symbol": self.config.symbol,
             "volume": self.config.volume,
-            "type": self._order_type(proposal.side),
-            "price": self._round_price(proposal.entry_price, symbol_info),
-            "sl": self._round_price(proposal.stop_loss, symbol_info),
-            "tp": self._round_price(proposal.take_profit, symbol_info),
+            "type": request_type,
+            "price": entry,
+            "sl": stop,
+            "tp": target,
             "deviation": self.config.deviation,
             "magic": self.config.magic,
             "comment": "TradingAgents demo",
