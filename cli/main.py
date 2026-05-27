@@ -1,4 +1,5 @@
 import datetime
+import json
 from pathlib import Path
 
 import typer
@@ -169,6 +170,37 @@ def analyze(
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     run_analysis(checkpoint=checkpoint)
+
+
+@app.command()
+def backtest(
+    symbol: str = typer.Option("XAUUSD", "--symbol", help="Symbol to simulate."),
+):
+    console.print(f"[yellow]Backtest simulation scaffold ready for {symbol}.[/yellow]")
+    console.print(
+        "[yellow]Use tradingagents.agents.price_action.backtest with historical "
+        "candles or fixtures. No broker orders are placed.[/yellow]"
+    )
+
+
+@app.command("broker-probe")
+def broker_probe():
+    """Check MT5 demo connectivity without placing orders."""
+    from tradingagents.brokers.mt5 import MT5Broker, MT5BrokerError, MT5ConnectionConfig
+
+    try:
+        config = MT5ConnectionConfig.from_env()
+        broker = MT5Broker(config)
+        result = broker.connect()
+    except MT5BrokerError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    finally:
+        if "broker" in locals():
+            broker.shutdown()
+
+    console.print("[green]MT5 demo connection verified.[/green]")
+    console.print(json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

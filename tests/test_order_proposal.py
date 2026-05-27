@@ -30,6 +30,8 @@ def test_hold_trade_plan_creates_no_trade_proposal(tmp_path):
     assert proposal.status == OrderStatus.NO_TRADE
     assert proposal.side == TradeAction.HOLD
     assert proposal.entry_price is None
+    assert proposal.activation_window_minutes is None
+    assert proposal.cancel_if_not_triggered_after is None
 
 
 @pytest.mark.unit
@@ -48,6 +50,8 @@ def test_buy_trade_plan_creates_proposed_limit_order(tmp_path):
     assert proposal.entry_price == 100.5
     assert proposal.stop_loss == 99.25
     assert proposal.take_profit == 103.0
+    assert proposal.activation_window_minutes == 10
+    assert proposal.cancel_if_not_triggered_after == "2026-05-17 10:25 EDT"
 
 
 @pytest.mark.unit
@@ -99,3 +103,5 @@ def test_executor_writes_json_artifact(tmp_path):
     saved = json.loads(open(result["order_proposal_path"], encoding="utf-8").read())
     assert saved["status"] == "PROPOSED"
     assert saved["side"] == "SELL"
+    assert saved["activation_window_minutes"] == 10
+    assert saved["cancel_if_not_triggered_after"] == "2026-05-17 10:25 EDT"

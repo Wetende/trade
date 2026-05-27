@@ -63,6 +63,10 @@ def _timeframe_minutes(timeframe: str) -> int:
 
 def _valid_until(as_of: str, timeframe: str, market_timezone: str) -> str:
     minutes = _timeframe_minutes(timeframe)
+    return _minutes_after(as_of, minutes, market_timezone)
+
+
+def _minutes_after(as_of: str, minutes: int, market_timezone: str) -> str:
     try:
         tz = ZoneInfo(market_timezone)
         parsed = datetime.fromisoformat(as_of.replace(" ", "T"))
@@ -93,6 +97,10 @@ def build_order_proposal(state: dict) -> OrderProposal:
     if action in {TradeAction.BUY, TradeAction.SELL} and not has_required_levels:
         reason = "No order proposed because the trade plan is missing entry, stop, or target."
 
+    as_of = state.get("as_of", "")
+    market_timezone = state.get("market_timezone", "America/New_York")
+    activation_window_minutes = 10 if status == OrderStatus.PROPOSED else None
+
     return OrderProposal(
         symbol=state["company_of_interest"],
         side=action,
@@ -103,9 +111,15 @@ def build_order_proposal(state: dict) -> OrderProposal:
         timeframe=state.get("timeframe", "15m"),
         confirmation_timeframe=state.get("confirmation_timeframe", "30m"),
         valid_until=_valid_until(
-            state.get("as_of", ""),
+            as_of,
             state.get("timeframe", "15m"),
-            state.get("market_timezone", "America/New_York"),
+            market_timezone,
+        ),
+        activation_window_minutes=activation_window_minutes,
+        cancel_if_not_triggered_after=(
+            _minutes_after(as_of, activation_window_minutes, market_timezone)
+            if activation_window_minutes is not None
+            else None
         ),
         status=status,
         reason=reason,

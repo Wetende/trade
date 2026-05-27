@@ -92,6 +92,8 @@ class OrderProposal(BaseModel):
     timeframe: str = "15m"
     confirmation_timeframe: str = "30m"
     valid_until: str
+    activation_window_minutes: Optional[int] = None
+    cancel_if_not_triggered_after: Optional[str] = None
     status: OrderStatus
     reason: str
 
@@ -121,4 +123,18 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     if proposal.take_profit is not None:
         parts.extend(["", f"**Take Profit**: {proposal.take_profit}"])
+    if proposal.activation_window_minutes is not None:
+        parts.extend(
+            [
+                "",
+                f"**Activation Window Minutes**: {proposal.activation_window_minutes}",
+            ]
+        )
+    if proposal.cancel_if_not_triggered_after is not None:
+        parts.extend(
+            [
+                "",
+                f"**Cancel If Not Triggered After**: {proposal.cancel_if_not_triggered_after}",
+            ]
+        )
     return "\n".join(parts)

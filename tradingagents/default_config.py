@@ -1,5 +1,7 @@
 import os
 
+from tradingagents.agents.price_action.sessions import DEFAULT_SESSION_CONFIG
+
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
 
 # Single source of truth for env-var → config-key overrides. To expose
@@ -69,6 +71,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "timeframe": "15m",
     "confirmation_timeframe": "30m",
     "market_timezone": "America/New_York",
+    "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
     # Data vendor configuration: keep only core OHLC fetching for now.
     "data_vendors": {
