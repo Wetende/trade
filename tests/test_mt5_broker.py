@@ -68,6 +68,38 @@ def test_mt5_config_reads_valetax_env(monkeypatch):
     assert config.symbol == "XAUUSD"
 
 
+def test_mt5_config_reads_demo_execution_guards(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SYMBOL", "XAUUSD")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_ACCOUNT_MODE", "demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_EXPECTED_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_EXPECTED_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_VOLUME", "0.01")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_DEVIATION", "20")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_MAGIC", "150015")
+
+    config = MT5ConnectionConfig.from_env()
+
+    assert config.account_mode == "demo"
+    assert config.expected_login == 123456789
+    assert config.expected_server == "ExampleBroker-Demo"
+    assert config.volume == 0.01
+    assert config.deviation == 20
+    assert config.magic == 150015
+
+
+def test_mt5_config_rejects_non_demo_execution_mode(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_ACCOUNT_MODE", "live")
+
+    with pytest.raises(MT5BrokerError, match="demo mode is required"):
+        MT5ConnectionConfig.from_env()
+
+
 def test_mt5_config_requires_credentials(monkeypatch):
     monkeypatch.delenv("TRADINGAGENTS_MT5_LOGIN", raising=False)
     monkeypatch.delenv("TRADINGAGENTS_MT5_PASSWORD", raising=False)

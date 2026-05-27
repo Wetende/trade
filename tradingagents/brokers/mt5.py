@@ -24,6 +24,12 @@ class MT5ConnectionConfig:
     server: str
     symbol: str = "XAUUSD"
     terminal_path: str | None = None
+    account_mode: str = "demo"
+    expected_login: int | None = None
+    expected_server: str | None = None
+    volume: float = 0.01
+    deviation: int = 20
+    magic: int = 150015
 
     @classmethod
     def from_env(cls) -> "MT5ConnectionConfig":
@@ -45,13 +51,45 @@ class MT5ConnectionConfig:
         except ValueError as exc:
             raise MT5BrokerError("TRADINGAGENTS_MT5_LOGIN must be numeric") from exc
 
+        account_mode = os.environ.get("TRADINGAGENTS_MT5_ACCOUNT_MODE", "demo")
+        account_mode = account_mode.strip().lower()
+        if account_mode != "demo":
+            raise MT5BrokerError("MT5 demo mode is required for automated execution")
+
         return cls(
             login=login,
             password=os.environ["TRADINGAGENTS_MT5_PASSWORD"],
             server=os.environ["TRADINGAGENTS_MT5_SERVER"],
             symbol=os.environ.get("TRADINGAGENTS_MT5_SYMBOL", "XAUUSD"),
             terminal_path=os.environ.get("TRADINGAGENTS_MT5_PATH") or None,
+            account_mode=account_mode,
+            expected_login=_int_env("TRADINGAGENTS_MT5_EXPECTED_LOGIN", login),
+            expected_server=os.environ.get("TRADINGAGENTS_MT5_EXPECTED_SERVER")
+            or os.environ["TRADINGAGENTS_MT5_SERVER"],
+            volume=_float_env("TRADINGAGENTS_MT5_VOLUME", 0.01),
+            deviation=_int_env("TRADINGAGENTS_MT5_DEVIATION", 20) or 20,
+            magic=_int_env("TRADINGAGENTS_MT5_MAGIC", 150015) or 150015,
         )
+
+
+def _int_env(name: str, default: int | None = None) -> int | None:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise MT5BrokerError(f"{name} must be numeric") from exc
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise MT5BrokerError(f"{name} must be numeric") from exc
 
 
 def _asdict(value: Any) -> dict[str, Any]:
