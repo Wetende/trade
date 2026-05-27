@@ -6,10 +6,20 @@ from tradingagents.brokers.mt5 import MT5Broker, MT5BrokerError, MT5ConnectionCo
 
 
 class FakeMT5:
+    TRADE_RETCODE_DONE = 10009
+    TRADE_ACTION_PENDING = 5
+    TRADE_ACTION_REMOVE = 8
+    TRADE_ACTION_SLTP = 6
+    ORDER_TYPE_BUY_LIMIT = 2
+    ORDER_TYPE_SELL_LIMIT = 3
+    ORDER_TIME_GTC = 0
+    ORDER_FILLING_RETURN = 2
+
     def __init__(self):
         self.initialized_with = None
         self.selected_symbols = []
         self.shutdown_called = False
+        self.sent_requests = []
 
     def initialize(self, **kwargs):
         self.initialized_with = kwargs
@@ -50,6 +60,12 @@ class FakeMT5:
 
     def symbol_info_tick(self, symbol):
         return SimpleNamespace(bid=4506.99, ask=4507.32, time=1779610000)
+
+    def order_send(self, request):
+        self.sent_requests.append(request)
+        return SimpleNamespace(
+            retcode=self.TRADE_RETCODE_DONE, order=111222, deal=0, comment="ok"
+        )
 
     def shutdown(self):
         self.shutdown_called = True
@@ -204,6 +220,79 @@ def test_mt5_broker_connects_and_reads_symbol_specs():
     assert result["account"]["server"] == "ExampleBroker-Demo"
     assert result["symbol"]["name"] == "XAUUSD"
     assert result["symbol"]["volume_min"] == 0.01
+
+
+def test_mt5_broker_sends_pending_order_request():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        volume=0.01,
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.place_pending_order(
+        {
+            "action": "TRADE_ACTION_PENDING",
+            "symbol": "XAUUSD",
+            "volume": 0.01,
+            "type": "BUY_LIMIT",
+            "price": 2450.12,
+            "sl": 2447.99,
+            "tp": 2456.79,
+            "deviation": 20,
+            "magic": 150015,
+            "comment": "TradingAgents demo",
+            "type_time": "ORDER_TIME_GTC",
+            "type_filling": "ORDER_FILLING_RETURN",
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["order"] == 111222
+    assert fake_mt5.sent_requests[0]["action"] == FakeMT5.TRADE_ACTION_PENDING
+    assert fake_mt5.sent_requests[0]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+
+
+def test_mt5_broker_cancels_order():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.cancel_order(111222)
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_REMOVE
+    assert fake_mt5.sent_requests[-1]["order"] == 111222
+
+
+def test_mt5_broker_modifies_position_stops():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.modify_position_stops(222333, 2447.99, 2456.79)
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_SLTP
+    assert fake_mt5.sent_requests[-1]["position"] == 222333
+    assert fake_mt5.sent_requests[-1]["sl"] == 2447.99
+    assert fake_mt5.sent_requests[-1]["tp"] == 2456.79
 
 
 def test_mt5_broker_rejects_unexpected_account_login():

@@ -294,6 +294,68 @@ class MT5Broker:
                 f"unexpected MT5 account server: got {server}, expected {self.config.expected_server}"
             )
 
+    def _constants(self) -> dict[str, Any]:
+        mt5 = self._module()
+        return {
+            "TRADE_ACTION_PENDING": getattr(mt5, "TRADE_ACTION_PENDING"),
+            "TRADE_ACTION_REMOVE": getattr(mt5, "TRADE_ACTION_REMOVE"),
+            "TRADE_ACTION_SLTP": getattr(mt5, "TRADE_ACTION_SLTP"),
+            "BUY_LIMIT": getattr(mt5, "ORDER_TYPE_BUY_LIMIT"),
+            "SELL_LIMIT": getattr(mt5, "ORDER_TYPE_SELL_LIMIT"),
+            "ORDER_TIME_GTC": getattr(mt5, "ORDER_TIME_GTC"),
+            "ORDER_FILLING_RETURN": getattr(mt5, "ORDER_FILLING_RETURN"),
+            "TRADE_RETCODE_DONE": getattr(mt5, "TRADE_RETCODE_DONE"),
+        }
+
+    def _materialize_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        constants = self._constants()
+        converted = dict(request)
+        for field in ("action", "type", "type_time", "type_filling"):
+            value = converted.get(field)
+            if isinstance(value, str):
+                converted[field] = constants[value]
+        return converted
+
+    def _send(self, request: dict[str, Any]) -> dict[str, Any]:
+        mt5 = self._module()
+        result = mt5.order_send(request)
+        result_data = _asdict(result)
+        ok = result_data.get("retcode") == self._constants()["TRADE_RETCODE_DONE"]
+        response = {
+            "ok": ok,
+            "retcode": result_data.get("retcode"),
+            "order": result_data.get("order"),
+            "deal": result_data.get("deal"),
+            "comment": result_data.get("comment"),
+        }
+        if not ok:
+            response["last_error"] = mt5.last_error()
+        return response
+
+    def place_pending_order(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self._send(self._materialize_request(request))
+
+    def cancel_order(self, ticket: int) -> dict[str, Any]:
+        return self._send(
+            self._materialize_request(
+                {"action": "TRADE_ACTION_REMOVE", "order": int(ticket)}
+            )
+        )
+
+    def modify_position_stops(
+        self, position_ticket: int, stop_loss: float, take_profit: float
+    ) -> dict[str, Any]:
+        return self._send(
+            self._materialize_request(
+                {
+                    "action": "TRADE_ACTION_SLTP",
+                    "position": int(position_ticket),
+                    "sl": float(stop_loss),
+                    "tp": float(take_profit),
+                }
+            )
+        )
+
     def shutdown(self) -> None:
         if self._mt5 is None:
             return
