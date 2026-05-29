@@ -81,12 +81,31 @@ tradingagents mt5-run --once
 tradingagents mt5-run --poll-seconds 30
 ```
 
+For a bounded live-market demo test, `.env` can remain `dry_run`; the process
+environment controls this one run:
+
+```powershell
+$env:HTTP_PROXY=""
+$env:HTTPS_PROXY=""
+$env:ALL_PROXY=""
+$env:GIT_HTTP_PROXY=""
+$env:GIT_HTTPS_PROXY=""
+$env:TRADINGAGENTS_MT5_ACCOUNT_MODE="demo"
+$env:TRADINGAGENTS_MT5_EXECUTION_MODE="broker"
+tradingagents mt5-run --poll-seconds 30 --duration-hours 4
+```
+
+Do not start a setup-validation run after the Friday gold close. For
+observation, Sunday New York reopen is acceptable. For cleaner strategy
+validation, prefer London/New York overlap.
+
 After a run, inspect the local evidence trail:
 
 ```text
 <results_dir>\mt5_runner\summary.json
 <results_dir>\mt5_runner\cycles.jsonl
 <results_dir>\<analysis-symbol>\engine_telemetry\engine_payload_<as-of>.json
+<results_dir>\<broker-symbol>\execution_journal\mt5_events.jsonl
 ```
 
 The runner summary shows total checks, HOLD/PROPOSED counts, broker-order

@@ -140,6 +140,25 @@ Expected behavior:
 - places the pending order
 - records journal and state files
 
+For a bounded live-market demo runner test, keep `.env` safe with
+`TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run` and override only the current
+PowerShell process:
+
+```powershell
+$env:HTTP_PROXY=""
+$env:HTTPS_PROXY=""
+$env:ALL_PROXY=""
+$env:GIT_HTTP_PROXY=""
+$env:GIT_HTTPS_PROXY=""
+$env:TRADINGAGENTS_MT5_ACCOUNT_MODE="demo"
+$env:TRADINGAGENTS_MT5_EXECUTION_MODE="broker"
+tradingagents mt5-run --poll-seconds 30 --duration-hours 4
+```
+
+Do not start a setup-validation run after the Friday gold close. For
+observation, Sunday New York reopen is acceptable. For cleaner strategy
+validation, prefer London/New York overlap.
+
 ## 9. Monitor and Manage
 
 Read-only snapshot:
@@ -186,6 +205,7 @@ Runner summary and raw engine telemetry:
 <results_dir>\mt5_runner\summary.json
 <results_dir>\mt5_runner\cycles.jsonl
 <results_dir>\<analysis-symbol>\engine_telemetry\engine_payload_<as-of>.json
+<results_dir>\<broker-symbol>\execution_journal\mt5_events.jsonl
 ```
 
 These files are local artifacts for demo testing and troubleshooting. Review
