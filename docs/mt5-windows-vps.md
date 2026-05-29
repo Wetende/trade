@@ -81,6 +81,22 @@ tradingagents mt5-run --once
 tradingagents mt5-run --poll-seconds 30
 ```
 
+After a run, inspect the local evidence trail:
+
+```text
+<results_dir>\mt5_runner\summary.json
+<results_dir>\mt5_runner\cycles.jsonl
+<results_dir>\<analysis-symbol>\engine_telemetry\engine_payload_<as-of>.json
+```
+
+The runner summary shows total checks, HOLD/PROPOSED counts, broker-order
+counts, broker rejections, categorized HOLD reasons, and latest data-health
+status. The engine telemetry shows the raw Daily/4H/1H/M30/M15 decision context.
+
+If required market data is stale or missing, the bot defaults to HOLD instead of
+guessing. This is expected safety behavior; inspect `data_status` before
+changing strategy rules.
+
 ## 8. Keep It Alive on Windows
 
 Use Task Scheduler with:
@@ -94,4 +110,5 @@ Use Task Scheduler with:
 ## 9. Move to VPS
 
 Install the same project and `.env` on a Windows VPS, log into MT5 Desktop,
-run `broker-probe`, run `mt5-run --once`, then run the long-lived command.
+run `broker-probe`, run `mt5-run --once`, review summary/telemetry, then run the
+long-lived command.

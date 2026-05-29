@@ -11,6 +11,9 @@ TradingAgents now has a generic MT5 execution surface:
   `tradingagents mt5-run`.
 - Account mode is explicit: `demo`, `real`, or `contest`.
 - Analysis/data symbols and broker execution symbols are separate.
+- The runner writes summary reporting for each cycle.
+- The price-action engine writes raw telemetry for each analysis.
+- Market data freshness is checked before a setup is trusted.
 - The old MT5 demo-named commands, aliases, files, and docs have been removed.
 
 The MT5 path is ready to verify on Windows. It is not automatically allowed to
@@ -122,6 +125,18 @@ uv run tradingagents mt5-run --once
 If the analysis produces a `NO_TRADE` proposal, that is a valid safe outcome.
 It means no broker order was attempted.
 
+Review the audit outputs after the cycle:
+
+```text
+<results_dir>\<analysis-symbol>\engine_telemetry\engine_payload_<as-of>.json
+<results_dir>\<analysis-symbol>\order_proposals\order_proposal_<as-of>.json
+<results_dir>\mt5_runner\summary.json
+<results_dir>\mt5_runner\cycles.jsonl
+```
+
+The summary should show total checks, HOLD/PROPOSED counts, broker-order counts,
+rejection counts, categorized HOLD reasons, and latest data-health status.
+
 ## Manual Cycle
 
 To inspect each stage separately:
@@ -156,6 +171,11 @@ For Task Scheduler, use:
 - `symbol must match configured MT5 symbol`: set `TRADINGAGENTS_MT5_SYMBOL` to
   the exact broker symbol shown in Market Watch.
 - No proposal path after analysis: configure an LLM provider key or Ollama model.
+- `Data health failed. Default to HOLD.`: inspect the raw engine telemetry and
+  confirm whether YFinance returned stale or missing GC=F candles.
+- Frequent `GC=F: possibly delisted; no price data found` warnings: rerun during
+  an active market window and compare `data_status` before changing strategy
+  rules.
 
 ## Readiness Signal
 
@@ -165,6 +185,7 @@ The Windows setup is ready for unattended dry-run execution when these pass:
 pytest focused MT5 suite: pass
 broker-probe: pass
 mt5-run --once: exits with JSON status, with no MT5 guard errors
+summary.json: records the cycle and data-health state
 ```
 
 Broker order sending is a separate human decision controlled by

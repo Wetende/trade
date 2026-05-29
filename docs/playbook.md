@@ -176,16 +176,16 @@ The 1H chart is the bridge between higher-timeframe structure and execution.
 It answers:
 
 - Is intraday momentum bullish, bearish, or unclear?
-- Is price approaching a 1H support or resistance zone?
+- Is price approaching a 1H support or resistance zone for context?
 - Is there enough room before the next 1H level?
 - Would the M30/M15 setup be fighting 1H structure?
 
-The 1H chart should agree with the trade. If 1H is unclear or clearly disagrees, the answer should be `NO TRADE`.
+The 1H chart should agree with the trade. In the current engine, 1H is used as the momentum confirmation layer. Daily and 4H carry the heavier danger-zone blocking responsibility.
 
 1H permission rule:
 
 - 1H must agree with the planned direction.
-- If 1H clearly disagrees, the answer is `NO TRADE`.
+- If 1H is unclear or clearly disagrees, the answer is `NO TRADE`.
 
 ### 30-Minute Chart
 
@@ -241,6 +241,31 @@ M30 direction must equal M15 setup direction.
 ```
 
 If M30 and M15 do not match, the answer is always `NO TRADE`.
+
+### Current Structure-Aware Permission Model
+
+The engine should not decide higher-timeframe permission by only comparing the first candle close to the latest candle close. It should classify structure first, then decide whether the planned M15 entry is allowed.
+
+Current structure labels:
+
+- `BULLISH_STRUCTURE`
+- `BEARISH_STRUCTURE`
+- `RANGE`
+- `NEAR_MAJOR_SUPPORT`
+- `NEAR_MAJOR_RESISTANCE`
+- `BREAK_OF_STRUCTURE_UP`
+- `BREAK_OF_STRUCTURE_DOWN`
+- `UNCLEAR`
+
+Permission behavior:
+
+- Daily may agree, stay neutral, or block the planned direction.
+- 4H may agree, stay neutral, or block the planned direction.
+- Daily/4H danger zones block the wrong-side trade, such as buying into major resistance or selling into major support.
+- 1H must agree with the planned direction as an intraday momentum check.
+- M30 and M15 still decide whether the actual playbook setup exists.
+
+This means a 4-hour live run is not the same thing as a 4H-only strategy. During the run, the bot repeatedly asks whether the current M15 setup is allowed by Daily, 4H, 1H, and M30 context.
 
 ## Support and Resistance Zone Detection
 
@@ -896,6 +921,20 @@ Backtesting should measure:
 - Performance of all zone scores, not only the highest-scoring zones.
 
 No rule should be trusted live until it has been tested.
+
+## Data Quality and Run Evidence
+
+The bot should treat bad or stale market data as a trading risk. If required timeframe data is missing or stale, the decision should default to `NO TRADE` instead of guessing.
+
+Current data-quality behavior:
+
+- The top-down snapshot records `data_status` for Daily, 4H, 1H, 30M, and 15M.
+- Required stale or missing timeframes block trading and produce a HOLD/NO_TRADE payload.
+- YFinance history calls retry intermittent empty responses before accepting a gap.
+- The raw engine payload is saved under `<results_dir>/<symbol>/engine_telemetry/`.
+- The MT5 runner summary is saved under `<results_dir>/mt5_runner/summary.json`.
+
+After every demo test, review the summary and telemetry before deciding whether a HOLD was correct, a valid setup was missed, or execution should be tested again.
 
 ## Recommended Trade Decision Flow
 

@@ -27,8 +27,8 @@ uv pip install MetaTrader5
 ## 2. Pull Main
 
 ```powershell
-git clone git@github.com:Wetende/trade.git tradingagents
-cd tradingagents
+git clone https://github.com/toodennis106/trade.git trade
+cd trade
 git checkout main
 git pull origin main
 ```
@@ -128,7 +128,7 @@ Only `PROPOSED` limit-order proposals can execute. `NO_TRADE` proposals are reje
 Start with fixed demo volume, normally `0.01`.
 
 ```powershell
-tradingagents mt5-demo-execute --proposal "C:\Users\you\.tradingagents\logs\XAUUSD\order_proposals\order_proposal_YYYY_MM_DD_HHMM.json"
+tradingagents mt5-execute --proposal "C:\Users\you\.tradingagents\logs\XAUUSD\order_proposals\order_proposal_YYYY_MM_DD_HHMM.json"
 ```
 
 Expected behavior:
@@ -145,25 +145,25 @@ Expected behavior:
 Read-only snapshot:
 
 ```powershell
-tradingagents mt5-demo-monitor
+tradingagents mt5-monitor
 ```
 
 Cancel stale pending orders after the activation window:
 
 ```powershell
-tradingagents mt5-demo-monitor --cancel-stale
+tradingagents mt5-monitor --cancel-stale
 ```
 
 Move stops to break-even when the open position qualifies:
 
 ```powershell
-tradingagents mt5-demo-monitor --manage-stops
+tradingagents mt5-monitor --manage-stops
 ```
 
 You can run both lifecycle actions together:
 
 ```powershell
-tradingagents mt5-demo-monitor --cancel-stale --manage-stops
+tradingagents mt5-monitor --cancel-stale --manage-stops
 ```
 
 ## 10. Check Audit Files
@@ -171,16 +171,26 @@ tradingagents mt5-demo-monitor --cancel-stale --manage-stops
 Execution events:
 
 ```text
-<results_dir>\XAUUSD\execution_journal\mt5_demo_events.jsonl
+<results_dir>\XAUUSD\execution_journal\mt5_events.jsonl
 ```
 
 Active pending-order state:
 
 ```text
-<results_dir>\XAUUSD\execution_state\mt5_demo_state.json
+<results_dir>\XAUUSD\execution_state\mt5_state.json
 ```
 
-These files are local artifacts for demo testing and troubleshooting.
+Runner summary and raw engine telemetry:
+
+```text
+<results_dir>\mt5_runner\summary.json
+<results_dir>\mt5_runner\cycles.jsonl
+<results_dir>\<analysis-symbol>\engine_telemetry\engine_payload_<as-of>.json
+```
+
+These files are local artifacts for demo testing and troubleshooting. Review
+them after a test run to see HOLD reasons, broker attempts, rejections, and data
+freshness status.
 
 ## Troubleshooting
 
@@ -190,3 +200,4 @@ These files are local artifacts for demo testing and troubleshooting.
 - `MT5 terminal is not connected`: open MT5 Desktop, log in, and confirm the terminal has broker connectivity.
 - `symbol must match configured MT5 symbol`: use your broker's exact symbol, such as `XAUUSD`, `XAUUSDm`, or `XAUUSD.vx`.
 - No order placed because of `SKIPPED_ACTIVE_TRADE`: cancel/close the existing pending order or position first, or monitor it.
+- `Data health failed. Default to HOLD.`: the bot found missing or stale required timeframe data and refused to guess.
