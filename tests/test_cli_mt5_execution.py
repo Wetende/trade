@@ -140,6 +140,70 @@ def test_mt5_run_rejects_too_short_poll_interval():
     assert invalid_result.exit_code != 0
 
 
+def test_mt5_runner_analysis_func_attaches_engine_telemetry(monkeypatch, tmp_path):
+    proposal_path = tmp_path / "order_proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "activation_window_minutes": None,
+                "broker_symbol": "XAUUSD.vx",
+                "cancel_if_not_triggered_after": None,
+                "confirmation_timeframe": "30m",
+                "entry_price": None,
+                "order_type": "LIMIT",
+                "reason": "No setup.",
+                "side": "HOLD",
+                "status": "NO_TRADE",
+                "stop_loss": None,
+                "symbol": "GC=F",
+                "take_profit": None,
+                "timeframe": "15m",
+                "valid_until": "2026-05-29 08:30 EDT",
+            }
+        ),
+        encoding="utf-8",
+    )
+    telemetry_dir = tmp_path / "GC=F" / "engine_telemetry"
+    telemetry_dir.mkdir(parents=True)
+    telemetry_path = telemetry_dir / "engine_payload_2026-05-29_08_15.json"
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "telemetry": {"decision_stage": "time_filter"},
+                "data_status": {"healthy": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda: {"ticker": "GC=F", "as_of": "2026-05-29 08:15"},
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "run_analysis",
+        lambda checkpoint, selections: (
+            {
+                "order_proposal_path": str(proposal_path),
+                "price_action_report": "report",
+                "trade_plan": "plan",
+            },
+            "HOLD",
+        ),
+    )
+
+    as_of, proposal, analysis = cli_main._mt5_runner_analysis_func()()
+
+    assert as_of == "2026-05-29 08:15"
+    assert proposal.status.value == "NO_TRADE"
+    assert analysis["telemetry_path"] == str(telemetry_path)
+    assert analysis["telemetry"]["decision_stage"] == "time_filter"
+    assert analysis["data_status"]["healthy"] is True
+
+
 def test_retired_account_specific_commands_are_not_registered():
     result = runner.invoke(app, ["--help"])
 

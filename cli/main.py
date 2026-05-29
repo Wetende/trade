@@ -387,10 +387,26 @@ def _mt5_runner_analysis_func():
             selections=selections,
         )
         from tradingagents.brokers.mt5_execution import load_order_proposal
+        from tradingagents.dataflows.utils import safe_ticker_component
+        import re
 
         proposal = load_order_proposal(final_state["order_proposal_path"])
+        safe_symbol = safe_ticker_component(selections["ticker"])
+        safe_as_of = re.sub(r"[^0-9A-Za-z_-]+", "_", selections["as_of"]).strip("_")
+        telemetry_path = (
+            Path(DEFAULT_CONFIG["results_dir"])
+            / safe_symbol
+            / "engine_telemetry"
+            / f"engine_payload_{safe_as_of}.json"
+        )
+        engine_payload = {}
+        if telemetry_path.exists():
+            engine_payload = json.loads(telemetry_path.read_text(encoding="utf-8"))
         analysis = {
             "order_proposal_path": final_state.get("order_proposal_path"),
+            "telemetry_path": str(telemetry_path) if telemetry_path.exists() else None,
+            "telemetry": engine_payload.get("telemetry", {}),
+            "data_status": engine_payload.get("data_status", {}),
             "price_action_report": final_state.get("price_action_report", ""),
             "trade_plan": final_state.get("trade_plan", ""),
         }

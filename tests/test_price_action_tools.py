@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from tradingagents.agents.utils import price_action_tools
 from tradingagents.agents.utils.price_action_tools import (
     analyze_playbook,
     build_no_setup_payload,
@@ -303,3 +304,20 @@ def test_get_playbook_setups_uses_configured_session_windows(monkeypatch):
     payload = json.loads(raw)
 
     assert payload["checklist"]["volume_time"] == "failed"
+
+
+def test_engine_payload_writer_persists_raw_json(tmp_path):
+    payload = {
+        "symbol": "GC=F",
+        "as_of": "2026-05-29 08:15",
+        "status": "NO_SETUP",
+        "recommendation": "HOLD",
+        "telemetry": {"decision_stage": "time_filter"},
+    }
+
+    path = price_action_tools.write_engine_payload(payload, tmp_path)
+
+    assert path.exists()
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["telemetry"]["decision_stage"] == "time_filter"
+    assert "GC=F" not in path.name

@@ -12,7 +12,9 @@ import csv
 import io
 import json
 import math
+import re
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from typing import Annotated, Any, Dict, List
 from zoneinfo import ZoneInfo
 
@@ -23,6 +25,7 @@ from tradingagents.agents.price_action.engine import (
 )
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.price_action import fetch_price_action_timeframes
+from tradingagents.dataflows.utils import safe_ticker_component
 
 
 PASS = "passed"
@@ -901,6 +904,20 @@ def _default_price_action_session_config() -> Dict[str, Any] | None:
     return DEFAULT_CONFIG.get("price_action")
 
 
+def _safe_as_of_component(as_of: str) -> str:
+    return re.sub(r"[^0-9A-Za-z_-]+", "_", str(as_of)).strip("_") or "unknown"
+
+
+def write_engine_payload(payload: Dict[str, Any], results_dir: str | Path) -> Path:
+    symbol = safe_ticker_component(str(payload["symbol"]))
+    safe_as_of = _safe_as_of_component(str(payload.get("as_of", "unknown")))
+    directory = Path(results_dir) / symbol / "engine_telemetry"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"engine_payload_{safe_as_of}.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
 @tool
 def get_playbook_setups(
     symbol: Annotated[str, "Ticker symbol to analyze"],
@@ -910,6 +927,8 @@ def get_playbook_setups(
     market_timezone: Annotated[str, "Market timezone for session rules"] = "America/New_York",
 ) -> str:
     """Return detected playbook setups for the price-action trader."""
+    from tradingagents.default_config import DEFAULT_CONFIG
+
     try:
         timeframe_data = fetch_price_action_timeframes(symbol)
         data_status = _top_down_data_status(
@@ -931,6 +950,8 @@ def get_playbook_setups(
             payload["timeframe"] = timeframe
             payload["confirmation_timeframe"] = confirmation_timeframe
             payload["data_status"] = data_status
+            telemetry_path = write_engine_payload(payload, DEFAULT_CONFIG["results_dir"])
+            payload["telemetry_path"] = str(telemetry_path)
             return json.dumps(payload, indent=2, sort_keys=True)
     except Exception as exc:
         data_status = {
@@ -950,4 +971,6 @@ def get_playbook_setups(
         confirmation_timeframe,
         data_status=data_status,
     )
+    telemetry_path = write_engine_payload(payload, DEFAULT_CONFIG["results_dir"])
+    payload["telemetry_path"] = str(telemetry_path)
     return json.dumps(payload, indent=2, sort_keys=True)
