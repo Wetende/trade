@@ -54,6 +54,9 @@ def test_append_one_event_creates_file_and_preserves_payload(tmp_path):
 
 
 def test_append_creates_owner_only_journal_paths(tmp_path):
+    if os.name != "posix":
+        pytest.skip("POSIX owner-only mode bits are not represented on Windows")
+
     journal = ExecutionJournal(results_dir=tmp_path / "results", symbol="XAUUSD")
 
     path = journal.append("order_submitted", {})

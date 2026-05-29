@@ -94,6 +94,16 @@ def _normalize_payload_value(
         seen.remove(value_id)
 
 
+def _path_for_containment_compare(path: Path) -> str:
+    text = str(path)
+    if os.name == "nt":
+        if text.startswith("\\\\?\\UNC\\"):
+            text = "\\\\" + text[8:]
+        elif text.startswith("\\\\?\\"):
+            text = text[4:]
+    return os.path.normcase(os.path.normpath(text))
+
+
 class ExecutionJournal:
     """Write execution events to a symbol-scoped JSONL journal."""
 
@@ -254,10 +264,16 @@ class ExecutionJournal:
     def _ensure_contained(self, journal_path: Path) -> None:
         resolved_results_dir = self.results_dir.resolve()
         resolved_journal_path = journal_path.resolve(strict=False)
-        if (
-            resolved_journal_path != resolved_results_dir
-            and resolved_results_dir not in resolved_journal_path.parents
-        ):
+        results_key = _path_for_containment_compare(resolved_results_dir)
+        journal_key = _path_for_containment_compare(resolved_journal_path)
+        try:
+            common_path = os.path.commonpath([results_key, journal_key])
+        except ValueError as exc:
+            raise ValueError(
+                f"execution journal path is outside results_dir: {resolved_journal_path}"
+            ) from exc
+
+        if common_path != results_key:
             raise ValueError(
                 f"execution journal path is outside results_dir: {resolved_journal_path}"
             )
