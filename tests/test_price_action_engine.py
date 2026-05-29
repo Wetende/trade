@@ -156,3 +156,70 @@ def test_engine_rejects_when_time_filter_fails():
 
     assert payload["status"] == "NO_SETUP"
     assert payload["checklist"]["not_sunday_asian_session"] == "failed"
+
+
+def test_engine_payload_contains_raw_telemetry_for_time_filter_hold():
+    data = {
+        "1d": candles(
+            "2026-05-27 00:00:00,100,102,99,101,1000\n"
+            "2026-05-28 00:00:00,101,103,100,102,1000"
+        ),
+        "4h": candles(
+            "2026-05-28 00:00:00,100,102,99,101,1000\n"
+            "2026-05-28 04:00:00,101,103,100,102,1000"
+        ),
+        "1h": candles(
+            "2026-05-28 08:00:00,100,102,99,101,1000\n"
+            "2026-05-28 09:00:00,101,103,100,102,1000"
+        ),
+        "30m": candles(
+            "2026-05-28 09:00:00,100,102,99,101,1000\n"
+            "2026-05-28 09:30:00,101,103,100,102,1000"
+        ),
+        "15m": candles(
+            "2026-05-28 09:30:00,100,102,99,101,1000\n"
+            "2026-05-28 09:45:00,101,103,100,102,1000"
+        ),
+    }
+
+    payload = analyze_playbook("GC=F", "2026-05-28 07:45", data)
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["telemetry"]["decision_stage"] == "time_filter"
+    assert payload["telemetry"]["primary_hold_reason"] == "Time filter failed. Default to HOLD."
+    assert payload["telemetry"]["timeframe_rows"]["15m"] == 2
+    assert payload["telemetry"]["zone_counts"]["4h"] >= 0
+
+
+def test_engine_payload_contains_permission_telemetry_when_candidate_is_blocked():
+    data = {
+        "1d": candles(
+            "2026-05-27 00:00:00,100,102,99,101,1000\n"
+            "2026-05-28 00:00:00,101,103,100,102,1000"
+        ),
+        "4h": candles(
+            "2026-05-28 00:00:00,110,111,105,106,1000\n"
+            "2026-05-28 04:00:00,106,107,100,101,1000\n"
+            "2026-05-28 08:00:00,101,102,98,99,1000"
+        ),
+        "1h": candles(
+            "2026-05-28 08:00:00,100,102,99,101,1000\n"
+            "2026-05-28 09:00:00,101,103,100,102,1000"
+        ),
+        "30m": candles(
+            "2026-05-28 08:30:00,100,101,99,100,1000\n"
+            "2026-05-28 09:00:00,100,103,99,102,1000\n"
+            "2026-05-28 09:30:00,102,106,101,105,1000"
+        ),
+        "15m": candles(
+            "2026-05-28 09:15:00,103,104,101,103,1000\n"
+            "2026-05-28 09:30:00,103,106,101,105,1000\n"
+            "2026-05-28 09:45:00,105,106,103,105.5,1000"
+        ),
+    }
+
+    payload = analyze_playbook("GC=F", "2026-05-28 08:15", data)
+
+    assert "telemetry" in payload
+    assert "timeframe_rows" in payload["telemetry"]
+    assert "permissions" in payload["telemetry"]

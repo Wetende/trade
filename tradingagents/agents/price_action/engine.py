@@ -59,6 +59,7 @@ def _payload(
     setups: list[dict[str, Any]] | None = None,
     risk: dict[str, Any] | None = None,
     message: str = "",
+    telemetry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "symbol": symbol.upper(),
@@ -73,6 +74,43 @@ def _payload(
         "checklist": checklist,
         "risk": risk or {},
         "message": message,
+        "telemetry": telemetry or {},
+    }
+
+
+def _rows_by_timeframe(candles_by_tf: dict[str, list[Candle]]) -> dict[str, int]:
+    return {tf: len(candles_by_tf.get(tf, [])) for tf in ("1d", "4h", "1h", "30m", "15m")}
+
+
+def _zone_counts(zones_by_tf: dict[str, list[Zone]]) -> dict[str, int]:
+    return {tf: len(zones_by_tf.get(tf, [])) for tf in ("1d", "4h", "1h", "30m")}
+
+
+def _telemetry(
+    *,
+    decision_stage: str,
+    primary_hold_reason: str,
+    candles_by_tf: dict[str, list[Candle]],
+    zones_by_tf: dict[str, list[Zone]],
+    market_context: dict[str, Any],
+    candidate_setups: list[Setup] | None = None,
+) -> dict[str, Any]:
+    return {
+        "decision_stage": decision_stage,
+        "primary_hold_reason": primary_hold_reason,
+        "timeframe_rows": _rows_by_timeframe(candles_by_tf),
+        "zone_counts": _zone_counts(zones_by_tf),
+        "permissions": {
+            "daily": market_context.get("daily_permission"),
+            "h4": market_context.get("h4_permission"),
+            "h1": market_context.get("h1_permission"),
+            "higher_timeframe": market_context.get("higher_timeframe_permission"),
+        },
+        "m30_context": {
+            "bias": market_context.get("m30_bias"),
+            "context": market_context.get("m30_context"),
+        },
+        "candidate_setup_count": len(candidate_setups or []),
     }
 
 
@@ -173,6 +211,20 @@ def analyze_playbook(
             market_context["m30_context"] = "REJECTION"
             market_context["m30_rejection"] = _setup_to_dict(rejected)
 
+    def make_telemetry(
+        decision_stage: str,
+        primary_hold_reason: str,
+        candidate_setups: list[Setup] | None = None,
+    ) -> dict[str, Any]:
+        return _telemetry(
+            decision_stage=decision_stage,
+            primary_hold_reason=primary_hold_reason,
+            candles_by_tf=candles_by_tf,
+            zones_by_tf=zones_by_tf,
+            market_context=market_context,
+            candidate_setups=candidate_setups,
+        )
+
     hard_time_keys = (
         "volume_time",
         "not_last_15_of_4h",
@@ -189,6 +241,7 @@ def analyze_playbook(
             zones,
             market_context,
             message="Time filter failed. Default to HOLD.",
+            telemetry=make_telemetry("time_filter", "Time filter failed. Default to HOLD."),
         )
 
     if checklist["candle_closed"] == FAIL:
@@ -201,6 +254,10 @@ def analyze_playbook(
             zones,
             market_context,
             message="Insufficient closed M15/M30 candles. Default to HOLD.",
+            telemetry=make_telemetry(
+                "data_insufficient",
+                "Insufficient closed M15/M30 candles. Default to HOLD.",
+            ),
         )
 
     m30_direction = None
@@ -226,6 +283,11 @@ def analyze_playbook(
             zones,
             market_context,
             message="No valid M15 setup. Default to HOLD.",
+            telemetry=make_telemetry(
+                "no_m15_setup",
+                "No valid M15 setup. Default to HOLD.",
+                candidate_setups,
+            ),
         )
 
     setup = candidate_setups[0]
@@ -258,6 +320,11 @@ def analyze_playbook(
             market_context,
             setups=[_setup_to_dict(setup)],
             message=higher_permission["reason"],
+            telemetry=make_telemetry(
+                "higher_timeframe_permission",
+                higher_permission["reason"],
+                candidate_setups,
+            ),
         )
 
     target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
@@ -290,6 +357,11 @@ def analyze_playbook(
             setups=[_setup_to_dict(setup, risk)],
             risk=risk,
             message="A required A+ checklist rule failed. Default to HOLD.",
+            telemetry=make_telemetry(
+                "a_plus_checklist",
+                "A required A+ checklist rule failed. Default to HOLD.",
+                candidate_setups,
+            ),
         )
 
     return _payload(
@@ -303,4 +375,9 @@ def analyze_playbook(
         setups=[_setup_to_dict(setup, risk)],
         risk=risk,
         message="A deterministic A+ price-action setup passed the checklist.",
+        telemetry=make_telemetry(
+            "setup_found",
+            "A deterministic A+ price-action setup passed the checklist.",
+            candidate_setups,
+        ),
     )
