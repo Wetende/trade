@@ -15,6 +15,14 @@ MAX_AGE_MINUTES = {
     "15m": 45,
 }
 
+MAX_FUTURE_DRIFT_MINUTES = {
+    "1d": 1440,
+    "4h": 240,
+    "1h": 60,
+    "30m": 30,
+    "15m": 30,
+}
+
 REQUIRED_TIMEFRAMES = ("1d", "4h", "1h", "30m", "15m")
 
 
@@ -56,7 +64,8 @@ def build_data_status(
         fresh = False
         if as_of_dt is not None and latest is not None:
             age_minutes = int((as_of_dt - latest).total_seconds() // 60)
-            fresh = 0 <= age_minutes <= MAX_AGE_MINUTES[timeframe]
+            future_drift_limit = MAX_FUTURE_DRIFT_MINUTES[timeframe]
+            fresh = -future_drift_limit <= age_minutes <= MAX_AGE_MINUTES[timeframe]
         status = {
             "interval": timeframe,
             "available": available,
