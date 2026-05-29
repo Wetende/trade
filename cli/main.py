@@ -461,8 +461,17 @@ def mt5_run(
         min=5,
         help="Seconds between runner cycles.",
     ),
+    duration_hours: float = typer.Option(
+        0.0,
+        "--duration-hours",
+        min=0.0,
+        help="Stop the runner after this many wall-clock hours. Zero means no duration limit.",
+    ),
 ):
-    """Run unattended MT5 automation."""
+    """Run unattended MT5 automation.
+
+    Seconds between runner cycles.
+    """
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_execution import MT5Executor
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
@@ -477,7 +486,16 @@ def mt5_run(
                 max_cycles=(
                     1
                     if once
-                    else int(DEFAULT_CONFIG.get("runner_max_cycles", 0))
+                    else (
+                        0
+                        if duration_hours
+                        else int(DEFAULT_CONFIG.get("runner_max_cycles", 0))
+                    )
+                ),
+                max_runtime_seconds=(
+                    int(duration_hours * 3600)
+                    if duration_hours
+                    else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
                 ),
             ),
             executor=executor,

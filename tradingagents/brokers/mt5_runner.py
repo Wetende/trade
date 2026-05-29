@@ -18,16 +18,21 @@ class MT5RunnerConfig:
     results_dir: str | Path
     poll_seconds: int = 30
     max_cycles: int = 0
+    max_runtime_seconds: int = 0
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
         max_cycles = int(self.max_cycles)
+        max_runtime_seconds = int(self.max_runtime_seconds)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
         if max_cycles < 0:
             raise ValueError("max_cycles must be non-negative")
+        if max_runtime_seconds < 0:
+            raise ValueError("max_runtime_seconds must be non-negative")
         object.__setattr__(self, "poll_seconds", poll_seconds)
         object.__setattr__(self, "max_cycles", max_cycles)
+        object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
 
 
 class MT5Runner:
@@ -120,12 +125,31 @@ class MT5Runner:
     def run_forever(self) -> dict:
         cycles = 0
         last_result = {"status": "NOT_STARTED"}
+        deadline = (
+            time.monotonic() + self.config.max_runtime_seconds
+            if self.config.max_runtime_seconds
+            else None
+        )
         while True:
             last_result = self.run_once()
             cycles += 1
             if self.config.max_cycles and cycles >= self.config.max_cycles:
                 return {"status": "STOPPED_MAX_CYCLES", "last_result": last_result}
-            time.sleep(self.config.poll_seconds)
+            if deadline is not None:
+                if time.monotonic() >= deadline:
+                    return {
+                        "status": "STOPPED_MAX_RUNTIME_SECONDS",
+                        "last_result": last_result,
+                    }
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
+                    return {
+                        "status": "STOPPED_MAX_RUNTIME_SECONDS",
+                        "last_result": last_result,
+                    }
+                time.sleep(min(self.config.poll_seconds, remaining_seconds))
+            else:
+                time.sleep(self.config.poll_seconds)
 
     def _write_heartbeat(self, result: dict) -> dict:
         payload = {

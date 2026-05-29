@@ -103,6 +103,39 @@ def test_runner_records_no_trade_without_execution(tmp_path):
     assert executor.executed == []
 
 
+def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    times = iter([0.0, 0.0, 2.0])
+    sleeps = []
+
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.monotonic",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_runtime_seconds=1,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
+    assert result["last_result"]["status"] == "NO_TRADE"
+    assert sleeps == []
+
+
 def test_runner_skips_already_processed_candle(tmp_path):
     executor = FakeExecutor(active=False)
     runner = MT5Runner(

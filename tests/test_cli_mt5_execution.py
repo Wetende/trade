@@ -134,6 +134,53 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     }
 
 
+def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_execution, mt5_runner
+
+    calls = {}
+
+    class Executor:
+        def __init__(self, config, results_dir):
+            calls["executor"] = (config, results_dir)
+
+    class Runner:
+        def __init__(self, runner_config, executor, analysis_func):
+            calls["runner_config"] = runner_config
+            calls["runner_executor"] = executor
+            calls["runner_analysis_func"] = analysis_func
+
+        def run_once(self):
+            raise AssertionError("mt5-run with duration-hours should call run_forever")
+
+        def run_forever(self):
+            return {
+                "status": "STOPPED_MAX_RUNTIME_SECONDS",
+                "max_runtime_seconds": calls["runner_config"].max_runtime_seconds,
+            }
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
+    monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
+    monkeypatch.setattr(
+        cli_main,
+        "_mt5_runner_analysis_func",
+        lambda: lambda: None,
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--duration-hours", "4"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "status": "STOPPED_MAX_RUNTIME_SECONDS",
+        "max_runtime_seconds": 4 * 3600,
+    }
+    assert calls["runner_config"].max_runtime_seconds == 4 * 3600
+    assert calls["runner_config"].max_cycles == 0
+
+
 def test_mt5_run_rejects_too_short_poll_interval():
     invalid_result = runner.invoke(app, ["mt5-run", "--poll-seconds", "4"])
 

@@ -23,6 +23,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MARKET_TIMEZONE":      "market_timezone",
     "TRADINGAGENTS_RUNNER_POLL_SECONDS":  "runner_poll_seconds",
     "TRADINGAGENTS_RUNNER_MAX_CYCLES":    "runner_max_cycles",
+    "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
 }
 
 
@@ -81,6 +82,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "market_timezone": "America/New_York",
     "runner_poll_seconds": 30,
     "runner_max_cycles": 0,
+    "runner_max_runtime_seconds": 0,
     "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
     # Data vendor configuration: keep only core OHLC fetching for now.
