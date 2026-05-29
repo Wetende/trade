@@ -221,6 +221,10 @@ __marimo__/
 # Cache
 **/data_cache/
 
+# Local live-run logs, temporary runner scripts, and market/debug artifacts.
+runtime/
+write-test-workspace.txt
+
 # Local Codex/session notes may contain broker details or credentials.
 .codex
 .codex/
