@@ -119,6 +119,7 @@ class ExecutionJournal:
 
         safe_symbol = safe_ticker_component(self.symbol)
         journal_path = self.results_dir / safe_symbol / "execution_journal" / self.filename
+        fallback_path = self.results_dir / safe_symbol / self.filename
 
         event = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -129,7 +130,11 @@ class ExecutionJournal:
         line = (json.dumps(event, allow_nan=False, sort_keys=True) + "\n").encode(
             "utf-8"
         )
-        self._append_line_descriptor_relative(safe_symbol, line)
+        try:
+            self._append_line_descriptor_relative(safe_symbol, line)
+        except (PermissionError, OSError, ValueError):
+            self._append_line_symbol_root_fallback(safe_symbol, line)
+            return fallback_path
 
         return journal_path
 
@@ -178,6 +183,36 @@ class ExecutionJournal:
         self._ensure_contained(journal_dir)
         journal_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         journal_path = journal_dir / self.filename
+        self._ensure_contained(journal_path)
+
+        open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            open_flags |= os.O_NONBLOCK
+        try:
+            fd = os.open(
+                journal_path,
+                open_flags,
+                0o600,
+            )
+        except OSError as exc:
+            raise ValueError(
+                "unsafe execution journal file path or non-regular file target"
+            ) from exc
+        try:
+            self._ensure_contained(journal_path)
+            self._ensure_regular_file(fd)
+            self._chmod_owner_only(fd, 0o600)
+            self._locked_write_all(fd, line)
+        finally:
+            os.close(fd)
+
+    def _append_line_symbol_root_fallback(self, safe_symbol: str, line: bytes) -> None:
+        symbol_dir = self.results_dir / safe_symbol
+        self._ensure_contained(symbol_dir)
+        symbol_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        journal_path = symbol_dir / self.filename
         self._ensure_contained(journal_path)
 
         open_flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY

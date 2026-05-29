@@ -197,6 +197,25 @@ def test_append_normalizes_cyclic_payloads(tmp_path):
     assert payload["object"] == {"name": "sdk", "self": "<cycle>"}
 
 
+def test_append_falls_back_to_symbol_root_when_execution_journal_directory_is_unavailable(tmp_path, monkeypatch):
+    journal = ExecutionJournal(results_dir=tmp_path, symbol="EURUSD")
+
+    def fail_primary(*args, **kwargs):
+        raise ValueError("unsafe execution journal file path or non-regular file target")
+
+    monkeypatch.setattr(
+        ExecutionJournal,
+        "_append_line_descriptor_relative",
+        fail_primary,
+    )
+
+    path = journal.append("order_submitted", {"ticket": 123})
+
+    assert path == tmp_path / "EURUSD" / "mt5_events.jsonl"
+    events = _read_events(path)
+    assert events[0]["payload"] == {"ticket": 123}
+
+
 def test_append_normalizes_non_finite_floats_for_strict_json(tmp_path):
     journal = ExecutionJournal(results_dir=tmp_path, symbol="XAUUSD")
 
