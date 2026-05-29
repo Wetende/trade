@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingagents"
+version = "0.2.5"
+description = "Price Action Playbook trading assistant"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "langchain-core>=0.3.81",
+    "langchain-anthropic>=0.3.15",
+    "langchain-google-genai>=4.0.0",
+    "langchain-openai>=0.3.23",
+    "langgraph>=0.4.8",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "pandas>=2.3.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "questionary>=2.1.0",
+    "requests>=2.32.4",
+    "rich>=14.0.0",
+    "typer>=0.21.0",
+    "setuptools>=80.9.0",
+    "typing-extensions>=4.14.0",
+    "yfinance>=0.2.63",
+]
+
+[project.scripts]
+tradingagents = "cli.main:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["tradingagents*", "cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast isolated unit tests",
+    "integration: tests requiring external services",
+    "smoke: quick sanity-check tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
