@@ -162,3 +162,24 @@ def test_runner_keeps_two_tuple_analysis_func_backward_compatible(tmp_path):
 
     assert result["status"] == "NO_TRADE"
     assert result["analysis"] == {}
+
+
+def test_runner_records_analysis_error_without_stopping(tmp_path):
+    executor = FakeExecutor(active=False)
+
+    def analysis_func():
+        raise RuntimeError("OpenRouter connection error")
+
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=analysis_func,
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "RUNNER_ERROR"
+    assert result["analysis"]["error_type"] == "RuntimeError"
+    assert result["analysis"]["error"] == "OpenRouter connection error"
+    assert Path(result["heartbeat_path"]).exists()
+    assert Path(result["summary_path"]).exists()

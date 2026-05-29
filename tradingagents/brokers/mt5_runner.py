@@ -63,7 +63,20 @@ class MT5Runner:
                 }
             )
 
-        as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
+        try:
+            as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
+        except Exception as exc:
+            return self._write_heartbeat(
+                {
+                    "status": "RUNNER_ERROR",
+                    "started_at_utc": started_at,
+                    "analysis": {
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                }
+            )
+
         state = self._load_state()
         if state.get("last_processed_as_of") == as_of:
             return self._write_heartbeat(
