@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from tradingagents.agents.schemas import OrderProposal
+from tradingagents.brokers.runner_summary import RunnerSummaryStore
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class MT5Runner:
         self.runner_dir.mkdir(parents=True, exist_ok=True)
         self.heartbeat_path = self.runner_dir / "heartbeat.json"
         self.state_path = self.runner_dir / "state.json"
+        self.summary_store = RunnerSummaryStore(config.results_dir)
 
     def run_once(self) -> dict:
         started_at = datetime.now(timezone.utc).isoformat()
@@ -61,7 +63,7 @@ class MT5Runner:
                 }
             )
 
-        as_of, proposal = self.analysis_func()
+        as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
         state = self._load_state()
         if state.get("last_processed_as_of") == as_of:
             return self._write_heartbeat(
@@ -69,6 +71,7 @@ class MT5Runner:
                     "status": "CANDLE_ALREADY_PROCESSED",
                     "started_at_utc": started_at,
                     "as_of": as_of,
+                    "analysis": analysis,
                 }
             )
 
@@ -81,6 +84,7 @@ class MT5Runner:
                     "started_at_utc": started_at,
                     "as_of": as_of,
                     "proposal": proposal.model_dump(mode="json"),
+                    "analysis": analysis,
                 }
             )
 
@@ -96,6 +100,7 @@ class MT5Runner:
                 "started_at_utc": started_at,
                 "as_of": as_of,
                 "execution": execution,
+                "analysis": analysis,
             }
         )
 
@@ -115,11 +120,27 @@ class MT5Runner:
             "heartbeat_utc": datetime.now(timezone.utc).isoformat(),
             "heartbeat_path": str(self.heartbeat_path),
         }
+        summary = self.summary_store.record_cycle(payload)
+        payload["summary_path"] = str(self.summary_store.summary_path)
+        payload["summary"] = summary
         self.heartbeat_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         return payload
+
+    def _parse_analysis_result(self, result) -> tuple[str, OrderProposal, dict]:
+        if not isinstance(result, tuple):
+            raise ValueError("analysis_func must return a tuple")
+        if len(result) == 2:
+            as_of, proposal = result
+            return as_of, proposal, {}
+        if len(result) == 3:
+            as_of, proposal, analysis = result
+            return as_of, proposal, dict(analysis or {})
+        raise ValueError(
+            "analysis_func must return (as_of, proposal) or (as_of, proposal, analysis)"
+        )
 
     def _load_state(self) -> dict:
         if not self.state_path.exists():

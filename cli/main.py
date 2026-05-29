@@ -388,7 +388,13 @@ def _mt5_runner_analysis_func():
         )
         from tradingagents.brokers.mt5_execution import load_order_proposal
 
-        return selections["as_of"], load_order_proposal(final_state["order_proposal_path"])
+        proposal = load_order_proposal(final_state["order_proposal_path"])
+        analysis = {
+            "order_proposal_path": final_state.get("order_proposal_path"),
+            "price_action_report": final_state.get("price_action_report", ""),
+            "trade_plan": final_state.get("trade_plan", ""),
+        }
+        return selections["as_of"], proposal, analysis
 
     return analyze_once
 

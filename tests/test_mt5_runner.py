@@ -117,3 +117,48 @@ def test_runner_skips_already_processed_candle(tmp_path):
     assert first["status"] == "ORDER_PLACED"
     assert second["status"] == "CANDLE_ALREADY_PROCESSED"
     assert len(executor.executed) == 1
+
+
+def test_runner_records_summary_for_no_trade_with_analysis_metadata(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: (
+            "2026-05-28 10:15",
+            proposal,
+            {
+                "telemetry": {
+                    "decision_stage": "higher_timeframe_permission",
+                    "primary_hold_reason": "H4 blocks BUY",
+                },
+                "data_status": {"healthy": True, "timeframes": {}},
+            },
+        ),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["analysis"]["telemetry"]["decision_stage"] == "higher_timeframe_permission"
+    assert Path(result["summary_path"]).exists()
+    summary = Path(result["summary_path"]).read_text(encoding="utf-8")
+    assert "higher_timeframe" in summary
+
+
+def test_runner_keeps_two_tuple_analysis_func_backward_compatible(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["analysis"] == {}
