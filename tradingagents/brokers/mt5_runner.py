@@ -133,7 +133,11 @@ class MT5Runner:
         while True:
             last_result = self.run_once()
             cycles += 1
-            if self.config.max_cycles and cycles >= self.config.max_cycles:
+            if (
+                deadline is None
+                and self.config.max_cycles
+                and cycles >= self.config.max_cycles
+            ):
                 return {"status": "STOPPED_MAX_CYCLES", "last_result": last_result}
             if deadline is not None:
                 if time.monotonic() >= deadline:

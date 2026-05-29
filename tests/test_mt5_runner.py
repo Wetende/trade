@@ -30,6 +30,19 @@ class FakeExecutor:
         return {"status": "PLACED", "order": 123}
 
 
+class MonotonicClock:
+    def __init__(self, times):
+        self._times = list(times)
+        self._index = 0
+
+    def __call__(self):
+        if self._index >= len(self._times):
+            return self._times[-1]
+        value = self._times[self._index]
+        self._index += 1
+        return value
+
+
 def proposed_order():
     return OrderProposal(
         symbol="GC=F",
@@ -107,12 +120,12 @@ def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE
     executor = FakeExecutor(active=False)
-    times = iter([0.0, 0.0, 2.0])
+    clock = MonotonicClock([0.0, 0.0, 2.0])
     sleeps = []
 
     monkeypatch.setattr(
         "tradingagents.brokers.mt5_runner.time.monotonic",
-        lambda: next(times),
+        clock,
     )
     monkeypatch.setattr(
         "tradingagents.brokers.mt5_runner.time.sleep",
@@ -134,6 +147,70 @@ def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
     assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
     assert result["last_result"]["status"] == "NO_TRADE"
     assert sleeps == []
+
+
+def test_runner_runtime_deadline_takes_precedence_over_max_cycles(tmp_path, monkeypatch):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    clock = MonotonicClock([0.0, 2.0])
+
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.monotonic",
+        clock,
+    )
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: None,
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_runtime_seconds=1,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
+    assert result["last_result"]["status"] == "NO_TRADE"
+
+
+def test_runner_clamps_sleep_to_remaining_runtime(tmp_path, monkeypatch):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    clock = MonotonicClock([0.0, 2.0, 2.0, 5.0])
+    sleeps = []
+
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.monotonic",
+        clock,
+    )
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=10,
+            max_runtime_seconds=5,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
+    assert sleeps == [3.0]
 
 
 def test_runner_skips_already_processed_candle(tmp_path):

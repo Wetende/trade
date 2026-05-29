@@ -1,6 +1,7 @@
 import datetime
 import json
 import locale
+import math
 import os
 from pathlib import Path
 
@@ -493,7 +494,7 @@ def mt5_run(
                     )
                 ),
                 max_runtime_seconds=(
-                    int(duration_hours * 3600)
+                    math.ceil(duration_hours * 3600)
                     if duration_hours
                     else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
                 ),
