@@ -15,6 +15,7 @@ from tradingagents.agents.price_action.setups import (
     detect_sr_bounce,
 )
 from tradingagents.agents.price_action.structure import (
+    classify_timeframe_structure,
     determine_m30_bias,
     evaluate_higher_timeframe_permission,
 )
@@ -106,22 +107,17 @@ def _telemetry(
             "h1": market_context.get("h1_permission"),
             "higher_timeframe": market_context.get("higher_timeframe_permission"),
         },
+        "structures": {
+            "daily": market_context.get("daily_structure"),
+            "h4": market_context.get("h4_structure"),
+            "h1": market_context.get("h1_structure"),
+        },
         "m30_context": {
             "bias": market_context.get("m30_bias"),
             "context": market_context.get("m30_context"),
         },
         "candidate_setup_count": len(candidate_setups or []),
     }
-
-
-def _permission_from_candles(candles: list[Candle]) -> str:
-    if len(candles) < 2:
-        return "NEUTRAL"
-    if candles[-1].close > candles[0].close:
-        return "BUY_ALLOWED"
-    if candles[-1].close < candles[0].close:
-        return "SELL_ALLOWED"
-    return "NEUTRAL"
 
 
 def _is_overextended(candles: list[Candle], limit: int = 10) -> bool:
@@ -193,11 +189,29 @@ def analyze_playbook(
     m30_breakouts = detect_breakouts(m30, m30_zones)
     m30_breakout_dicts = [_setup_to_dict(setup) for setup in m30_breakouts]
     m30_context = determine_m30_bias(m30_breakout_dicts)
+    daily_structure = classify_timeframe_structure(
+        candles_by_tf.get("1d", []),
+        zones_by_tf.get("1d", []),
+        "Daily",
+    )
+    h4_structure = classify_timeframe_structure(
+        candles_by_tf.get("4h", []),
+        zones_by_tf.get("4h", []),
+        "4H",
+    )
+    h1_structure = classify_timeframe_structure(
+        candles_by_tf.get("1h", []),
+        [],
+        "1H",
+    )
     market_context = {
         **m30_context,
-        "daily_permission": _permission_from_candles(candles_by_tf.get("1d", [])),
-        "h4_permission": _permission_from_candles(candles_by_tf.get("4h", [])),
-        "h1_permission": _permission_from_candles(candles_by_tf.get("1h", [])),
+        "daily_structure": daily_structure,
+        "h4_structure": h4_structure,
+        "h1_structure": h1_structure,
+        "daily_permission": daily_structure["permission"],
+        "h4_permission": h4_structure["permission"],
+        "h1_permission": h1_structure["permission"],
         "range": classify_range(m30, m30_zones),
     }
     m30_rejections: list[Setup] = []
@@ -292,9 +306,9 @@ def analyze_playbook(
 
     setup = candidate_setups[0]
     higher_permission = evaluate_higher_timeframe_permission(
-        market_context["daily_permission"],
-        market_context["h4_permission"],
-        market_context["h1_permission"],
+        market_context["daily_structure"],
+        market_context["h4_structure"],
+        market_context["h1_structure"],
         setup.direction,
     )
     market_context["higher_timeframe_permission"] = higher_permission

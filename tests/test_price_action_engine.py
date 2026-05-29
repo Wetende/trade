@@ -189,6 +189,22 @@ def test_engine_payload_contains_raw_telemetry_for_time_filter_hold():
     assert payload["telemetry"]["primary_hold_reason"] == "Time filter failed. Default to HOLD."
     assert payload["telemetry"]["timeframe_rows"]["15m"] == 2
     assert payload["telemetry"]["zone_counts"]["4h"] >= 0
+    assert payload["market_context"]["daily_structure"]["classification"] in {
+        "BULLISH_STRUCTURE",
+        "BEARISH_STRUCTURE",
+        "RANGE",
+        "NEAR_MAJOR_SUPPORT",
+        "NEAR_MAJOR_RESISTANCE",
+        "BREAK_OF_STRUCTURE_UP",
+        "BREAK_OF_STRUCTURE_DOWN",
+        "UNCLEAR",
+    }
+    assert payload["market_context"]["h4_structure"]["permission"] in {
+        "BUY_ALLOWED",
+        "SELL_ALLOWED",
+        "NEUTRAL",
+    }
+    assert payload["market_context"]["h1_structure"]["timeframe"] == "1H"
 
 
 def test_engine_payload_contains_permission_telemetry_when_candidate_is_blocked():
