@@ -71,12 +71,31 @@ def _history_with_retries(
     return last_data, attempts, last_error
 
 
-def _format_history(symbol: str, data, source_note: str, attempts: int = 1) -> str:
+def _market_timezone_for_symbol(symbol: str) -> str | None:
+    configured = os.environ.get("TRADINGAGENTS_MARKET_TIMEZONE")
+    if configured:
+        return configured
+    if symbol.upper().endswith("=F"):
+        return "America/New_York"
+    return None
+
+
+def _format_history(
+    symbol: str,
+    data,
+    source_note: str,
+    attempts: int = 1,
+    market_timezone: str | None = None,
+) -> str:
     if data.empty:
         return f"No data found for symbol '{symbol}' ({source_note}, attempts={attempts})"
 
+    data = data.copy()
     if data.index.tz is not None:
-        data.index = data.index.tz_convert(ZoneInfo("America/New_York")).tz_localize(None)
+        if market_timezone:
+            data.index = data.index.tz_convert(ZoneInfo(market_timezone)).tz_localize(None)
+        else:
+            data.index = data.index.tz_localize(None)
 
     numeric_columns = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
     for col in numeric_columns:
@@ -104,7 +123,13 @@ def get_YFin_data_online(
         start=start_date,
         end=end_date,
     )
-    return _format_history(symbol, data, f"{start_date} to {end_date}", attempts=attempts)
+    return _format_history(
+        symbol,
+        data,
+        f"{start_date} to {end_date}",
+        attempts=attempts,
+        market_timezone=_market_timezone_for_symbol(symbol),
+    )
 
 
 def get_YFin_intraday_data(
@@ -124,4 +149,5 @@ def get_YFin_intraday_data(
         data,
         f"period={period}, interval={interval}",
         attempts=attempts,
+        market_timezone=_market_timezone_for_symbol(symbol),
     )

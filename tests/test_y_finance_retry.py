@@ -114,7 +114,7 @@ def test_yfinance_fetch_clears_dead_local_proxy(monkeypatch, tmp_path):
     }
 
 
-def test_yfinance_formats_timezone_aware_index_in_market_timezone():
+def test_yfinance_formats_futures_timezone_aware_index_in_new_york_timezone():
     index = pd.DatetimeIndex(["2026-05-29 16:45:00+00:00"])
     data = pd.DataFrame(
         {
@@ -127,7 +127,60 @@ def test_yfinance_formats_timezone_aware_index_in_market_timezone():
         index=index,
     )
 
-    text = y_finance._format_history("GC=F", data, "period=10d, interval=15m")
+    text = y_finance._format_history(
+        "GC=F",
+        data,
+        "period=10d, interval=15m",
+        market_timezone="America/New_York",
+    )
 
     assert "2026-05-29 12:45:00" in text
     assert "2026-05-29 16:45:00" not in text
+
+
+def test_yfinance_format_preserves_local_time_without_market_timezone():
+    index = pd.DatetimeIndex(["2026-05-29 16:45:00+09:00"])
+    data = pd.DataFrame(
+        {
+            "Open": [1.0],
+            "High": [2.0],
+            "Low": [0.5],
+            "Close": [1.5],
+            "Volume": [100],
+        },
+        index=index,
+    )
+
+    text = y_finance._format_history(
+        "7203.T",
+        data,
+        "period=10d, interval=15m",
+        market_timezone=None,
+    )
+
+    assert "2026-05-29 16:45:00" in text
+    assert "2026-05-29 03:45:00" not in text
+
+
+def test_yfinance_format_does_not_mutate_original_dataframe_index():
+    index = pd.DatetimeIndex(["2026-05-29 16:45:00+00:00"])
+    data = pd.DataFrame(
+        {
+            "Open": [1.12345],
+            "High": [2.12345],
+            "Low": [0.51234],
+            "Close": [1.51234],
+            "Volume": [100],
+        },
+        index=index,
+    )
+    original_index = data.index.copy()
+
+    y_finance._format_history(
+        "GC=F",
+        data,
+        "period=10d, interval=15m",
+        market_timezone="America/New_York",
+    )
+
+    pd.testing.assert_index_equal(data.index, original_index)
