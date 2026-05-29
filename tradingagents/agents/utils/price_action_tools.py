@@ -23,6 +23,7 @@ from langchain_core.tools import tool
 from tradingagents.agents.price_action.engine import (
     analyze_playbook as analyze_top_down_playbook,
 )
+from tradingagents.dataflows.data_health import build_data_status, data_is_healthy
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.price_action import fetch_price_action_timeframes
 from tradingagents.dataflows.utils import safe_ticker_component
@@ -931,11 +932,27 @@ def get_playbook_setups(
 
     try:
         timeframe_data = fetch_price_action_timeframes(symbol)
-        data_status = _top_down_data_status(
-            timeframe_data,
-            timeframe,
-            confirmation_timeframe,
-        )
+        data_status = build_data_status(timeframe_data, as_of, market_timezone)
+        if not data_is_healthy(data_status):
+            payload = build_no_setup_payload(
+                symbol,
+                as_of,
+                timeframe,
+                confirmation_timeframe,
+                data_status=data_status,
+            )
+            payload["message"] = "Data health failed. Default to HOLD."
+            payload["telemetry"] = {
+                "decision_stage": "data_health",
+                "primary_hold_reason": "Data health failed. Default to HOLD.",
+                "timeframe_rows": {
+                    tf: status["rows"]
+                    for tf, status in data_status.get("timeframes", {}).items()
+                },
+            }
+            telemetry_path = write_engine_payload(payload, DEFAULT_CONFIG["results_dir"])
+            payload["telemetry_path"] = str(telemetry_path)
+            return json.dumps(payload, indent=2, sort_keys=True)
         if (
             data_status["trading_timeframe"]["available"]
             and data_status["confirmation_timeframe"]["available"]

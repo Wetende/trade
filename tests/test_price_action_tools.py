@@ -225,6 +225,39 @@ def test_get_playbook_setups_keeps_hold_when_intraday_data_is_empty(monkeypatch)
 
 
 @pytest.mark.unit
+def test_get_playbook_setups_blocks_when_data_is_stale(monkeypatch):
+    def fake_fetch(symbol):
+        from tradingagents.agents.price_action.candles import parse_ohlcv_text
+
+        candles = parse_ohlcv_text(
+            "Datetime,Open,High,Low,Close,Volume\n"
+            "2026-05-18 06:00:00,100,105,99,104,1000"
+        )
+        return {"1d": candles, "4h": candles, "1h": candles, "30m": candles, "15m": candles}
+
+    monkeypatch.setattr(
+        "tradingagents.agents.utils.price_action_tools.fetch_price_action_timeframes",
+        fake_fetch,
+    )
+
+    raw = get_playbook_setups.invoke(
+        {
+            "symbol": "XAUUSD",
+            "as_of": "2026-05-18 08:30",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+        }
+    )
+
+    payload = json.loads(raw)
+    assert payload["recommendation"] == "HOLD"
+    assert payload["message"] == "Data health failed. Default to HOLD."
+    assert payload["data_status"]["healthy"] is False
+    assert "15m" in payload["data_status"]["blocking_timeframes"]
+    assert payload["telemetry"]["decision_stage"] == "data_health"
+
+
+@pytest.mark.unit
 def test_get_playbook_setups_payload_contains_engine_sections(monkeypatch):
     def fake_fetch(symbol):
         from tradingagents.agents.price_action.candles import parse_ohlcv_text
