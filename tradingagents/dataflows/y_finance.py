@@ -42,8 +42,9 @@ def configure_yfinance_runtime() -> Path:
     cache_dir = _default_yfinance_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
     yf.set_tz_cache_location(str(cache_dir))
-    if hasattr(yf, "cache"):
-        yf.cache.set_cache_location(str(cache_dir))
+    cache_setter = getattr(getattr(yf, "cache", None), "set_cache_location", None)
+    if callable(cache_setter):
+        cache_setter(str(cache_dir))
     return cache_dir
 
 
@@ -72,9 +73,6 @@ def _history_with_retries(
 
 
 def _market_timezone_for_symbol(symbol: str) -> str | None:
-    configured = os.environ.get("TRADINGAGENTS_MARKET_TIMEZONE")
-    if configured:
-        return configured
     if symbol.upper().endswith("=F"):
         return "America/New_York"
     return None

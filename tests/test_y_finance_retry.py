@@ -74,6 +74,44 @@ def test_yfinance_configures_cache_location(monkeypatch, tmp_path):
     assert ("cache", str(tmp_path)) in calls
 
 
+def test_yfinance_cache_dir_uses_project_cache_env_when_specific_env_absent(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", raising=False)
+    monkeypatch.setenv("TRADINGAGENTS_CACHE_DIR", str(tmp_path))
+
+    cache_dir = y_finance._default_yfinance_cache_dir()
+
+    assert cache_dir == tmp_path / "yfinance"
+
+
+def test_yfinance_cache_dir_uses_home_default_when_env_absent(monkeypatch, tmp_path):
+    monkeypatch.delenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_CACHE_DIR", raising=False)
+    monkeypatch.setattr(y_finance.Path, "home", staticmethod(lambda: tmp_path))
+
+    cache_dir = y_finance._default_yfinance_cache_dir()
+
+    assert cache_dir == tmp_path / ".tradingagents" / "cache" / "yfinance"
+
+
+def test_yfinance_configure_skips_missing_cache_setter(monkeypatch, tmp_path):
+    calls = []
+
+    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        y_finance.yf,
+        "set_tz_cache_location",
+        lambda path: calls.append(("tz", path)),
+    )
+    monkeypatch.setattr(y_finance.yf, "cache", object())
+
+    cache_dir = y_finance.configure_yfinance_runtime()
+
+    assert cache_dir == tmp_path
+    assert calls == [("tz", str(tmp_path))]
+
+
 def test_yfinance_fetch_clears_dead_local_proxy(monkeypatch, tmp_path):
     captured = {}
     fake = FakeTicker([_frame()])
@@ -112,6 +150,54 @@ def test_yfinance_fetch_clears_dead_local_proxy(monkeypatch, tmp_path):
         "https_proxy": None,
         "all_proxy": None,
     }
+
+
+def test_yfinance_fetch_preserves_legitimate_proxy_values(monkeypatch, tmp_path):
+    captured = {}
+    fake = FakeTicker([_frame()])
+
+    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
+    monkeypatch.delenv("http_proxy", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    monkeypatch.delenv("all_proxy", raising=False)
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8080")
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:9")
+    monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
+    monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(y_finance.yf, "set_tz_cache_location", lambda path: None)
+    monkeypatch.setattr(y_finance.yf.cache, "set_cache_location", lambda path: None)
+
+    def history_with_capture(**kwargs):
+        captured["HTTP_PROXY"] = y_finance.os.environ.get("HTTP_PROXY")
+        captured["HTTPS_PROXY"] = y_finance.os.environ.get("HTTPS_PROXY")
+        captured["ALL_PROXY"] = y_finance.os.environ.get("ALL_PROXY")
+        captured["http_proxy"] = y_finance.os.environ.get("http_proxy")
+        captured["https_proxy"] = y_finance.os.environ.get("https_proxy")
+        captured["all_proxy"] = y_finance.os.environ.get("all_proxy")
+        return _frame()
+
+    fake.history = history_with_capture
+
+    text = y_finance.get_YFin_intraday_data("GC=F", period="10d", interval="15m")
+
+    assert "No data found" not in text
+    assert captured == {
+        "HTTP_PROXY": None,
+        "HTTPS_PROXY": "http://127.0.0.1:8080",
+        "ALL_PROXY": "socks5://127.0.0.1:9",
+        "http_proxy": None,
+        "https_proxy": "http://127.0.0.1:8080",
+        "all_proxy": "socks5://127.0.0.1:9",
+    }
+
+
+def test_yfinance_market_timezone_does_not_apply_global_override_to_generic_symbol(
+    monkeypatch,
+):
+    monkeypatch.setenv("TRADINGAGENTS_MARKET_TIMEZONE", "America/New_York")
+
+    assert y_finance._market_timezone_for_symbol("7203.T") is None
 
 
 def test_yfinance_formats_futures_timezone_aware_index_in_new_york_timezone():
