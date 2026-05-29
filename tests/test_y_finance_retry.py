@@ -49,3 +49,85 @@ def test_yfinance_intraday_returns_no_data_after_all_attempts(monkeypatch):
     assert fake.calls == 3
     assert "No data found for symbol 'GC=F'" in text
     assert "attempts=3" in text
+
+
+def test_yfinance_configures_cache_location(monkeypatch, tmp_path):
+    calls = []
+
+    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        y_finance.yf,
+        "set_tz_cache_location",
+        lambda path: calls.append(("tz", path)),
+    )
+    monkeypatch.setattr(
+        y_finance.yf.cache,
+        "set_cache_location",
+        lambda path: calls.append(("cache", path)),
+    )
+
+    cache_dir = y_finance.configure_yfinance_runtime()
+
+    assert cache_dir == tmp_path
+    assert tmp_path.exists()
+    assert ("tz", str(tmp_path)) in calls
+    assert ("cache", str(tmp_path)) in calls
+
+
+def test_yfinance_fetch_clears_dead_local_proxy(monkeypatch, tmp_path):
+    captured = {}
+    fake = FakeTicker([_frame()])
+
+    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    monkeypatch.setenv("https_proxy", "http://127.0.0.1:9")
+    monkeypatch.setenv("all_proxy", "http://127.0.0.1:9")
+    monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
+    monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(y_finance.yf, "set_tz_cache_location", lambda path: None)
+    monkeypatch.setattr(y_finance.yf.cache, "set_cache_location", lambda path: None)
+
+    def history_with_capture(**kwargs):
+        captured["HTTP_PROXY"] = y_finance.os.environ.get("HTTP_PROXY")
+        captured["HTTPS_PROXY"] = y_finance.os.environ.get("HTTPS_PROXY")
+        captured["ALL_PROXY"] = y_finance.os.environ.get("ALL_PROXY")
+        captured["http_proxy"] = y_finance.os.environ.get("http_proxy")
+        captured["https_proxy"] = y_finance.os.environ.get("https_proxy")
+        captured["all_proxy"] = y_finance.os.environ.get("all_proxy")
+        return _frame()
+
+    fake.history = history_with_capture
+
+    text = y_finance.get_YFin_intraday_data("GC=F", period="10d", interval="15m")
+
+    assert "No data found" not in text
+    assert captured == {
+        "HTTP_PROXY": None,
+        "HTTPS_PROXY": None,
+        "ALL_PROXY": None,
+        "http_proxy": None,
+        "https_proxy": None,
+        "all_proxy": None,
+    }
+
+
+def test_yfinance_formats_timezone_aware_index_in_market_timezone():
+    index = pd.DatetimeIndex(["2026-05-29 16:45:00+00:00"])
+    data = pd.DataFrame(
+        {
+            "Open": [1.0],
+            "High": [2.0],
+            "Low": [0.5],
+            "Close": [1.5],
+            "Volume": [100],
+        },
+        index=index,
+    )
+
+    text = y_finance._format_history("GC=F", data, "period=10d, interval=15m")
+
+    assert "2026-05-29 12:45:00" in text
+    assert "2026-05-29 16:45:00" not in text
