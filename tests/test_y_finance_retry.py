@@ -27,7 +27,14 @@ def _frame():
     )
 
 
-def test_yfinance_intraday_retries_empty_response(monkeypatch):
+def _stub_yfinance_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(y_finance.yf, "set_tz_cache_location", lambda path: None)
+    monkeypatch.setattr(y_finance.yf.cache, "set_cache_location", lambda path: None)
+
+
+def test_yfinance_intraday_retries_empty_response(monkeypatch, tmp_path):
+    _stub_yfinance_runtime(monkeypatch, tmp_path)
     fake = FakeTicker([pd.DataFrame(), _frame()])
     monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
     monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
@@ -39,7 +46,8 @@ def test_yfinance_intraday_retries_empty_response(monkeypatch):
     assert "No data found" not in text
 
 
-def test_yfinance_intraday_returns_no_data_after_all_attempts(monkeypatch):
+def test_yfinance_intraday_returns_no_data_after_all_attempts(monkeypatch, tmp_path):
+    _stub_yfinance_runtime(monkeypatch, tmp_path)
     fake = FakeTicker([pd.DataFrame(), pd.DataFrame(), pd.DataFrame()])
     monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
     monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
@@ -72,6 +80,25 @@ def test_yfinance_configures_cache_location(monkeypatch, tmp_path):
     assert tmp_path.exists()
     assert ("tz", str(tmp_path)) in calls
     assert ("cache", str(tmp_path)) in calls
+
+
+def test_yfinance_online_data_configures_runtime(monkeypatch):
+    calls = []
+    fake = FakeTicker([_frame()])
+
+    monkeypatch.setattr(
+        y_finance,
+        "configure_yfinance_runtime",
+        lambda: calls.append("runtime"),
+    )
+    monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
+    monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
+
+    text = y_finance.get_YFin_data_online("GC=F", "2026-05-29", "2026-05-30")
+
+    assert calls == ["runtime"]
+    assert fake.calls == 1
+    assert "No data found" not in text
 
 
 def test_yfinance_cache_dir_uses_project_cache_env_when_specific_env_absent(
@@ -155,14 +182,17 @@ def test_yfinance_fetch_clears_dead_local_proxy(monkeypatch, tmp_path):
 def test_yfinance_fetch_preserves_legitimate_proxy_values(monkeypatch, tmp_path):
     captured = {}
     fake = FakeTicker([_frame()])
+    env = {
+        "TRADINGAGENTS_YFINANCE_CACHE_DIR": str(tmp_path),
+        "HTTP_PROXY": "http://127.0.0.1:9",
+        "HTTPS_PROXY": "http://127.0.0.1:8080",
+        "ALL_PROXY": "socks5://127.0.0.1:9",
+        "http_proxy": "http://proxy.example:3128",
+        "https_proxy": "http://127.0.0.1:9/",
+        "all_proxy": "http://127.0.0.1:9?fallback=true",
+    }
 
-    monkeypatch.setenv("TRADINGAGENTS_YFINANCE_CACHE_DIR", str(tmp_path))
-    monkeypatch.delenv("http_proxy", raising=False)
-    monkeypatch.delenv("https_proxy", raising=False)
-    monkeypatch.delenv("all_proxy", raising=False)
-    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
-    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8080")
-    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:9")
+    monkeypatch.setattr(y_finance.os, "environ", env)
     monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
     monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(y_finance.yf, "set_tz_cache_location", lambda path: None)
@@ -186,9 +216,9 @@ def test_yfinance_fetch_preserves_legitimate_proxy_values(monkeypatch, tmp_path)
         "HTTP_PROXY": None,
         "HTTPS_PROXY": "http://127.0.0.1:8080",
         "ALL_PROXY": "socks5://127.0.0.1:9",
-        "http_proxy": None,
-        "https_proxy": "http://127.0.0.1:8080",
-        "all_proxy": "socks5://127.0.0.1:9",
+        "http_proxy": "http://proxy.example:3128",
+        "https_proxy": "http://127.0.0.1:9/",
+        "all_proxy": "http://127.0.0.1:9?fallback=true",
     }
 
 
