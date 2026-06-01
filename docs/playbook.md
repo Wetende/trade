@@ -37,7 +37,7 @@ Use this checklist to confirm every rule is met before entering a trade.
 - [ ] Is it a Sunday Asian session? If yes, do not take the trade.
 - [ ] Does the confirmation candle have a top and bottom wick?
 - [ ] Does the trading candle have a bottom/top wick for stop-loss placement?
-- [ ] After placing the limit order, confirm it cannot be activated in the last 5 minutes of the M15 candle.
+- [ ] After placing the pending order, confirm it cannot be activated in the last 5 minutes of the M15 candle.
 
 Once every checklist item passes, the trade can move into trade management.
 
@@ -107,9 +107,15 @@ Broker adapter responsibilities:
 - Map internal symbol to broker symbol, such as `XAUUSD`, `XAUUSDm`, or another broker-specific code.
 - Convert Gold points/pips using the broker's tick size.
 - Validate minimum lot size and order constraints.
-- Place limit orders through the configured broker connection during forward
+- Choose the broker-valid pending order type from the setup, side, entry price,
+  and current bid/ask.
+- Use `BUY_LIMIT` / `SELL_LIMIT` when the entry waits for a pullback.
+- Use `BUY_STOP` / `SELL_STOP` when the entry waits for continuation through a
+  level.
+- Skip stale entries instead of chasing market price.
+- Place pending orders through the configured broker connection during forward
   testing.
-- Cancel stale limit orders.
+- Cancel stale pending orders.
 - Modify stop-loss for break-even.
 - Trail stop-loss behind M15 structure.
 - Report fills, cancellations, and errors back to the trading engine.
@@ -127,7 +133,7 @@ Before broker integration, confirm:
 - Maximum lot size.
 - Typical spread during Asian, London, and New York sessions.
 - Stop-level and freeze-level rules.
-- Limit order expiration rules.
+- Pending order expiration rules.
 - Whether the broker supports order modification for break-even and trailing stop logic.
 
 Alpaca is not the target broker for the XAUUSD strategy because the playbook is built around Gold/metal CFD-style trading and MetaTrader-style execution.
@@ -218,7 +224,7 @@ It answers:
 - Has the candle closed?
 - Is there a valid wick for stop-loss?
 - Is the entry still fresh?
-- Can we place a clean limit order?
+- Can we place a clean broker-valid pending order?
 
 ## M15/M30 Correlation Rule
 
@@ -695,7 +701,7 @@ If there is no wick for stop-loss placement, the answer is always `NO TRADE`.
 
 ## Rule 11: Trading Candle Has Wick for Stop-Loss
 
-This is important for limit order and stop-loss placement.
+This is important for pending order and stop-loss placement.
 
 ### Buy Rule
 
@@ -717,19 +723,19 @@ If there is no wick for stop-loss:
 NO TRADE
 ```
 
-## Rule 12: Limit Order Activation Timing
+## Rule 12: Pending Order Activation Timing
 
-After placing the limit order, ensure it is not activated in the last 5 minutes of the 15-minute candle.
+After placing the pending order, ensure it is not activated in the last 5 minutes of the 15-minute candle.
 
 For the bot:
 
-- If the limit order is not triggered within the first 10 minutes of the M15 candle, cancel it.
+- If the pending order is not triggered within the first 10 minutes of the M15 candle, cancel it.
 
 Example:
 
 ```text
 M15 candle opens at 10:00
-Limit order can trigger between 10:00 and 10:10
+Pending order can trigger between 10:00 and 10:10
 If not triggered by 10:10, cancel
 Do not allow activation from 10:10 to 10:15
 ```
@@ -754,7 +760,11 @@ The M15 confirmation candle must be a strong directional close. This can be:
 - A very strong directional step candle.
 - A candle that clearly closes away from the zone after rejection.
 
-The entry order is a limit order placed at the wick/retest price of the closed candle. The bot should not chase market price after the confirmation candle has already moved too far.
+The entry order is a pending order placed at the playbook entry price from the
+closed candle. Rejection and retest entries usually become limit orders because
+they wait for a pullback. Direct breakout entries may become stop orders because
+they wait for continuation through the level. The bot should not chase market
+price after the confirmation candle has already moved too far.
 
 ### Sell Entry Model
 
@@ -904,7 +914,7 @@ Automation goals:
 - Detect and record all higher-timeframe zones before price reaches them.
 - Score all zones so backtesting can prove which zone types are strongest.
 - Wait patiently for the exact M15 entry model.
-- Place only valid limit orders.
+- Place only broker-valid pending orders.
 - Cancel stale orders according to the activation timing rule.
 - Move stop-loss to break even when the rule is met.
 - Trail stop-loss according to market structure.
@@ -979,7 +989,7 @@ For MT5 runner execution, the deterministic price-action engine is the source of
 
 ## Active Trade Management Flow
 
-1. Place valid limit order only during the allowed activation window.
+1. Place valid pending order only during the allowed activation window.
 2. Cancel the order if it is not triggered within the first 10 minutes of the M15 candle.
 3. If triggered, monitor price movement toward the first risk milestone.
 4. Move stop-loss to break even once the break-even rule is met.

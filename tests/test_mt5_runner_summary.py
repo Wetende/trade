@@ -110,3 +110,68 @@ def test_runner_summary_hold_reason_prefers_telemetry_over_proposal_text(tmp_pat
 
     assert summary["hold_reason_counts"] == {"no_m15_setup": 1}
     assert summary["latest_cycle"]["hold_reason"] == "no_m15_setup"
+
+
+def test_runner_summary_counts_execution_skips_and_latest_order_context(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "ORDER_NOT_PLACED",
+            "as_of": "2026-06-01 10:15",
+            "execution": {
+                "status": "SKIPPED_INVALID_ENTRY",
+                "reason": "ENTRY_PRICE_STALE_OR_INVALID",
+                "proposal": {
+                    "setup_name": "Breakout",
+                    "strategy_type": "BREAKOUT",
+                    "order_type": "AUTO",
+                    "side": "SELL",
+                },
+            },
+            "analysis": {
+                "telemetry": {
+                    "candidate_evaluations": [
+                        {"setup": {"name": "Breakout"}, "approved": True},
+                        {
+                            "setup": {"name": "Support/Resistance Bounce"},
+                            "approved": False,
+                        },
+                    ]
+                },
+                "data_status": {"healthy": True},
+            },
+        }
+    )
+
+    assert summary["orders_skipped"] == 1
+    assert summary["execution_skip_counts"]["ENTRY_PRICE_STALE_OR_INVALID"] == 1
+    assert summary["candidate_strategy_counts"]["Breakout"] == 1
+    assert summary["candidate_strategy_counts"]["Support/Resistance Bounce"] == 1
+    assert summary["approved_candidate_strategy_counts"]["Breakout"] == 1
+    assert summary["latest_execution"]["status"] == "SKIPPED_INVALID_ENTRY"
+    assert summary["latest_execution"]["setup_name"] == "Breakout"
+
+
+def test_runner_summary_records_rejection_retcode_comment(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "ORDER_NOT_PLACED",
+            "execution": {
+                "status": "REJECTED",
+                "broker_result": {
+                    "retcode": 10015,
+                    "comment": "Invalid price",
+                    "request": {"type": "SELL_LIMIT"},
+                },
+            },
+            "analysis": {"data_status": {"healthy": True}},
+        }
+    )
+
+    assert summary["broker_rejections"] == 1
+    assert summary["latest_execution"]["retcode"] == 10015
+    assert summary["latest_execution"]["comment"] == "Invalid price"
+    assert summary["latest_execution"]["request_type"] == "SELL_LIMIT"

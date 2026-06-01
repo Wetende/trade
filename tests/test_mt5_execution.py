@@ -113,7 +113,7 @@ def test_build_request_rejects_no_trade_proposal():
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
 
 
-def test_build_request_rejects_non_limit_proposal():
+def test_build_request_rejects_market_order_proposal():
     builder = MT5OrderRequestBuilder(
         MT5ConnectionConfig(
             login=123456789,
@@ -124,7 +124,7 @@ def test_build_request_rejects_non_limit_proposal():
     proposal = _proposal()
     proposal.order_type = "MARKET"
 
-    with pytest.raises(ValueError, match="LIMIT order proposals"):
+    with pytest.raises(ValueError, match="unsupported MT5 pending order type: MARKET"):
         builder.build_pending_limit_request(proposal, {"name": "XAUUSD", "digits": 2})
 
 
@@ -144,6 +144,146 @@ def test_build_sell_limit_request_maps_side():
     request = builder.build_pending_limit_request(proposal, {"digits": 2})
 
     assert request["type"] == "SELL_LIMIT"
+
+
+def test_build_breakout_buy_above_ask_as_buy_stop():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.BUY)
+    proposal.order_type = "AUTO"
+    proposal.setup_name = "Breakout"
+    proposal.strategy_type = "BREAKOUT"
+    proposal.entry_price = 4508.00
+    proposal.stop_loss = 4506.00
+    proposal.take_profit = 4512.00
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "trade_tick_size": 0.01,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "BUY_STOP"
+
+
+def test_build_breakout_sell_below_bid_as_sell_stop():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.SELL)
+    proposal.order_type = "AUTO"
+    proposal.setup_name = "Breakout"
+    proposal.strategy_type = "BREAKOUT"
+    proposal.entry_price = 4506.00
+    proposal.stop_loss = 4508.00
+    proposal.take_profit = 4502.00
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "trade_tick_size": 0.01,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "SELL_STOP"
+
+
+def test_build_retest_buy_below_ask_as_buy_limit():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.BUY)
+    proposal.order_type = "AUTO"
+    proposal.setup_name = "Break and Retest"
+    proposal.strategy_type = "BREAK_AND_RETEST"
+    proposal.entry_price = 4506.50
+    proposal.stop_loss = 4505.00
+    proposal.take_profit = 4510.00
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "trade_tick_size": 0.01,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "BUY_LIMIT"
+
+
+def test_build_retest_sell_above_bid_as_sell_limit():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.SELL)
+    proposal.order_type = "AUTO"
+    proposal.setup_name = "Break and Retest"
+    proposal.strategy_type = "BREAK_AND_RETEST"
+    proposal.entry_price = 4507.50
+    proposal.stop_loss = 4509.00
+    proposal.take_profit = 4504.00
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "trade_tick_size": 0.01,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "SELL_LIMIT"
+
+
+def test_build_auto_rejects_stale_buy_entry_between_bid_and_ask():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.BUY)
+    proposal.order_type = "AUTO"
+    proposal.entry_price = 4507.10
+    proposal.stop_loss = 4505.00
+    proposal.take_profit = 4511.00
+
+    with pytest.raises(ValueError, match="entry price is stale or inside spread"):
+        builder.build_pending_order_request(
+            proposal,
+            {
+                "name": "XAUUSD",
+                "digits": 2,
+                "trade_tick_size": 0.01,
+                "bid": 4506.99,
+                "ask": 4507.32,
+            },
+        )
+
+
+def test_build_auto_rejects_entry_inside_broker_stop_level():
+    builder = MT5OrderRequestBuilder(_config())
+    proposal = _proposal(TradeAction.BUY)
+    proposal.order_type = "AUTO"
+    proposal.entry_price = 4507.50
+    proposal.stop_loss = 4506.00
+    proposal.take_profit = 4512.00
+
+    with pytest.raises(ValueError, match="entry price is inside broker stop level"):
+        builder.build_pending_order_request(
+            proposal,
+            {
+                "name": "XAUUSD",
+                "digits": 2,
+                "point": 0.01,
+                "trade_tick_size": 0.01,
+                "trade_stops_level": 50,
+                "bid": 4506.99,
+                "ask": 4507.32,
+            },
+        )
 
 
 def test_build_request_rejects_broker_symbol_mismatch():
@@ -411,6 +551,31 @@ def test_executor_returns_rejected_when_broker_rejects_order(tmp_path):
     assert result["status"] == "REJECTED"
     assert result["order"] is None
     assert result["broker_result"]["retcode"] == 10030
+
+
+def test_executor_skips_stale_auto_entry_without_broker_send(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_info = {
+        "name": "XAUUSD",
+        "digits": 2,
+        "point": 0.01,
+        "trade_tick_size": 0.01,
+        "bid": 4506.99,
+        "ask": 4507.32,
+    }
+    proposal = _proposal(TradeAction.BUY)
+    proposal.order_type = "AUTO"
+    proposal.entry_price = 4507.10
+    proposal.stop_loss = 4505.00
+    proposal.take_profit = 4511.00
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_proposal(proposal)
+
+    assert result["status"] == "SKIPPED_INVALID_ENTRY"
+    assert result["reason"] == "ENTRY_PRICE_STALE_OR_INVALID"
+    assert "inside spread" in result["error"]
+    assert broker.placed_requests == []
 
 
 def test_executor_journals_connection_request_and_order_result(tmp_path):

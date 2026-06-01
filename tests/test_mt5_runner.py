@@ -116,6 +116,31 @@ def test_runner_records_no_trade_without_execution(tmp_path):
     assert executor.executed == []
 
 
+def test_runner_can_execute_same_candle_after_initial_no_trade(tmp_path):
+    no_trade = proposed_order()
+    no_trade.status = OrderStatus.NO_TRADE
+    proposed = proposed_order()
+    responses = iter(
+        [
+            ("2026-05-28 10:15", no_trade),
+            ("2026-05-28 10:15", proposed),
+        ]
+    )
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: next(responses),
+    )
+
+    first = runner.run_once()
+    second = runner.run_once()
+
+    assert first["status"] == "NO_TRADE"
+    assert second["status"] == "ORDER_PLACED"
+    assert len(executor.executed) == 1
+
+
 def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE
@@ -227,6 +252,35 @@ def test_runner_skips_already_processed_candle(tmp_path):
     assert first["status"] == "ORDER_PLACED"
     assert second["status"] == "CANDLE_ALREADY_PROCESSED"
     assert len(executor.executed) == 1
+
+
+def test_runner_records_invalid_entry_skip_as_order_not_placed(tmp_path):
+    proposal = proposed_order()
+
+    class InvalidEntryExecutor(FakeExecutor):
+        def execute_proposal(self, proposal):
+            self.executed.append(proposal)
+            return {
+                "status": "SKIPPED_INVALID_ENTRY",
+                "reason": "ENTRY_PRICE_STALE_OR_INVALID",
+                "proposal": proposal.model_dump(mode="json"),
+            }
+
+    executor = InvalidEntryExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal, {"telemetry": {}}),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_NOT_PLACED"
+    assert result["execution"]["status"] == "SKIPPED_INVALID_ENTRY"
+    assert (
+        result["summary"]["execution_skip_counts"]["ENTRY_PRICE_STALE_OR_INVALID"]
+        == 1
+    )
 
 
 def test_runner_records_summary_for_no_trade_with_analysis_metadata(tmp_path):

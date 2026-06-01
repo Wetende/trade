@@ -1,7 +1,7 @@
 """MetaTrader 5 broker adapter.
 
-This adapter verifies configured account details and supports guarded
-order actions for pending limit orders, order cancellation, and stop updates.
+This adapter verifies configured account details and supports guarded pending
+order actions, order cancellation, and stop updates.
 """
 
 from __future__ import annotations
@@ -118,6 +118,8 @@ class MT5OrderRequestBuilder:
     fields into MetaTrader5 constants.
     """
 
+    PENDING_ORDER_TYPES = {"BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"}
+
     def __init__(self, config: MT5ConnectionConfig):
         self.config = config
 
@@ -133,15 +135,90 @@ class MT5OrderRequestBuilder:
             price = round(price / tick_size) * tick_size
         return round(price, digits)
 
-    def _order_type(self, side: Any) -> str:
+    def _legacy_limit_order_type(self, side: Any) -> str:
         side_value = str(getattr(side, "value", side)).upper()
         if side_value == "BUY":
             return "BUY_LIMIT"
         if side_value == "SELL":
             return "SELL_LIMIT"
-        raise ValueError(f"unsupported proposal side for MT5 limit order: {side_value}")
+        raise ValueError(f"unsupported proposal side for MT5 pending order: {side_value}")
 
-    def build_pending_limit_request(
+    def _quote(self, symbol_info: dict[str, Any]) -> tuple[float, float]:
+        bid = self._round_price(symbol_info.get("bid"), symbol_info)
+        ask = self._round_price(symbol_info.get("ask"), symbol_info)
+        if bid <= 0 or ask <= 0 or bid > ask:
+            raise ValueError(
+                "symbol bid/ask are required for AUTO pending order selection"
+            )
+        return bid, ask
+
+    def _explicit_order_type(self, proposal: OrderProposal) -> str:
+        value = str(getattr(proposal, "order_type", "")).strip().upper()
+        if value == "LIMIT":
+            return self._legacy_limit_order_type(proposal.side)
+        if value in self.PENDING_ORDER_TYPES:
+            return value
+        if value == "AUTO":
+            raise ValueError("AUTO order type must be resolved from current bid/ask")
+        raise ValueError(f"unsupported MT5 pending order type: {value}")
+
+    def _auto_order_type(
+        self,
+        proposal: OrderProposal,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> str:
+        bid, ask = self._quote(symbol_info)
+        side_value = str(getattr(proposal.side, "value", proposal.side)).upper()
+        if bid < entry < ask:
+            raise ValueError("entry price is stale or inside spread")
+        if side_value == "BUY":
+            return "BUY_STOP" if entry >= ask else "BUY_LIMIT"
+        if side_value == "SELL":
+            return "SELL_STOP" if entry <= bid else "SELL_LIMIT"
+        raise ValueError(f"unsupported proposal side for MT5 pending order: {side_value}")
+
+    def _resolve_order_type(
+        self,
+        proposal: OrderProposal,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> str:
+        value = str(getattr(proposal, "order_type", "")).strip().upper()
+        if value == "AUTO":
+            return self._auto_order_type(proposal, entry, symbol_info)
+        return self._explicit_order_type(proposal)
+
+    def _assert_stop_level_distance(
+        self,
+        request_type: str,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> None:
+        raw_stops_level = symbol_info.get("trade_stops_level")
+        if raw_stops_level in (None, ""):
+            return
+        try:
+            stops_level = float(raw_stops_level)
+            point = float(symbol_info.get("point") or 0)
+        except (TypeError, ValueError):
+            return
+        min_distance = stops_level * point
+        if min_distance <= 0:
+            return
+
+        bid, ask = self._quote(symbol_info)
+        distances = {
+            "BUY_LIMIT": ask - entry,
+            "SELL_LIMIT": entry - bid,
+            "BUY_STOP": entry - ask,
+            "SELL_STOP": bid - entry,
+        }
+        distance = distances.get(request_type)
+        if distance is not None and distance < min_distance:
+            raise ValueError("entry price is inside broker stop level")
+
+    def build_pending_order_request(
         self,
         proposal: OrderProposal,
         symbol_info: dict[str, Any],
@@ -149,9 +226,6 @@ class MT5OrderRequestBuilder:
         status = str(getattr(proposal.status, "value", proposal.status)).upper()
         if status != "PROPOSED":
             raise ValueError("MT5 execution requires a PROPOSED order proposal")
-        order_type = str(getattr(proposal, "order_type", "")).strip().upper()
-        if order_type != "LIMIT":
-            raise ValueError("MT5 execution requires LIMIT order proposals")
         if (
             proposal.entry_price is None
             or proposal.stop_loss is None
@@ -174,11 +248,12 @@ class MT5OrderRequestBuilder:
         entry = self._round_price(proposal.entry_price, symbol_info)
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
-        request_type = self._order_type(proposal.side)
-        if request_type == "BUY_LIMIT" and not (stop < entry < target):
-            raise ValueError("invalid BUY levels for MT5 limit order")
-        if request_type == "SELL_LIMIT" and not (target < entry < stop):
-            raise ValueError("invalid SELL levels for MT5 limit order")
+        request_type = self._resolve_order_type(proposal, entry, symbol_info)
+        self._assert_stop_level_distance(request_type, entry, symbol_info)
+        if request_type in {"BUY_LIMIT", "BUY_STOP"} and not (stop < entry < target):
+            raise ValueError("invalid BUY levels for MT5 pending order")
+        if request_type in {"SELL_LIMIT", "SELL_STOP"} and not (target < entry < stop):
+            raise ValueError("invalid SELL levels for MT5 pending order")
 
         return {
             "action": "TRADE_ACTION_PENDING",
@@ -194,6 +269,13 @@ class MT5OrderRequestBuilder:
             "type_time": "ORDER_TIME_GTC",
             "type_filling": "ORDER_FILLING_RETURN",
         }
+
+    def build_pending_limit_request(
+        self,
+        proposal: OrderProposal,
+        symbol_info: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.build_pending_order_request(proposal, symbol_info)
 
 
 def _int_env(name: str, default: int | None = None) -> int | None:
@@ -338,6 +420,8 @@ class MT5Broker:
                 "trade_contract_size": symbol_info.get("trade_contract_size"),
                 "trade_tick_size": symbol_info.get("trade_tick_size"),
                 "trade_tick_value": symbol_info.get("trade_tick_value"),
+                "trade_stops_level": symbol_info.get("trade_stops_level"),
+                "trade_freeze_level": symbol_info.get("trade_freeze_level"),
                 "volume_min": symbol_info.get("volume_min"),
                 "volume_max": symbol_info.get("volume_max"),
                 "volume_step": symbol_info.get("volume_step"),
@@ -375,6 +459,8 @@ class MT5Broker:
             "TRADE_ACTION_SLTP": self._constant("TRADE_ACTION_SLTP"),
             "BUY_LIMIT": self._constant("ORDER_TYPE_BUY_LIMIT"),
             "SELL_LIMIT": self._constant("ORDER_TYPE_SELL_LIMIT"),
+            "BUY_STOP": self._constant("ORDER_TYPE_BUY_STOP"),
+            "SELL_STOP": self._constant("ORDER_TYPE_SELL_STOP"),
             "ORDER_TIME_GTC": self._constant("ORDER_TIME_GTC"),
             "ORDER_FILLING_RETURN": self._constant("ORDER_FILLING_RETURN"),
             "TRADE_RETCODE_DONE": self._constant("TRADE_RETCODE_DONE"),
@@ -399,6 +485,8 @@ class MT5Broker:
             "type": {
                 "BUY_LIMIT": constants["BUY_LIMIT"],
                 "SELL_LIMIT": constants["SELL_LIMIT"],
+                "BUY_STOP": constants["BUY_STOP"],
+                "SELL_STOP": constants["SELL_STOP"],
             },
             "type_time": {"ORDER_TIME_GTC": constants["ORDER_TIME_GTC"]},
             "type_filling": {
@@ -523,10 +611,14 @@ class MT5Broker:
             raise MT5BrokerError(
                 f"symbol must match configured MT5 symbol {self.config.symbol}"
             )
-        if request["type"] not in {"BUY_LIMIT", "SELL_LIMIT"}:
+        if request["type"] not in MT5OrderRequestBuilder.PENDING_ORDER_TYPES:
             if not isinstance(request["type"], str):
-                raise MT5BrokerError("type must be symbolic BUY_LIMIT or SELL_LIMIT")
-            raise MT5BrokerError("type must be BUY_LIMIT or SELL_LIMIT")
+                raise MT5BrokerError(
+                    "type must be symbolic BUY_LIMIT, SELL_LIMIT, BUY_STOP, or SELL_STOP"
+                )
+            raise MT5BrokerError(
+                "type must be BUY_LIMIT, SELL_LIMIT, BUY_STOP, or SELL_STOP"
+            )
 
         numbers = {
             field: self._positive_float(request[field], field)
@@ -539,14 +631,14 @@ class MT5Broker:
             abs_tol=1e-12,
         ):
             raise MT5BrokerError("volume must match configured MT5 volume")
-        if request["type"] == "BUY_LIMIT" and not (
+        if request["type"] in {"BUY_LIMIT", "BUY_STOP"} and not (
             numbers["sl"] < numbers["price"] < numbers["tp"]
         ):
-            raise MT5BrokerError("invalid BUY levels for MT5 limit order")
-        if request["type"] == "SELL_LIMIT" and not (
+            raise MT5BrokerError("invalid BUY levels for MT5 pending order")
+        if request["type"] in {"SELL_LIMIT", "SELL_STOP"} and not (
             numbers["tp"] < numbers["price"] < numbers["sl"]
         ):
-            raise MT5BrokerError("invalid SELL levels for MT5 limit order")
+            raise MT5BrokerError("invalid SELL levels for MT5 pending order")
 
         magic = self._int_value(request["magic"], "magic")
         deviation = self._int_value(request["deviation"], "deviation")

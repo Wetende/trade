@@ -127,6 +127,14 @@ def _telemetry_reason(state: dict) -> str | None:
     return " ".join(parts)
 
 
+def _strategy_type_from_setup(setup: dict) -> str | None:
+    raw = setup.get("strategy_type") or setup.get("name")
+    if raw in (None, ""):
+        return None
+    normalized = re.sub(r"[^0-9A-Za-z]+", "_", str(raw).strip().upper()).strip("_")
+    return normalized or None
+
+
 def _timeframe_minutes(timeframe: str) -> int:
     match = re.fullmatch(r"(\d+)\s*m", timeframe.strip().lower())
     if not match:
@@ -170,11 +178,15 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     side = TradeAction.HOLD
     status = OrderStatus.NO_TRADE
     entry = stop = target = None
+    setup_name = None
+    strategy_type = None
     reason = _telemetry_reason(state) or str(payload.get("message") or "No engine reason supplied.")
 
     if payload_status == "SETUP_FOUND" and recommendation in {"BUY", "SELL"}:
         side = TradeAction(recommendation)
         setup = (payload.get("setups") or [{}])[0]
+        setup_name = str(setup.get("name") or "").strip() or None
+        strategy_type = _strategy_type_from_setup(setup)
         risk = payload.get("risk") or {}
         entry = _float_value(setup.get("entry_price"))
         stop = _float_value(setup.get("stop_loss"))
@@ -189,7 +201,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         symbol=state["company_of_interest"],
         broker_symbol=state.get("broker_symbol") or state["company_of_interest"],
         side=side,
-        order_type="LIMIT",
+        order_type="AUTO" if status == OrderStatus.PROPOSED else "LIMIT",
+        setup_name=setup_name,
+        strategy_type=strategy_type,
         entry_price=entry,
         stop_loss=stop,
         take_profit=target,
@@ -240,6 +254,8 @@ def build_order_proposal(state: dict) -> OrderProposal:
         broker_symbol=state.get("broker_symbol") or state["company_of_interest"],
         side=action,
         order_type="LIMIT",
+        setup_name=None,
+        strategy_type=None,
         entry_price=entry,
         stop_loss=stop,
         take_profit=target,

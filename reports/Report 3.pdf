@@ -1,0 +1,205 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Length 3370 >>
+stream
+BT /F2 16 Tf 54.00 742.00 Td (Report 3: Engine-First Two-Hour Gold Forward Test Review) Tj ET
+BT /F1 10 Tf 54.00 694.00 Td (Report date: 2026-06-01) Tj ET
+BT /F1 10 Tf 54.00 681.00 Td (Market: Gold) Tj ET
+BT /F1 10 Tf 54.00 668.00 Td (Analysis symbol: GC=F) Tj ET
+BT /F1 10 Tf 54.00 655.00 Td (Broker execution symbol: XAUUSD.vx) Tj ET
+BT /F1 10 Tf 54.00 642.00 Td (Broker account: Valetax MT5 account) Tj ET
+BT /F1 10 Tf 54.00 629.00 Td (Run directory: C:\\Users\\Wetende\\.tradingagents\\logs\\live_runs\\engine_2h_run_20260601_204922) Tj ET
+BT /F1 10 Tf 54.00 616.00 Td (Run window: 2026-06-01 20:49 to 22:49 Brisbane time) Tj ET
+BT /F1 10 Tf 54.00 603.00 Td (Decision candles reviewed: 2026-06-01 06:45 to 08:45 New York time) Tj ET
+BT /F1 10 Tf 54.00 590.00 Td (Decision path: deterministic price-action engine first; LLM not used to decide trades) Tj ET
+BT /F2 13 Tf 54.00 558.00 Td (1. Executive Summary) Tj ET
+BT /F1 10 Tf 54.00 527.00 Td (The completed two-hour run was successful as a systems test and useful as a trading-logic) Tj ET
+BT /F1 10 Tf 54.00 514.00 Td (test.) Tj ET
+BT /F1 10 Tf 54.00 488.00 Td (The bot stayed connected, read fresh market data, generated telemetry, created order) Tj ET
+BT /F1 10 Tf 54.00 475.00 Td (proposals, and monitored MT5 without leaving any open orders or positions. No broker) Tj ET
+BT /F1 10 Tf 54.00 462.00 Td (rejection occurred.) Tj ET
+BT /F1 10 Tf 54.00 436.00 Td (The engine did not place a trade. That was not because MT5 failed, and not because the LLM) Tj ET
+BT /F1 10 Tf 54.00 423.00 Td (refused a trade. The deterministic engine held because no full A+ M30/M15 setup passed the) Tj ET
+BT /F1 10 Tf 54.00 410.00 Td (checklist.) Tj ET
+BT /F1 10 Tf 54.00 384.00 Td (Across the run, the bot saw both bullish and bearish M30 breakout context. It also found) Tj ET
+BT /F1 10 Tf 54.00 371.00 Td (candidate setups on several candles. However, the brokerable candidates failed mainly on) Tj ET
+BT /F1 10 Tf 54.00 358.00 Td (clean range / risk-to-reward. In plain trading terms: the entry idea existed, but there was) Tj ET
+BT /F1 10 Tf 54.00 345.00 Td (not enough clean room to the next opposing zone to justify the trade.) Tj ET
+BT /F1 10 Tf 54.00 319.00 Td (The most important result is that the new engine-first path is working. Daily, 4H, and 1H) Tj ET
+BT /F1 10 Tf 54.00 306.00 Td (are now recorded as context, while M30/M15 and risk rules decide whether a trade is valid.) Tj ET
+BT /F2 13 Tf 54.00 274.00 Td (2. Run Results) Tj ET
+BT /F3 8 Tf 54.00 243.00 Td (| Metric | Result |) Tj ET
+BT /F3 8 Tf 54.00 230.00 Td (|---|---:|) Tj ET
+BT /F3 8 Tf 54.00 217.00 Td (| Total runner checks | 228 |) Tj ET
+BT /F3 8 Tf 54.00 204.00 Td (| Fresh trade decisions | 9 |) Tj ET
+BT /F3 8 Tf 54.00 191.00 Td (| Repeated candle checks | 219 |) Tj ET
+BT /F3 8 Tf 54.00 178.00 Td (| Saved order proposals | 9 |) Tj ET
+BT /F3 8 Tf 54.00 165.00 Td (| NO_TRADE / HOLD proposals | 9 |) Tj ET
+BT /F3 8 Tf 54.00 152.00 Td (| Broker orders placed | 0 |) Tj ET
+BT /F3 8 Tf 54.00 139.00 Td (| Broker rejections | 0 |) Tj ET
+BT /F3 8 Tf 54.00 126.00 Td (| Open orders after stop | 0 |) Tj ET
+BT /F3 8 Tf 54.00 113.00 Td (| Open positions after stop | 0 |) Tj ET
+BT /F3 8 Tf 54.00 100.00 Td (| Healthy data checks | 228 |) Tj ET
+BT /F3 8 Tf 54.00 87.00 Td (| Unhealthy data checks | 0 |) Tj ET
+BT /F1 8 Tf 288.00 28.00 Td (Page 1 of 4) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Length 3433 >>
+stream
+BT /F1 10 Tf 54.00 742.00 Td (The runner was later extended with a second two-hour continuation, but that continuation was) Tj ET
+BT /F1 10 Tf 54.00 729.00 Td (stopped manually on request. The report above focuses on the completed first two-hour run.) Tj ET
+BT /F2 13 Tf 54.00 697.00 Td (3. Broker And Execution State) Tj ET
+BT /F1 10 Tf 54.00 666.00 Td (MT5 remained connected during the run and after the manual stop.) Tj ET
+BT /F3 8 Tf 54.00 640.00 Td (| Item | Status |) Tj ET
+BT /F3 8 Tf 54.00 627.00 Td (|---|---|) Tj ET
+BT /F3 8 Tf 54.00 614.00 Td (| Broker connection | Connected |) Tj ET
+BT /F3 8 Tf 54.00 601.00 Td (| MT5 server | ValetaxGlobal-Live3 |) Tj ET
+BT /F3 8 Tf 54.00 588.00 Td (| Account type reported by MT5 | DEMO |) Tj ET
+BT /F3 8 Tf 54.00 575.00 Td (| Balance / equity after stop | 99,999.62 USD / 99,999.62 USD |) Tj ET
+BT /F3 8 Tf 54.00 562.00 Td (| Open orders after stop | 0 |) Tj ET
+BT /F3 8 Tf 54.00 549.00 Td (| Open positions after stop | 0 |) Tj ET
+BT /F3 8 Tf 54.00 536.00 Td (| Broker rejections | 0 |) Tj ET
+BT /F1 10 Tf 54.00 510.00 Td (No trade was attempted because the engine never emitted a SETUP_FOUND proposal. Therefore,) Tj ET
+BT /F1 10 Tf 54.00 497.00 Td (the lack of orders is explained by trading logic, not broker failure.) Tj ET
+BT /F2 13 Tf 54.00 465.00 Td (4. Data Health) Tj ET
+BT /F1 10 Tf 54.00 434.00 Td (Data health was good throughout the completed run.) Tj ET
+BT /F3 8 Tf 54.00 408.00 Td (| Timeframe | Latest status | Rows available at final check |) Tj ET
+BT /F3 8 Tf 54.00 395.00 Td (|---|---|---:|) Tj ET
+BT /F3 8 Tf 54.00 382.00 Td (| M15 | Fresh | 655 |) Tj ET
+BT /F3 8 Tf 54.00 369.00 Td (| M30 | Fresh | 328 |) Tj ET
+BT /F3 8 Tf 54.00 356.00 Td (| H1 | Fresh | 1107 |) Tj ET
+BT /F3 8 Tf 54.00 343.00 Td (| H4 | Fresh | 300 |) Tj ET
+BT /F3 8 Tf 54.00 330.00 Td (| Daily | Fresh | 252 |) Tj ET
+BT /F1 10 Tf 54.00 304.00 Td (No timeframe was marked as blocking. This matters because earlier runs showed intermittent) Tj ET
+BT /F1 10 Tf 54.00 291.00 Td (GC=F warnings. In this two-hour engine-first run, the telemetry did not show bad data as the) Tj ET
+BT /F1 10 Tf 54.00 278.00 Td (reason for holding.) Tj ET
+BT /F2 13 Tf 54.00 246.00 Td (5. Fresh Trading Decisions) Tj ET
+BT /F3 8 Tf 54.00 215.00 Td (| Candle time ET | Result | M30 context | Candidate setups | Failed reason |) Tj ET
+BT /F3 8 Tf 54.00 202.00 Td (|---|---|---|---:|---|) Tj ET
+BT /F3 8 Tf 54.00 189.00 Td (| 06:45 | HOLD | Bullish breakout | 1 | Clean range / R:R too weak |) Tj ET
+BT /F3 8 Tf 54.00 176.00 Td (| 07:00 | HOLD | Bearish breakout | 1 | Clean range / R:R too weak |) Tj ET
+BT /F3 8 Tf 54.00 163.00 Td (| 07:15 | HOLD | Bullish breakout | 2 | Clean range / R:R too weak |) Tj ET
+BT /F3 8 Tf 54.00 150.00 Td (| 07:30 | HOLD | Bullish breakout | 6 | Clean range / R:R too weak; M30/M15 correlation failed |) Tj ET
+BT /F3 8 Tf 54.00 137.00 Td (| 07:45 | HOLD | Bullish breakout | 0 | Time filter failed |) Tj ET
+BT /F3 8 Tf 54.00 124.00 Td (| 08:00 | HOLD | Bearish breakout | 6 | Clean range / R:R too weak |) Tj ET
+BT /F3 8 Tf 54.00 111.00 Td (| 08:15 | HOLD | Bullish breakout | 6 | Clean range / R:R too weak; M30/M15 correlation failed |) Tj ET
+BT /F3 8 Tf 54.00 98.00 Td (| 08:30 | HOLD | Bearish breakout | 0 | No valid M15 setup |) Tj ET
+BT /F3 8 Tf 54.00 85.00 Td (| 08:45 | HOLD | Bearish breakout | 0 | No valid M15 setup |) Tj ET
+BT /F1 8 Tf 288.00 28.00 Td (Page 2 of 4) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 3350 >>
+stream
+BT /F1 10 Tf 54.00 742.00 Td (This is a good diagnostic result. The bot was not asleep. It saw market context, found) Tj ET
+BT /F1 10 Tf 54.00 729.00 Td (candidates, rejected weak trade locations, and stayed out.) Tj ET
+BT /F2 13 Tf 54.00 697.00 Td (6. Hold Reason Breakdown) Tj ET
+BT /F3 8 Tf 54.00 666.00 Td (| Hold reason category | Count |) Tj ET
+BT /F3 8 Tf 54.00 653.00 Td (|---|---:|) Tj ET
+BT /F3 8 Tf 54.00 640.00 Td (| Clean range / risk-to-reward too weak | 6 |) Tj ET
+BT /F3 8 Tf 54.00 627.00 Td (| No valid M15 setup | 2 |) Tj ET
+BT /F3 8 Tf 54.00 614.00 Td (| Time filter | 1 |) Tj ET
+BT /F1 10 Tf 54.00 588.00 Td (The biggest practical blocker was clean_range_to_fill. The engine repeatedly found possible) Tj ET
+BT /F1 10 Tf 54.00 575.00 Td (entries, but the nearest target zone made the reward too small compared with the stop.) Tj ET
+BT /F1 10 Tf 54.00 549.00 Td (The reported R:R values for rejected candidate trades were very low, including approximately) Tj ET
+BT /F1 10 Tf 54.00 536.00 Td (0.66, 0.30, 0.14, 0.02, 0.02, and 0.01. The minimum configured R:R is 1.5, so these were) Tj ET
+BT /F1 10 Tf 54.00 523.00 Td (correctly rejected under the current rules.) Tj ET
+BT /F2 13 Tf 54.00 491.00 Td (7. Higher-Timeframe Context) Tj ET
+BT /F1 10 Tf 54.00 460.00 Td (Daily, 4H, and 1H were still read and written into telemetry. They were not used as hard) Tj ET
+BT /F1 10 Tf 54.00 447.00 Td (permission blockers.) Tj ET
+BT /F1 10 Tf 54.00 421.00 Td (Observed context included:) Tj ET
+BT /F1 10 Tf 54.00 395.00 Td (* Daily often classified near major support.) Tj ET
+BT /F1 10 Tf 54.00 382.00 Td (* 4H often classified near major support.) Tj ET
+BT /F1 10 Tf 54.00 369.00 Td (* 1H changed between bearish structure, bullish structure, and range during the broader) Tj ET
+BT /F1 10 Tf 54.00 356.00 Td (  run.) Tj ET
+BT /F1 10 Tf 54.00 343.00 Td (* Higher-timeframe context was recorded as context only when a candidate setup existed.) Tj ET
+BT /F1 10 Tf 54.00 317.00 Td (This matches the revised playbook direction: Daily/4H/1H help describe the market, but the) Tj ET
+BT /F1 10 Tf 54.00 304.00 Td (brokerable trade must come from M30 context and M15 entry quality.) Tj ET
+BT /F2 13 Tf 54.00 272.00 Td (8. Interpretation) Tj ET
+BT /F1 10 Tf 54.00 241.00 Td (The completed run does not prove the strategy is profitable yet, but it does prove the new) Tj ET
+BT /F1 10 Tf 54.00 228.00 Td (decision path is behaving more transparently.) Tj ET
+BT /F1 10 Tf 54.00 202.00 Td (The bot did three important things correctly:) Tj ET
+BT /F1 10 Tf 54.00 176.00 Td (1. It did not force trades.) Tj ET
+BT /F1 10 Tf 54.00 163.00 Td (2. It did not let Daily/4H/1H permission block M30/M15 candidates.) Tj ET
+BT /F1 10 Tf 54.00 150.00 Td (3. It rejected entries when there was not enough clean range to target.) Tj ET
+BT /F1 10 Tf 54.00 124.00 Td (The main question for review is whether the clean-range / target-zone logic is too) Tj ET
+BT /F1 10 Tf 54.00 111.00 Td (conservative or whether the market simply did not provide enough room during this window.) Tj ET
+BT /F1 10 Tf 54.00 85.00 Td (That should be reviewed with charts for the rejected candles, especially 07:30, 08:00, and) Tj ET
+BT /F1 10 Tf 54.00 72.00 Td (08:15 ET, where candidate setup counts were high but R:R was extremely weak.) Tj ET
+BT /F1 8 Tf 288.00 28.00 Td (Page 3 of 4) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Length 1846 >>
+stream
+BT /F2 13 Tf 54.00 723.00 Td (9. Recommendations) Tj ET
+BT /F1 10 Tf 54.00 692.00 Td (1. Keep the engine-first execution path.) Tj ET
+BT /F1 10 Tf 54.00 679.00 Td (2. Keep Daily/4H/1H as context, not hard permission.) Tj ET
+BT /F1 10 Tf 54.00 666.00 Td (3. Review the nearest target-zone selection for clean range, because it is now the dominant) Tj ET
+BT /F1 10 Tf 54.00 653.00 Td (blocker.) Tj ET
+BT /F1 10 Tf 54.00 640.00 Td (4. Add a visual or tabular rejected-setup report showing entry, stop, nearest target zone,) Tj ET
+BT /F1 10 Tf 54.00 627.00 Td (and R:R per candidate.) Tj ET
+BT /F1 10 Tf 54.00 614.00 Td (5. Continue forward testing during London/New York overlap, but do not loosen risk rules) Tj ET
+BT /F1 10 Tf 54.00 601.00 Td (just to force a trade.) Tj ET
+BT /F1 10 Tf 54.00 588.00 Td (6. If execution must be confirmed directly, use a controlled manual-test proposal with tiny) Tj ET
+BT /F1 10 Tf 54.00 575.00 Td (volume, not a weakened live strategy rule.) Tj ET
+BT /F2 13 Tf 54.00 543.00 Td (10. Conclusion) Tj ET
+BT /F1 10 Tf 54.00 512.00 Td (The finished two-hour run was operationally clean and strategically conservative.) Tj ET
+BT /F1 10 Tf 54.00 486.00 Td (No orders were placed, but that was an expected outcome from the engine rules: the market) Tj ET
+BT /F1 10 Tf 54.00 473.00 Td (produced context and candidates, but no A+ M30/M15 setup had enough clean range and) Tj ET
+BT /F1 10 Tf 54.00 460.00 Td (risk/reward to justify execution.) Tj ET
+BT /F1 10 Tf 54.00 434.00 Td (The next best step is not to force entries. The next best step is to audit the rejected) Tj ET
+BT /F1 10 Tf 54.00 421.00 Td (candidate setups visually and confirm whether the engine's target-zone and clean-range) Tj ET
+BT /F1 10 Tf 54.00 408.00 Td (calculations match the trading playbook.) Tj ET
+BT /F1 8 Tf 288.00 28.00 Td (Page 4 of 4) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 4 0 R >>
+endobj
+9 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 5 0 R >>
+endobj
+10 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 6 0 R >>
+endobj
+11 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 7 0 R >>
+endobj
+12 0 obj
+<< /Type /Pages /Kids [8 0 R 9 0 R 10 0 R 11 0 R] /Count 4 >>
+endobj
+13 0 obj
+<< /Type /Catalog /Pages 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000154 00000 n 
+0000000222 00000 n 
+0000003644 00000 n 
+0000007129 00000 n 
+0000010531 00000 n 
+0000012429 00000 n 
+0000012576 00000 n 
+0000012723 00000 n 
+0000012871 00000 n 
+0000013019 00000 n 
+0000013097 00000 n 
+trailer
+<< /Size 14 /Root 13 0 R >>
+startxref
+13148
+%%EOF

@@ -95,7 +95,6 @@ class MT5Runner:
 
         status = str(getattr(proposal.status, "value", proposal.status)).upper()
         if status != "PROPOSED":
-            self._save_state({"last_processed_as_of": as_of})
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",

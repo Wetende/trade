@@ -126,6 +126,48 @@ def test_order_proposal_uses_engine_payload_for_proposed_trade_without_llm_level
 
 
 @pytest.mark.unit
+def test_engine_proposal_records_strategy_metadata_and_auto_order_type(tmp_path):
+    state = _state(
+        "**Action**: HOLD\n\n"
+        "**Reason**: LLM fallback text should not drive execution.",
+        tmp_path,
+    )
+    state["engine_payload"] = {
+        "status": "SETUP_FOUND",
+        "recommendation": "SELL",
+        "setups": [
+            {
+                "name": "Breakout",
+                "strategy_type": "BREAKOUT",
+                "direction": "SELL",
+                "entry_price": 4490.85,
+                "stop_loss": 4491.29,
+                "take_profit": 4489.52,
+            }
+        ],
+        "risk": {
+            "approved": True,
+            "risk_reward": 3.02,
+            "take_profit": 4489.52,
+        },
+        "telemetry": {
+            "decision_stage": "setup_found",
+            "primary_hold_reason": "A deterministic A+ price-action setup passed.",
+        },
+    }
+
+    proposal = build_order_proposal(state)
+    rendered = render_order_proposal(proposal)
+
+    assert proposal.status == OrderStatus.PROPOSED
+    assert proposal.order_type == "AUTO"
+    assert proposal.setup_name == "Breakout"
+    assert proposal.strategy_type == "BREAKOUT"
+    assert "**Setup Name**: Breakout" in rendered
+    assert "**Strategy Type**: BREAKOUT" in rendered
+
+
+@pytest.mark.unit
 def test_engine_no_setup_overrides_llm_buy_text(tmp_path):
     state = _state(
         "**Action**: BUY\n\n"
@@ -331,6 +373,31 @@ def test_order_proposal_defaults_broker_symbol_to_analysis_symbol():
     )
 
     assert proposal.broker_symbol == "GC=F"
+
+
+@pytest.mark.unit
+def test_order_proposal_defaults_missing_metadata_for_old_json():
+    proposal = OrderProposal.model_validate(
+        {
+            "symbol": "GC=F",
+            "broker_symbol": "XAUUSD.vx",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "entry_price": 2450,
+            "stop_loss": 2440,
+            "take_profit": 2470,
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "valid_until": "2026-05-17 10:30 EDT",
+            "activation_window_minutes": 10,
+            "cancel_if_not_triggered_after": "2026-05-17 10:25 EDT",
+            "status": "PROPOSED",
+            "reason": "legacy artifact",
+        }
+    )
+
+    assert proposal.setup_name is None
+    assert proposal.strategy_type is None
 
 
 @pytest.mark.unit

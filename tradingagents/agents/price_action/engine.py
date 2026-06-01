@@ -95,7 +95,9 @@ def _telemetry(
     zones_by_tf: dict[str, list[Zone]],
     market_context: dict[str, Any],
     candidate_setups: list[Setup] | None = None,
+    candidate_evaluations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    evaluations = candidate_evaluations or []
     return {
         "decision_stage": decision_stage,
         "primary_hold_reason": primary_hold_reason,
@@ -117,6 +119,8 @@ def _telemetry(
             "context": market_context.get("m30_context"),
         },
         "candidate_setup_count": len(candidate_setups or []),
+        "approved_candidate_count": sum(1 for item in evaluations if item.get("approved")),
+        "candidate_evaluations": evaluations,
     }
 
 
@@ -157,6 +161,79 @@ def _setup_to_dict(setup: Setup, risk: dict[str, Any] | None = None) -> dict[str
             }
         )
     return result
+
+
+def _setup_identity(setup: Setup) -> tuple[Any, ...]:
+    zone = setup.zone
+    candle = setup.confirmation_candle
+    return (
+        setup.name,
+        setup.direction,
+        zone.type,
+        zone.timeframe,
+        round(float(zone.low), 4),
+        round(float(zone.high), 4),
+        round(float(setup.entry_price), 4),
+        round(float(setup.stop_loss), 4),
+        candle.timestamp if candle else None,
+    )
+
+
+def _unique_setups(setups: list[Setup]) -> list[Setup]:
+    unique: list[Setup] = []
+    seen: set[tuple[Any, ...]] = set()
+    for setup in setups:
+        identity = _setup_identity(setup)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(setup)
+    return unique
+
+
+def _candidate_rejection_reason(
+    checklist: dict[str, str],
+    risk: dict[str, Any],
+    failed_rules: list[str],
+) -> str | None:
+    if not failed_rules:
+        return None
+    if checklist.get("clean_range_to_fill") == FAIL and risk.get("reason"):
+        return str(risk["reason"])
+    return "Required checklist rules failed: " + ", ".join(failed_rules)
+
+
+def _risk_reward_value(risk: dict[str, Any]) -> float:
+    value = risk.get("available_risk_reward", risk.get("risk_reward", -1))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def _timeframe_priority(timeframe: str | None) -> int:
+    normalized = str(timeframe or "").strip().lower()
+    return {
+        "15m": 5,
+        "m15": 5,
+        "30m": 4,
+        "m30": 4,
+        "1h": 3,
+        "h1": 3,
+        "4h": 2,
+        "1d": 1,
+        "daily": 1,
+    }.get(normalized, 0)
+
+
+def _candidate_quality(candidate: dict[str, Any]) -> tuple[float, int, float]:
+    setup = candidate["setup"]
+    zone = setup.get("zone", {})
+    return (
+        _risk_reward_value(candidate.get("risk", {})),
+        _timeframe_priority(zone.get("timeframe")),
+        float(zone.get("score") or 0),
+    )
 
 
 def analyze_playbook(
@@ -235,6 +312,7 @@ def analyze_playbook(
         decision_stage: str,
         primary_hold_reason: str,
         candidate_setups: list[Setup] | None = None,
+        candidate_evaluations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return _telemetry(
             decision_stage=decision_stage,
@@ -243,6 +321,7 @@ def analyze_playbook(
             zones_by_tf=zones_by_tf,
             market_context=market_context,
             candidate_setups=candidate_setups,
+            candidate_evaluations=candidate_evaluations,
         )
 
     hard_time_keys = (
@@ -292,11 +371,13 @@ def analyze_playbook(
     elif market_context["m30_bias"] == "BEARISH":
         m30_direction = "SELL"
 
-    candidate_setups: list[Setup] = []
-    if m30_direction and market_context["m30_context"] == "BREAKOUT":
-        candidate_setups.extend(detect_break_and_retest(m15, m30_zones, direction=m30_direction))
-    if not candidate_setups:
-        candidate_setups.extend(detect_sr_bounce(m15, zones))
+    candidate_setups = _unique_setups(
+        [
+            *detect_breakouts(m15, m30_zones),
+            *detect_break_and_retest(m15, m30_zones, direction=m30_direction),
+            *detect_sr_bounce(m15, zones),
+        ]
+    )
 
     if not candidate_setups:
         checklist["not_overextended"] = FAIL if _is_overextended(m15) else PASS
@@ -316,28 +397,6 @@ def analyze_playbook(
             ),
         )
 
-    setup = candidate_setups[0]
-    market_context["higher_timeframe_permission"] = evaluate_higher_timeframe_permission(
-        market_context["daily_structure"],
-        market_context["h4_structure"],
-        market_context["h1_structure"],
-        setup.direction,
-    )
-
-    checklist["playbook_setup"] = PASS
-    checklist["timeframe_correlation"] = PASS if m30_direction == setup.direction else FAIL
-    checklist["not_overextended"] = FAIL if _is_overextended(m15) else PASS
-    checklist["confirmation_candle_wicks"] = (
-        PASS if _has_top_and_bottom_wick(setup.confirmation_candle) else FAIL
-    )
-    checklist["trading_candle_stop_wick"] = (
-        PASS if _has_stop_wick(setup.confirmation_candle, setup.direction) else FAIL
-    )
-
-    target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
-    risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)
-    checklist["clean_range_to_fill"] = PASS if risk.get("approved") else FAIL
-
     required = [
         "volume_time",
         "playbook_setup",
@@ -351,6 +410,89 @@ def analyze_playbook(
         "confirmation_candle_wicks",
         "trading_candle_stop_wick",
         "not_activated_last_5_min",
+    ]
+
+    candidate_evaluations: list[dict[str, Any]] = []
+    for index, setup in enumerate(candidate_setups):
+        candidate_checklist = dict(checklist)
+        candidate_checklist["playbook_setup"] = PASS
+        candidate_checklist["timeframe_correlation"] = PASS if m30_direction == setup.direction else FAIL
+        candidate_checklist["not_overextended"] = FAIL if _is_overextended(m15) else PASS
+        candidate_checklist["confirmation_candle_wicks"] = (
+            PASS if _has_top_and_bottom_wick(setup.confirmation_candle) else FAIL
+        )
+        candidate_checklist["trading_candle_stop_wick"] = (
+            PASS if _has_stop_wick(setup.confirmation_candle, setup.direction) else FAIL
+        )
+
+        target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
+        risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)
+        candidate_checklist["clean_range_to_fill"] = PASS if risk.get("approved") else FAIL
+        failed_rules = [key for key in required if candidate_checklist[key] != PASS]
+        approved = not failed_rules
+        permission = evaluate_higher_timeframe_permission(
+            market_context["daily_structure"],
+            market_context["h4_structure"],
+            market_context["h1_structure"],
+            setup.direction,
+        )
+        candidate_evaluations.append(
+            {
+                "index": index,
+                "approved": approved,
+                "rejection_reason": _candidate_rejection_reason(
+                    candidate_checklist,
+                    risk,
+                    failed_rules,
+                ),
+                "failed_rules": failed_rules,
+                "setup": _setup_to_dict(setup, risk),
+                "risk": risk,
+                "target_zone": target_zone,
+                "checklist": candidate_checklist,
+                "higher_timeframe_permission": permission,
+                "_setup": setup,
+            }
+        )
+
+    approved_candidates = [item for item in candidate_evaluations if item["approved"]]
+    if approved_candidates:
+        selected = max(approved_candidates, key=_candidate_quality)
+        setup = selected["_setup"]
+        risk = selected["risk"]
+        checklist = selected["checklist"]
+        market_context["higher_timeframe_permission"] = selected["higher_timeframe_permission"]
+        telemetry_candidates = [
+            {key: value for key, value in item.items() if key != "_setup"}
+            for item in candidate_evaluations
+        ]
+        return _payload(
+            symbol,
+            as_of,
+            "SETUP_FOUND",
+            setup.direction,
+            checklist,
+            zones,
+            market_context,
+            setups=[_setup_to_dict(setup, risk)],
+            risk=risk,
+            message="A deterministic A+ price-action setup passed the checklist.",
+            telemetry=make_telemetry(
+                "setup_found",
+                "A deterministic A+ price-action setup passed the checklist.",
+                candidate_setups,
+                telemetry_candidates,
+            ),
+        )
+
+    selected = max(candidate_evaluations, key=_candidate_quality)
+    setup = selected["_setup"]
+    risk = selected["risk"]
+    checklist = selected["checklist"]
+    market_context["higher_timeframe_permission"] = selected["higher_timeframe_permission"]
+    telemetry_candidates = [
+        {key: value for key, value in item.items() if key != "_setup"}
+        for item in candidate_evaluations
     ]
     if any(checklist[key] != PASS for key in required):
         return _payload(
@@ -368,23 +510,25 @@ def analyze_playbook(
                 "a_plus_checklist",
                 "A required A+ checklist rule failed. Default to HOLD.",
                 candidate_setups,
+                telemetry_candidates,
             ),
         )
 
     return _payload(
         symbol,
         as_of,
-        "SETUP_FOUND",
-        setup.direction,
+        "NO_SETUP",
+        "HOLD",
         checklist,
         zones,
         market_context,
         setups=[_setup_to_dict(setup, risk)],
         risk=risk,
-        message="A deterministic A+ price-action setup passed the checklist.",
+        message="A required A+ checklist rule failed. Default to HOLD.",
         telemetry=make_telemetry(
-            "setup_found",
-            "A deterministic A+ price-action setup passed the checklist.",
+            "a_plus_checklist",
+            "A required A+ checklist rule failed. Default to HOLD.",
             candidate_setups,
+            telemetry_candidates,
         ),
     )

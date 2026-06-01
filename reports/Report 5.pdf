@@ -1,0 +1,525 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2136 >>
+stream
+BT
+/F1 10 Tf
+54 760 Td
+14 TL
+() Tj
+T*
+(REPORT 5: TWO-HOUR FORWARD TEST FINDINGS AND NEXT FIXES) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(Report date: 2026-06-02) Tj
+T*
+(Market: Gold) Tj
+T*
+(Analysis symbol: GC=F) Tj
+T*
+(Broker execution symbol: XAUUSD.vx) Tj
+T*
+(Run directory:) Tj
+T*
+(C:\\Users\\Wetende\\.tradingagents\\logs\\live_runs\\m15_three_entries_run_fixed_20260602_002914) Tj
+T*
+(Run type: MT5 forward test with deterministic engine decisions) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(1. Summary) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The latest two-hour forward test was useful because it moved us closer to the real goal: proving) Tj
+T*
+(whether the bot can read live Gold price action, identify our three M15 entry models, and route) Tj
+T*
+(valid setups into MT5 orders.) Tj
+T*
+() Tj
+T*
+(The test confirmed that the bot is no longer simply sitting idle. It detected candidate setups) Tj
+T*
+(from the three core strategy families:) Tj
+T*
+() Tj
+T*
+(  |   Strategy family   |   Observed in telemetry   |) Tj
+T*
+(  |  ---  |  ---:  |) Tj
+T*
+(  |   Breakout   |   Yes   |) Tj
+T*
+(  |   Buy/Sell off support or resistance   |   Yes   |) Tj
+T*
+(  |   Break and retest   |   Yes   |) Tj
+T*
+() Tj
+T*
+(It also confirmed that MT5 connection, monitoring, order placement, and order cancellation are) Tj
+T*
+(working at a basic system level.) Tj
+T*
+() Tj
+T*
+(However, the run exposed execution and reporting problems that must be fixed before the next) Tj
+T*
+(serious forward test. The most important issue is that the broker adapter treated every valid) Tj
+T*
+(setup like a limit order, even when a breakout-style entry may require a stop pending order.) Tj
+T*
+(That can create broker-side Invalid price errors or pending orders that are technically accepted) Tj
+T*
+(but unlikely to behave like the intended playbook entry.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(2. What Happened During The Run) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(  |   Metric   |   Result   |) Tj
+T*
+(  |  ---  |  ---:  |) Tj
+T*
+(  |   Total runner checks   |   230   |) Tj
+T*
+(  |   Healthy data checks   |   150   |) Tj
+T*
+(  |   Unhealthy data checks   |   0   |) Tj
+T*
+(  |   Saved order proposals   |   9   |) Tj
+T*
+(Page 1) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+4 0 obj
+<< /Length 1891 >>
+stream
+BT
+/F1 10 Tf
+54 760 Td
+14 TL
+(  |   Proposed trades   |   4   |) Tj
+T*
+(  |   Broker orders accepted   |   4   |) Tj
+T*
+(  |   Broker rejections   |   2   |) Tj
+T*
+(  |   Final open orders   |   0   |) Tj
+T*
+(  |   Final open positions   |   0   |) Tj
+T*
+() Tj
+T*
+(The accepted orders were pending orders. They did not become open positions. Each pending order) Tj
+T*
+(was later cancelled after its activation window expired.) Tj
+T*
+() Tj
+T*
+(That means the system did place orders into MT5, but no trade was filled and no live position) Tj
+T*
+(remained open after the run.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(3. Strategy Evidence) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The telemetry showed that the market was not silent. The engine evaluated 29 candidate setups) Tj
+T*
+(across the saved payloads.) Tj
+T*
+() Tj
+T*
+(  |   Candidate type   |   Count   |) Tj
+T*
+(  |  ---  |  ---:  |) Tj
+T*
+(  |   Support/Resistance Bounce   |   17   |) Tj
+T*
+(  |   Breakout   |   10   |) Tj
+T*
+(  |   Break and Retest   |   2   |) Tj
+T*
+() Tj
+T*
+(The approved candidates were all Breakout candidates.) Tj
+T*
+() Tj
+T*
+(  |   Approved candidate type   |   Count   |) Tj
+T*
+(  |  ---  |  ---:  |) Tj
+T*
+(  |   Breakout   |   4   |) Tj
+T*
+() Tj
+T*
+(Most rejected candidates failed because the clean range to target was too small compared with) Tj
+T*
+(the stop-loss distance.) Tj
+T*
+() Tj
+T*
+(  |   Rejection reason   |   Count   |) Tj
+T*
+(  |  ---  |  ---:  |) Tj
+T*
+(  |   Clean range below minimum risk-to-reward   |   24   |) Tj
+T*
+(  |   Timeframe correlation failed   |   1   |) Tj
+T*
+() Tj
+T*
+(This tells us two things:) Tj
+T*
+() Tj
+T*
+(1. The engine is now seeing the three playbook families.) Tj
+T*
+(2. The next bottleneck is no longer only strategy detection. It is execution quality,) Tj
+T*
+(target/risk evaluation, and evidence reporting.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(4. Main Problems Identified) Tj
+T*
+() Tj
+T*
+(Page 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 1780 >>
+stream
+BT
+/F1 10 Tf
+54 760 Td
+14 TL
+() Tj
+T*
+() Tj
+T*
+(4.1 Order type was too simple) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The system still treated every approved setup as a limit order.) Tj
+T*
+() Tj
+T*
+(That is too simple for the playbook.) Tj
+T*
+() Tj
+T*
+(In practical trading terms:) Tj
+T*
+() Tj
+T*
+(- A support/resistance rejection or retest often waits for price to pull back into the entry) Tj
+T*
+(area, so a limit order can make sense.) Tj
+T*
+(- A direct breakout often waits for price to continue through a level, so a stop pending order) Tj
+T*
+(may be the correct MT5 order type.) Tj
+T*
+() Tj
+T*
+(The bot must not force every strategy into the same broker order shape.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(4.2 Broker rejections need clearer explanation) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(Two order attempts were rejected with Invalid price.) Tj
+T*
+() Tj
+T*
+(This likely happened because the order request did not match the current market quote and) Tj
+T*
+(pending order type rules. The report layer should explain this in trading language, not only as) Tj
+T*
+(a raw MT5 retcode.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(4.3 Accepted pending orders did not fill) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(Four pending orders were accepted by MT5 but later cancelled because price did not trigger them) Tj
+T*
+(during the activation window.) Tj
+T*
+() Tj
+T*
+(That is not automatically bad. The playbook says stale pending entries should be cancelled. But) Tj
+T*
+(we need clearer evidence showing:) Tj
+T*
+() Tj
+T*
+(- Which setup created the order.) Tj
+T*
+(- Which order type was used.) Tj
+T*
+(- Where bid/ask was at the time.) Tj
+T*
+(- Whether the order was a pullback entry or continuation entry.) Tj
+T*
+(- Why it was cancelled.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(4.4 Clean range remains the biggest strategy filter) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(Page 3) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 2457 >>
+stream
+BT
+/F1 10 Tf
+54 760 Td
+14 TL
+(Most candidates still failed because the target zone did not give enough reward compared with) Tj
+T*
+(risk.) Tj
+T*
+() Tj
+T*
+(This rule should not be removed casually. It protects the account from low-quality trades. But) Tj
+T*
+(the target-zone selection must be reviewed so the bot does not reject good setups just because) Tj
+T*
+(it picked the wrong nearby zone as the target.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(4.5 Data warnings still need better audit visibility) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The run telemetry marked data as healthy, but intermittent GC=F/yfinance warnings still appeared) Tj
+T*
+(around the system.) Tj
+T*
+() Tj
+T*
+(The bot should keep retrying temporary data gaps and record retry warnings clearly. If data is) Tj
+T*
+(healthy after retry, the report should say so. If data is not healthy, the bot should hold and) Tj
+T*
+(explain which timeframe blocked the decision.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(5. What We Will Fix Next) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The next work is focused on making the next forward test cleaner and more meaningful.) Tj
+T*
+() Tj
+T*
+(  |   Fix area   |   Purpose   |) Tj
+T*
+(  |  ---  |  ---  |) Tj
+T*
+(| Setup metadata in proposals | Every order must say whether it came from Breakout,) Tj
+T*
+(Support/Resistance, or Break and Retest. |) Tj
+T*
+(| Smart MT5 pending order selection | The bot must choose BUY_LIMIT, SELL_LIMIT, BUY_STOP, or) Tj
+T*
+(SELL_STOP based on side, entry price, setup type, and current bid/ask. |) Tj
+T*
+(| Stale entry skip | If price has already moved and the entry is no longer valid, the bot should) Tj
+T*
+(skip instead of sending a bad request. |) Tj
+T*
+(| Better runner summary | The summary should show placed, rejected, skipped, cancelled, and) Tj
+T*
+(monitored orders with clear reasons. |) Tj
+T*
+(| Better candidate evidence | Reports should show how many candidates appeared per strategy) Tj
+T*
+(family and why they passed or failed. |) Tj
+T*
+(| Better data warning evidence | Temporary yfinance gaps should be visible without confusing) Tj
+T*
+(them with real unhealthy data. |) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(6. Expected Result After The Fixes) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(After these fixes, the next forward test should answer the important questions more cleanly:) Tj
+T*
+() Tj
+T*
+(1. Did the market create one of our three M15 entry models?) Tj
+T*
+(2. Did M30 agree with the M15 setup direction?) Tj
+T*
+(3. Did the setup have enough clean range to target?) Tj
+T*
+(Page 4) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 1174 >>
+stream
+BT
+/F1 10 Tf
+54 760 Td
+14 TL
+(4. If approved, did the bot choose the correct MT5 pending order type?) Tj
+T*
+(5. If no order was placed, was the reason strategy-related, price-staleness-related,) Tj
+T*
+(broker-related, or data-related?) Tj
+T*
+(6. If an order was accepted but not filled, was cancellation correct under the activation-window) Tj
+T*
+(rule?) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(7. Conclusion) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(The two-hour test was valuable because it showed progress and exposed the next real blockers.) Tj
+T*
+() Tj
+T*
+(The bot can now observe live Gold data, detect playbook-like candidates, produce proposals, send) Tj
+T*
+(pending orders to MT5, and cancel stale pending orders. The remaining work is to make the broker) Tj
+T*
+(order type match the trading setup, improve stale-entry handling, and produce clearer evidence) Tj
+T*
+(after every run.) Tj
+T*
+() Tj
+T*
+(The next forward test should not be judged only by whether it opens a position. It should be) Tj
+T*
+(judged by whether every HOLD, skipped order, rejected order, accepted order, and cancelled order) Tj
+T*
+(can be explained from the playbook and the live bid/ask at the time.) Tj
+T*
+(Page 5) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 12 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R 9 0 R 11 0 R] /Count 5 >>
+endobj
+13 0 obj
+<< /Type /Catalog /Pages 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000002267 00000 n 
+0000002394 00000 n 
+0000004337 00000 n 
+0000004464 00000 n 
+0000006296 00000 n 
+0000006423 00000 n 
+0000008932 00000 n 
+0000009059 00000 n 
+0000010286 00000 n 
+0000010415 00000 n 
+0000010498 00000 n 
+trailer
+<< /Size 14 /Root 13 0 R >>
+startxref
+10549
+%%EOF

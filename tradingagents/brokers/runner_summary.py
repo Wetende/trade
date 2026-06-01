@@ -94,12 +94,17 @@ class RunnerSummaryStore:
             "hold_reason_counts": {},
             "orders_placed": 0,
             "orders_rejected": 0,
+            "orders_skipped": 0,
             "broker_rejections": 0,
+            "execution_skip_counts": {},
+            "candidate_strategy_counts": {},
+            "approved_candidate_strategy_counts": {},
             "data_health": {
                 "healthy_checks": 0,
                 "unhealthy_checks": 0,
                 "latest_status": {},
             },
+            "latest_execution": {},
             "latest_cycle": {},
         }
 
@@ -118,6 +123,19 @@ class RunnerSummaryStore:
         summary["total_checks"] = int(summary.get("total_checks", 0)) + 1
         summary["updated_at_utc"] = _utc_now()
 
+        candidate_counts = Counter(summary.get("candidate_strategy_counts", {}))
+        approved_candidate_counts = Counter(
+            summary.get("approved_candidate_strategy_counts", {})
+        )
+        for item in telemetry.get("candidate_evaluations") or []:
+            setup = item.get("setup") or {}
+            setup_name = str(setup.get("name") or "unknown")
+            candidate_counts[setup_name] += 1
+            if item.get("approved") is True:
+                approved_candidate_counts[setup_name] += 1
+        summary["candidate_strategy_counts"] = dict(candidate_counts)
+        summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
+
         if status == "NO_TRADE":
             hold_reason = categorize_hold_reason(reason, telemetry, data_status)
             hold_counts = Counter(summary.get("hold_reason_counts", {}))
@@ -131,6 +149,35 @@ class RunnerSummaryStore:
             summary["orders_rejected"] = int(summary.get("orders_rejected", 0)) + 1
         if execution.get("status") == "REJECTED":
             summary["broker_rejections"] = int(summary.get("broker_rejections", 0)) + 1
+        execution_status = str(execution.get("status") or "")
+        if execution_status.startswith("SKIPPED"):
+            summary["orders_skipped"] = int(summary.get("orders_skipped", 0)) + 1
+            reason_key = str(execution.get("reason") or "UNKNOWN")
+            skip_counts = Counter(summary.get("execution_skip_counts", {}))
+            skip_counts[reason_key] += 1
+            summary["execution_skip_counts"] = dict(skip_counts)
+
+        if execution:
+            broker_result = execution.get("broker_result") or {}
+            request = broker_result.get("request") or {}
+            execution_proposal = (
+                execution.get("proposal")
+                or proposal
+                or {}
+            )
+            summary["latest_execution"] = {
+                "status": execution_status or None,
+                "reason": execution.get("reason"),
+                "error": execution.get("error"),
+                "retcode": broker_result.get("retcode"),
+                "comment": broker_result.get("comment"),
+                "request_type": request.get("type"),
+                "order": execution.get("order"),
+                "setup_name": execution_proposal.get("setup_name"),
+                "strategy_type": execution_proposal.get("strategy_type"),
+                "side": execution_proposal.get("side"),
+                "order_type": execution_proposal.get("order_type"),
+            }
 
         if data_status:
             data_health = summary.setdefault("data_health", {})

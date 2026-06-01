@@ -42,6 +42,25 @@ def test_breakout_requires_close_outside_zone():
     assert result[0].name == "Breakout"
 
 
+def test_breakout_requires_candle_to_cross_the_zone():
+    distant_support = Zone(
+        type="support",
+        timeframe="30m",
+        low=110,
+        high=112,
+        midpoint=111,
+        touches=2,
+        score=9,
+        source="test",
+    )
+    candle = parse_ohlcv_text(
+        "Datetime,Open,High,Low,Close,Volume\n"
+        "2026-05-18 08:15:00,101,102,99,100,1000"
+    )[0]
+
+    assert detect_breakouts([candle], [distant_support]) == []
+
+
 def test_retest_requires_half_zone_coverage_and_close_in_direction():
     candles = parse_ohlcv_text(
         "Datetime,Open,High,Low,Close,Volume\n"

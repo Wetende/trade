@@ -46,7 +46,7 @@ class MT5Executor:
         return bool(orders or positions)
 
     def execute_proposal(self, proposal: OrderProposal) -> dict[str, Any]:
-        """Place a pending limit order when no active trade exists."""
+        """Place a pending order when no active trade exists."""
         connection = self.broker.connect()
         self.journal.append("CONNECTED", connection)
 
@@ -58,10 +58,20 @@ class MT5Executor:
             self.journal.append("SKIPPED_ACTIVE_TRADE", result)
             return result
 
-        request = self.builder.build_pending_limit_request(
-            proposal,
-            connection["symbol"],
-        )
+        try:
+            request = self.builder.build_pending_order_request(
+                proposal,
+                connection["symbol"],
+            )
+        except ValueError as exc:
+            result = {
+                "status": "SKIPPED_INVALID_ENTRY",
+                "reason": "ENTRY_PRICE_STALE_OR_INVALID",
+                "error": str(exc),
+                "proposal": proposal.model_dump(mode="json"),
+            }
+            self.journal.append("ORDER_SKIPPED", result)
+            return result
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
         broker_result = self.broker.place_pending_order(request)

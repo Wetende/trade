@@ -22,6 +22,8 @@ class FakeMT5:
     ACCOUNT_TRADE_MODE_REAL = 2
     ORDER_TYPE_BUY_LIMIT = 2
     ORDER_TYPE_SELL_LIMIT = 3
+    ORDER_TYPE_BUY_STOP = 4
+    ORDER_TYPE_SELL_STOP = 5
     POSITION_TYPE_BUY = 0
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
@@ -124,6 +126,8 @@ class FakeMT5:
             trade_contract_size=100.0,
             trade_tick_size=0.01,
             trade_tick_value=1.0,
+            trade_stops_level=50,
+            trade_freeze_level=20,
             volume_min=0.01,
             volume_max=100.0,
             volume_step=0.01,
@@ -424,6 +428,8 @@ def test_mt5_broker_connects_and_reads_symbol_specs():
     assert result["account"]["server"] == "ExampleBroker-Demo"
     assert result["account"]["trade_mode_label"] == "DEMO"
     assert result["symbol"]["name"] == "XAUUSD"
+    assert result["symbol"]["trade_stops_level"] == 50
+    assert result["symbol"]["trade_freeze_level"] == 20
     assert result["symbol"]["volume_min"] == 0.01
 
 
@@ -570,6 +576,58 @@ def test_mt5_broker_sends_pending_order_request():
     assert isinstance(result["request"]["price"], float)
     assert isinstance(result["request"]["sl"], float)
     assert isinstance(result["request"]["tp"], float)
+
+
+def test_mt5_broker_materializes_buy_stop_order():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    request = _valid_pending_request()
+    request.update(
+        {
+            "type": "BUY_STOP",
+            "price": 4510.00,
+            "sl": 4508.00,
+            "tp": 4515.00,
+        }
+    )
+
+    result = broker.place_pending_order(request)
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[0]["type"] == FakeMT5.ORDER_TYPE_BUY_STOP
+
+
+def test_mt5_broker_materializes_sell_stop_order():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+    request = _valid_pending_request()
+    request.update(
+        {
+            "type": "SELL_STOP",
+            "price": 4500.00,
+            "sl": 4502.00,
+            "tp": 4495.00,
+        }
+    )
+
+    result = broker.place_pending_order(request)
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[0]["type"] == FakeMT5.ORDER_TYPE_SELL_STOP
 
 
 def test_mt5_broker_rejects_order_send_before_connect():
@@ -837,7 +895,7 @@ def _valid_pending_request():
         ("action", "TRADE_ACTION_DEAL", "action must be TRADE_ACTION_PENDING"),
         ("action", FakeMT5.TRADE_ACTION_PENDING, "action must be symbolic"),
         ("symbol", "EURUSD", "symbol must match configured MT5 symbol"),
-        ("type", "BUY_STOP", "type must be BUY_LIMIT or SELL_LIMIT"),
+        ("type", "BUY_MARKET", "type must be BUY_LIMIT, SELL_LIMIT, BUY_STOP, or SELL_STOP"),
         ("type", FakeMT5.ORDER_TYPE_BUY_LIMIT, "type must be symbolic"),
         ("type_time", FakeMT5.ORDER_TIME_GTC, "type_time must be symbolic"),
         (
@@ -870,7 +928,7 @@ def test_mt5_broker_rejects_unsafe_pending_order_fields(field, value, match):
     (
         ("type_time", "TRADE_ACTION_REMOVE", "unknown MT5 request type_time value"),
         ("type_filling", "ORDER_TIME_GTC", "unknown MT5 request type_filling value"),
-        ("type", "ORDER_TIME_GTC", "type must be BUY_LIMIT or SELL_LIMIT"),
+        ("type", "ORDER_TIME_GTC", "type must be BUY_LIMIT, SELL_LIMIT, BUY_STOP, or SELL_STOP"),
     ),
 )
 def test_mt5_broker_rejects_symbolic_values_for_wrong_field(field, value, match):

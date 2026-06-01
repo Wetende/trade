@@ -57,19 +57,21 @@ def _history_with_retries(
 ):
     last_data = None
     last_error = None
+    retry_warning = None
     for attempt in range(1, attempts + 1):
         try:
             data = ticker.history(**kwargs)
             last_data = data
             if not data.empty:
-                return data, attempt, None
+                return data, attempt, retry_warning
         except Exception as exc:
             last_error = exc
+            retry_warning = str(exc)
         if attempt < attempts:
             time.sleep(delay_seconds)
     if last_error is not None and last_data is None:
         raise last_error
-    return last_data, attempts, last_error
+    return last_data, attempts, retry_warning or (str(last_error) if last_error else None)
 
 
 def _market_timezone_for_symbol(symbol: str) -> str | None:
@@ -84,6 +86,7 @@ def _format_history(
     source_note: str,
     attempts: int = 1,
     market_timezone: str | None = None,
+    retry_warning: str | None = None,
 ) -> str:
     if data.empty:
         return f"No data found for symbol '{symbol}' ({source_note}, attempts={attempts})"
@@ -104,6 +107,8 @@ def _format_history(
     header += f"# Total records: {len(data)}\n"
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     header += f"# yfinance attempts: {attempts}\n"
+    if retry_warning:
+        header += f"# yfinance retry warning: {retry_warning}\n"
     return header + data.to_csv()
 
 
@@ -116,7 +121,7 @@ def get_YFin_data_online(
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
     ticker = yf.Ticker(symbol.upper())
-    data, attempts, _error = _history_with_retries(
+    data, attempts, retry_warning = _history_with_retries(
         ticker,
         start=start_date,
         end=end_date,
@@ -127,6 +132,7 @@ def get_YFin_data_online(
         f"{start_date} to {end_date}",
         attempts=attempts,
         market_timezone=_market_timezone_for_symbol(symbol),
+        retry_warning=retry_warning,
     )
 
 
@@ -137,7 +143,7 @@ def get_YFin_intraday_data(
 ):
     configure_yfinance_runtime()
     ticker = yf.Ticker(symbol.upper())
-    data, attempts, _error = _history_with_retries(
+    data, attempts, retry_warning = _history_with_retries(
         ticker,
         period=period,
         interval=interval,
@@ -148,4 +154,5 @@ def get_YFin_intraday_data(
         f"period={period}, interval={interval}",
         attempts=attempts,
         market_timezone=_market_timezone_for_symbol(symbol),
+        retry_warning=retry_warning,
     )

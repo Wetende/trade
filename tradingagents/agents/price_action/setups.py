@@ -80,9 +80,17 @@ def detect_breakouts(
     candle = candles[-1]
     setups: list[Setup] = []
     for zone in zones:
-        if zone.type == "resistance" and candle.close > zone.high:
+        if (
+            zone.type == "resistance"
+            and candle.low <= zone.high
+            and candle.close > zone.high
+        ):
             setups.append(_setup("Breakout", "BUY", zone, candle, zone.high))
-        elif zone.type == "support" and candle.close < zone.low:
+        elif (
+            zone.type == "support"
+            and candle.high >= zone.low
+            and candle.close < zone.low
+        ):
             setups.append(_setup("Breakout", "SELL", zone, candle, zone.low))
     return sorted(setups, key=lambda setup: setup.zone.score, reverse=True)
 

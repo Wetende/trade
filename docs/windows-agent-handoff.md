@@ -141,7 +141,8 @@ Review the audit outputs after the cycle:
 ```
 
 The summary should show total checks, HOLD/PROPOSED counts, broker-order counts,
-rejection counts, categorized HOLD reasons, and latest data-health status.
+accepted/rejected/skipped order counts, categorized HOLD reasons, latest
+execution status, candidate strategy counts, and latest data-health status.
 
 ## Manual Cycle
 

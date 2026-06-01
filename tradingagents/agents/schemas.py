@@ -81,12 +81,14 @@ def render_trade_plan(plan: TradePlan) -> str:
 
 
 class OrderProposal(BaseModel):
-    """Local execution artifact for a proposed limit order."""
+    """Local execution artifact for a proposed broker order."""
 
     symbol: str
     broker_symbol: Optional[str] = None
     side: TradeAction
     order_type: str = "LIMIT"
+    setup_name: Optional[str] = None
+    strategy_type: Optional[str] = None
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
@@ -117,15 +119,23 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         f"**Side**: {proposal.side.value}",
         "",
         f"**Order Type**: {proposal.order_type}",
-        "",
-        f"**Timeframe**: {proposal.timeframe}",
-        "",
-        f"**Confirmation Timeframe**: {proposal.confirmation_timeframe}",
-        "",
-        f"**Valid Until**: {proposal.valid_until}",
-        "",
-        f"**Reason**: {proposal.reason}",
     ]
+    if proposal.setup_name:
+        parts.extend(["", f"**Setup Name**: {proposal.setup_name}"])
+    if proposal.strategy_type:
+        parts.extend(["", f"**Strategy Type**: {proposal.strategy_type}"])
+    parts.extend(
+        [
+            "",
+            f"**Timeframe**: {proposal.timeframe}",
+            "",
+            f"**Confirmation Timeframe**: {proposal.confirmation_timeframe}",
+            "",
+            f"**Valid Until**: {proposal.valid_until}",
+            "",
+            f"**Reason**: {proposal.reason}",
+        ]
+    )
     if proposal.entry_price is not None:
         parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
     if proposal.stop_loss is not None:

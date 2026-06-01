@@ -1,5 +1,7 @@
 from tradingagents.agents.price_action.candles import parse_ohlcv_text
+from tradingagents.agents.price_action import engine
 from tradingagents.agents.price_action.engine import analyze_playbook
+from tradingagents.agents.price_action.models import Candle, Setup, Zone
 
 
 def candles(raw_rows: str):
@@ -84,6 +86,129 @@ def test_engine_approves_m30_m15_setup_when_higher_timeframe_is_only_context():
     assert payload["telemetry"]["decision_stage"] == "setup_found"
     assert payload["market_context"]["daily_structure"]["permission"] == "SELL_ALLOWED"
     assert payload["telemetry"]["permissions"]["higher_timeframe"]["permission"] == "CONTEXT_ONLY"
+
+
+def test_engine_treats_m15_breakout_as_core_entry_model(monkeypatch):
+    breakout_zone = Zone(
+        type="resistance",
+        timeframe="30m",
+        low=100.0,
+        high=101.0,
+        midpoint=100.5,
+        touches=3,
+        score=30.0,
+        source="test",
+    )
+    target_zone = Zone(
+        type="resistance",
+        timeframe="30m",
+        low=105.5,
+        high=106.5,
+        midpoint=106.0,
+        touches=2,
+        score=24.0,
+        source="test",
+    )
+
+    def fake_zones(_candles, timeframe):
+        return [breakout_zone, target_zone] if timeframe == "30m" else []
+
+    monkeypatch.setattr(engine, "calculate_support_resistance", fake_zones)
+    data = {
+        "1d": candles("2026-05-18 00:00:00,99,103,98,102,1000"),
+        "4h": candles("2026-05-18 04:00:00,99,103,98,102,1000"),
+        "1h": candles("2026-05-18 08:00:00,99,103,98,102,1000"),
+        "30m": candles("2026-05-18 08:00:00,100.8,102.6,100.6,102.0,1000"),
+        "15m": candles("2026-05-18 08:15:00,101.2,102.8,100.8,102.2,1000"),
+    }
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+        session_config={"time_filter_mode": "allow"},
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "Breakout"
+    assert any(
+        item["setup"]["name"] == "Breakout" and item["approved"]
+        for item in payload["telemetry"]["candidate_evaluations"]
+    )
+
+
+def test_engine_evaluates_next_candidate_when_first_candidate_fails(monkeypatch):
+    data = aligned_buy_setup_data()
+    zone = Zone(
+        type="resistance",
+        timeframe="30m",
+        low=105.0,
+        high=106.0,
+        midpoint=105.5,
+        touches=3,
+        score=30.0,
+        source="test",
+    )
+    candle = Candle(
+        timestamp="2026-05-18 08:15:00",
+        open=106.0,
+        high=108.5,
+        low=105.5,
+        close=108.0,
+        volume=1000,
+    )
+    m30_context = Setup(
+        name="Breakout",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=data["30m"][-1],
+    )
+    failing_setup = Setup(
+        name="Break and Retest",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=candle,
+    )
+    passing_setup = Setup(
+        name="Breakout",
+        direction="BUY",
+        zone=zone,
+        entry_price=107.0,
+        stop_loss=106.0,
+        confirmation_candle=candle,
+    )
+
+    def fake_breakouts(raw_candles, _zones):
+        latest = list(raw_candles)[-1]
+        return [m30_context] if latest.timestamp.endswith("08:00:00") else []
+
+    def fake_target(_zones, _direction, entry_price):
+        midpoint = 106.4 if float(entry_price) == 106.0 else 110.5
+        return {"type": "resistance", "timeframe": "30m", "midpoint": midpoint}
+
+    monkeypatch.setattr(engine, "detect_breakouts", fake_breakouts)
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [failing_setup, passing_setup])
+    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "nearest_target_zone", fake_target)
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["setups"][0]["entry_price"] == 107.0
+    assert payload["telemetry"]["candidate_setup_count"] == 2
+    assert payload["telemetry"]["candidate_evaluations"][0]["approved"] is False
+    assert payload["telemetry"]["candidate_evaluations"][1]["approved"] is True
 
 
 def test_engine_rejects_setup_without_real_target_zone():
@@ -214,7 +339,8 @@ def test_engine_time_filter_observe_mode_records_candidates_but_blocks_order():
     assert payload["checklist"]["volume_time"] == "failed"
     assert payload["checklist"]["not_sunday_asian_session"] == "failed"
     assert payload["telemetry"]["decision_stage"] == "a_plus_checklist"
-    assert payload["telemetry"]["candidate_setup_count"] == 1
+    assert payload["telemetry"]["candidate_setup_count"] >= 1
+    assert payload["telemetry"]["candidate_evaluations"]
     assert payload["market_context"]["time_filter_mode"] == "observe"
 
 

@@ -144,7 +144,8 @@ Expected behavior:
 - connects to MT5
 - confirms the broker connection guard
 - refuses if an active order or position already exists for the symbol
-- builds a pending `BUY_LIMIT` or `SELL_LIMIT`
+- builds a broker-valid pending order: `BUY_LIMIT`, `SELL_LIMIT`, `BUY_STOP`,
+  or `SELL_STOP`
 - places the pending order
 - records journal and state files
 

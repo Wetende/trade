@@ -59,6 +59,30 @@ def test_yfinance_intraday_returns_no_data_after_all_attempts(monkeypatch, tmp_p
     assert "attempts=3" in text
 
 
+def test_yfinance_intraday_reports_retry_exception_metadata(monkeypatch, tmp_path):
+    _stub_yfinance_runtime(monkeypatch, tmp_path)
+
+    class FailingThenWorkingTicker:
+        def __init__(self):
+            self.calls = 0
+
+        def history(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary yahoo gap")
+            return _frame()
+
+    fake = FailingThenWorkingTicker()
+    monkeypatch.setattr(y_finance.yf, "Ticker", lambda symbol: fake)
+    monkeypatch.setattr(y_finance.time, "sleep", lambda seconds: None)
+
+    text = y_finance.get_YFin_intraday_data("GC=F", period="10d", interval="15m")
+
+    assert fake.calls == 2
+    assert "# yfinance attempts: 2" in text
+    assert "# yfinance retry warning: temporary yahoo gap" in text
+
+
 def test_yfinance_configures_cache_location(monkeypatch, tmp_path):
     calls = []
 
