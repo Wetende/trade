@@ -50,8 +50,81 @@ def _float_field(markdown: str, label: str) -> Optional[float]:
         return None
 
 
+def _float_value(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_action(markdown: str) -> TradeAction:
     return TradeAction(parse_trade_action(markdown))
+
+
+def _failed_checklist_items(checklist: dict) -> list[str]:
+    return [str(key) for key, value in checklist.items() if value == "failed"]
+
+
+def _format_rr(risk: dict) -> str | None:
+    rr = risk.get("risk_reward")
+    if rr is None:
+        rr = risk.get("available_risk_reward")
+    if rr is None:
+        return None
+    try:
+        return f"R:R {float(rr):.2f}"
+    except (TypeError, ValueError):
+        return f"R:R {rr}"
+
+
+def _telemetry_reason(state: dict) -> str | None:
+    payload = state.get("engine_payload") or {}
+    telemetry = state.get("engine_telemetry") or payload.get("telemetry") or {}
+    if not telemetry:
+        return None
+
+    stage = str(telemetry.get("decision_stage") or "").strip()
+    primary = str(telemetry.get("primary_hold_reason") or "").strip()
+    checklist = payload.get("checklist") or {}
+    risk = payload.get("risk") or {}
+    m30 = telemetry.get("m30_context") or {}
+    m30_label = " ".join(
+        part
+        for part in (
+            str(m30.get("bias") or "").strip(),
+            str(m30.get("context") or "").strip(),
+        )
+        if part
+    )
+    candidate_count = telemetry.get("candidate_setup_count")
+    failed = _failed_checklist_items(checklist)
+
+    parts = [
+        "Setup found."
+        if str(payload.get("status") or "").strip().upper() == "SETUP_FOUND"
+        else "No trade."
+    ]
+    if m30_label:
+        parts.append(f"M30 {m30_label}.")
+    if candidate_count is not None:
+        parts.append(f"Candidate setups: {candidate_count}.")
+    if primary:
+        parts.append(primary)
+    if failed:
+        parts.append("Failed checklist: " + ", ".join(failed) + ".")
+    if risk.get("reason"):
+        risk_detail = str(risk["reason"])
+        rr = _format_rr(risk)
+        if rr:
+            risk_detail = f"{risk_detail} ({rr})"
+        parts.append(risk_detail + ".")
+    elif _format_rr(risk):
+        parts.append(_format_rr(risk) + ".")
+    if stage:
+        parts.append(f"Decision stage: {stage}.")
+    return " ".join(parts)
 
 
 def _timeframe_minutes(timeframe: str) -> int:
@@ -79,7 +152,66 @@ def _minutes_after(as_of: str, minutes: int, market_timezone: str) -> str:
         return as_of
 
 
+def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
+    payload = state.get("engine_payload") or {}
+    if not payload:
+        return None
+
+    payload_status = str(payload.get("status") or "").strip().upper()
+    recommendation = str(payload.get("recommendation") or "").strip().upper()
+    timeframe = state.get("timeframe", payload.get("timeframe", "15m"))
+    confirmation_timeframe = state.get(
+        "confirmation_timeframe",
+        payload.get("confirmation_timeframe", "30m"),
+    )
+    as_of = state.get("as_of", payload.get("as_of", ""))
+    market_timezone = state.get("market_timezone", "America/New_York")
+
+    side = TradeAction.HOLD
+    status = OrderStatus.NO_TRADE
+    entry = stop = target = None
+    reason = _telemetry_reason(state) or str(payload.get("message") or "No engine reason supplied.")
+
+    if payload_status == "SETUP_FOUND" and recommendation in {"BUY", "SELL"}:
+        side = TradeAction(recommendation)
+        setup = (payload.get("setups") or [{}])[0]
+        risk = payload.get("risk") or {}
+        entry = _float_value(setup.get("entry_price"))
+        stop = _float_value(setup.get("stop_loss"))
+        target = _float_value(setup.get("take_profit") or risk.get("take_profit"))
+        if entry is not None and stop is not None and target is not None:
+            status = OrderStatus.PROPOSED
+        else:
+            reason = "No order proposed because the engine setup is missing entry, stop, or target."
+
+    activation_window_minutes = 10 if status == OrderStatus.PROPOSED else None
+    return OrderProposal(
+        symbol=state["company_of_interest"],
+        broker_symbol=state.get("broker_symbol") or state["company_of_interest"],
+        side=side,
+        order_type="LIMIT",
+        entry_price=entry,
+        stop_loss=stop,
+        take_profit=target,
+        timeframe=timeframe,
+        confirmation_timeframe=confirmation_timeframe,
+        valid_until=_valid_until(as_of, timeframe, market_timezone),
+        activation_window_minutes=activation_window_minutes,
+        cancel_if_not_triggered_after=(
+            _minutes_after(as_of, activation_window_minutes, market_timezone)
+            if activation_window_minutes is not None
+            else None
+        ),
+        status=status,
+        reason=reason,
+    )
+
+
 def build_order_proposal(state: dict) -> OrderProposal:
+    engine_proposal = _proposal_from_engine_payload(state)
+    if engine_proposal is not None:
+        return engine_proposal
+
     trade_plan = state.get("trade_plan", "")
     action = _parse_action(trade_plan)
     entry = _float_field(trade_plan, "Entry Price")
@@ -96,6 +228,8 @@ def build_order_proposal(state: dict) -> OrderProposal:
 
     if action in {TradeAction.BUY, TradeAction.SELL} and not has_required_levels:
         reason = "No order proposed because the trade plan is missing entry, stop, or target."
+    elif status == OrderStatus.NO_TRADE:
+        reason = _telemetry_reason(state) or reason
 
     as_of = state.get("as_of", "")
     market_timezone = state.get("market_timezone", "America/New_York")
@@ -128,8 +262,27 @@ def build_order_proposal(state: dict) -> OrderProposal:
 
 
 def create_order_proposal_executor(config: dict):
+    def load_engine_payload(state: dict) -> dict:
+        safe_symbol = safe_ticker_component(state["company_of_interest"])
+        safe_as_of = re.sub(r"[^0-9A-Za-z_-]+", "_", state.get("as_of", "unknown")).strip("_")
+        telemetry_path = (
+            Path(config["results_dir"])
+            / safe_symbol
+            / "engine_telemetry"
+            / f"engine_payload_{safe_as_of}.json"
+        )
+        if not telemetry_path.exists():
+            return {}
+        return json.loads(telemetry_path.read_text(encoding="utf-8"))
+
     def order_proposal_node(state):
-        proposal = build_order_proposal(state)
+        enriched_state = dict(state)
+        if not enriched_state.get("engine_payload"):
+            payload = load_engine_payload(enriched_state)
+            if payload:
+                enriched_state["engine_payload"] = payload
+                enriched_state["engine_telemetry"] = payload.get("telemetry", {})
+        proposal = build_order_proposal(enriched_state)
         rendered = render_order_proposal(proposal)
 
         safe_symbol = safe_ticker_component(state["company_of_interest"])

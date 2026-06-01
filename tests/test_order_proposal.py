@@ -40,6 +40,133 @@ def test_hold_trade_plan_creates_no_trade_proposal(tmp_path):
 
 
 @pytest.mark.unit
+def test_no_trade_proposal_prefers_telemetry_reason_over_misleading_trade_plan(tmp_path):
+    state = _state(
+        "**Action**: HOLD\n\n"
+        "**Reason**: No price-action data was provided, so no trade can be evaluated.",
+        tmp_path,
+    )
+    state["engine_telemetry"] = {
+        "decision_stage": "a_plus_checklist",
+        "primary_hold_reason": "A required A+ checklist rule failed. Default to HOLD.",
+        "candidate_setup_count": 1,
+        "m30_context": {"bias": "BEARISH", "context": "BREAKOUT"},
+    }
+    state["engine_payload"] = {
+        "checklist": {
+            "playbook_setup": "passed",
+            "timeframe_correlation": "passed",
+            "clean_range_to_fill": "failed",
+        },
+        "risk": {
+            "approved": False,
+            "reason": "Clean range is below minimum risk-to-reward",
+            "risk_reward": 0.62,
+        },
+        "market_context": {
+            "higher_timeframe_permission": {
+                "permission": "CONTEXT_ONLY",
+                "planned_direction": "SELL",
+            }
+        },
+    }
+
+    proposal = build_order_proposal(state)
+
+    assert proposal.status == OrderStatus.NO_TRADE
+    assert "Clean range is below minimum risk-to-reward" in proposal.reason
+    assert "R:R 0.62" in proposal.reason
+    assert "M30 BEARISH BREAKOUT" in proposal.reason
+    assert "no price-action data" not in proposal.reason.lower()
+
+
+@pytest.mark.unit
+def test_order_proposal_uses_engine_payload_for_proposed_trade_without_llm_levels(tmp_path):
+    state = _state(
+        "**Action**: HOLD\n\n"
+        "**Reason**: LLM fallback text should not drive execution.",
+        tmp_path,
+    )
+    state["engine_payload"] = {
+        "status": "SETUP_FOUND",
+        "recommendation": "SELL",
+        "message": "A deterministic A+ price-action setup passed the checklist.",
+        "setups": [
+            {
+                "name": "Break and Retest",
+                "direction": "SELL",
+                "entry_price": 4498.5,
+                "stop_loss": 4503.2,
+                "take_profit": 4488.0,
+            }
+        ],
+        "risk": {
+            "approved": True,
+            "risk_reward": 2.23,
+            "take_profit": 4488.0,
+        },
+        "telemetry": {
+            "decision_stage": "setup_found",
+            "primary_hold_reason": "A deterministic A+ price-action setup passed the checklist.",
+            "candidate_setup_count": 1,
+            "m30_context": {"bias": "BEARISH", "context": "BREAKOUT"},
+        },
+    }
+
+    proposal = build_order_proposal(state)
+
+    assert proposal.status == OrderStatus.PROPOSED
+    assert proposal.side == TradeAction.SELL
+    assert proposal.entry_price == 4498.5
+    assert proposal.stop_loss == 4503.2
+    assert proposal.take_profit == 4488.0
+    assert "M30 BEARISH BREAKOUT" in proposal.reason
+    assert "R:R 2.23" in proposal.reason
+    assert "LLM fallback" not in proposal.reason
+
+
+@pytest.mark.unit
+def test_executor_loads_engine_payload_before_writing_order_proposal(tmp_path):
+    state = _state(
+        "**Action**: HOLD\n\n"
+        "**Reason**: No price-action data was provided.",
+        tmp_path,
+    )
+    safe_dir = tmp_path / "SPY" / "engine_telemetry"
+    safe_dir.mkdir(parents=True)
+    (safe_dir / "engine_payload_2026-05-17_10_15.json").write_text(
+        json.dumps(
+            {
+                "status": "NO_SETUP",
+                "recommendation": "HOLD",
+                "message": "A required A+ checklist rule failed. Default to HOLD.",
+                "checklist": {"clean_range_to_fill": "failed"},
+                "risk": {
+                    "approved": False,
+                    "reason": "Clean range is below minimum risk-to-reward",
+                    "risk_reward": 0.62,
+                },
+                "telemetry": {
+                    "decision_stage": "a_plus_checklist",
+                    "primary_hold_reason": "A required A+ checklist rule failed. Default to HOLD.",
+                    "candidate_setup_count": 1,
+                    "m30_context": {"bias": "BEARISH", "context": "BREAKOUT"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    node = create_order_proposal_executor({"results_dir": str(tmp_path)})
+    result = node(state)
+    saved = json.loads(open(result["order_proposal_path"], encoding="utf-8").read())
+
+    assert saved["status"] == "NO_TRADE"
+    assert "Clean range is below minimum risk-to-reward" in saved["reason"]
+    assert "no price-action data" not in saved["reason"].lower()
+
+
+@pytest.mark.unit
 def test_buy_trade_plan_creates_proposed_limit_order(tmp_path):
     plan = (
         "**Action**: BUY\n\n"
