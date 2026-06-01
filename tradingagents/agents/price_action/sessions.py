@@ -23,6 +23,7 @@ DEFAULT_SESSION_CONFIG = {
     "four_hour_candle_block_minutes": 15,
     "sunday_asian_block_start": "17:00",
     "monday_early_asian_cutoff": "03:00",
+    "time_filter_mode": "block",
 }
 
 _UNKNOWN_FILTERS = {

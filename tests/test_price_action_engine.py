@@ -16,8 +16,8 @@ def target_candles():
     )
 
 
-def test_engine_approves_buy_when_top_down_and_m15_retest_align():
-    data = {
+def aligned_buy_setup_data():
+    return {
         "1d": candles(
             "2026-05-15 00:00:00,90,110,89,106,1000\n"
             "2026-05-16 00:00:00,106,112,101,110,1000\n"
@@ -43,6 +43,10 @@ def test_engine_approves_buy_when_top_down_and_m15_retest_align():
             "2026-05-18 08:15:00,106,107.2,104.9,106.9,1000"
         ),
     }
+
+
+def test_engine_approves_buy_when_top_down_and_m15_retest_align():
+    data = aligned_buy_setup_data()
 
     payload = analyze_playbook(
         "XAUUSD",
@@ -156,6 +160,39 @@ def test_engine_rejects_when_time_filter_fails():
 
     assert payload["status"] == "NO_SETUP"
     assert payload["checklist"]["not_sunday_asian_session"] == "failed"
+
+
+def test_engine_time_filter_allow_mode_can_continue_to_setup():
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-17 19:30",
+        aligned_buy_setup_data(),
+        market_timezone="America/New_York",
+        session_config={"time_filter_mode": "allow"},
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["checklist"]["volume_time"] == "passed"
+    assert payload["checklist"]["not_sunday_asian_session"] == "passed"
+    assert payload["market_context"]["time_filter_mode"] == "allow"
+
+
+def test_engine_time_filter_observe_mode_records_candidates_but_blocks_order():
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-17 19:30",
+        aligned_buy_setup_data(),
+        market_timezone="America/New_York",
+        session_config={"time_filter_mode": "observe"},
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["volume_time"] == "failed"
+    assert payload["checklist"]["not_sunday_asian_session"] == "failed"
+    assert payload["telemetry"]["decision_stage"] == "a_plus_checklist"
+    assert payload["telemetry"]["candidate_setup_count"] == 1
+    assert payload["market_context"]["time_filter_mode"] == "observe"
 
 
 def test_engine_payload_contains_raw_telemetry_for_time_filter_hold():

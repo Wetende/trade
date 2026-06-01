@@ -152,8 +152,14 @@ $env:GIT_HTTP_PROXY=""
 $env:GIT_HTTPS_PROXY=""
 $env:TRADINGAGENTS_MT5_ACCOUNT_MODE="demo"
 $env:TRADINGAGENTS_MT5_EXECUTION_MODE="broker"
+$env:TRADINGAGENTS_TIME_FILTER_MODE="block"
 tradingagents mt5-run --poll-seconds 30 --duration-hours 4
 ```
+
+For short demo validation during a normally blocked Sunday/Asian window, set
+`TRADINGAGENTS_TIME_FILTER_MODE="allow"` only for that process. For production
+observation that records setup evidence but still blocks brokerable orders, use
+`TRADINGAGENTS_TIME_FILTER_MODE="observe"`.
 
 Do not start a setup-validation run after the Friday gold close. For
 observation, Sunday New York reopen is acceptable. For cleaner strategy

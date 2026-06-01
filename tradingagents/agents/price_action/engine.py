@@ -176,6 +176,11 @@ def analyze_playbook(
     time_checks = evaluate_time_filters(as_of, market_timezone, config=session_config)
     checklist = _base_checklist(time_checks)
     checklist["candle_closed"] = PASS if m15 and m30 else FAIL
+    time_filter_mode = str(
+        (session_config or {}).get("time_filter_mode", "block")
+    ).strip().lower()
+    if time_filter_mode not in {"block", "observe", "allow"}:
+        time_filter_mode = "block"
 
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
@@ -213,6 +218,7 @@ def analyze_playbook(
         "h4_permission": h4_structure["permission"],
         "h1_permission": h1_structure["permission"],
         "range": classify_range(m30, m30_zones),
+        "time_filter_mode": time_filter_mode,
     }
     m30_rejections: list[Setup] = []
     if not m30_breakouts:
@@ -245,7 +251,13 @@ def analyze_playbook(
         "not_15_min_before_open",
         "not_sunday_asian_session",
     )
-    if any(checklist[key] == FAIL for key in hard_time_keys):
+    if time_filter_mode == "allow":
+        for key in hard_time_keys:
+            if checklist[key] == FAIL:
+                checklist[key] = PASS
+    if time_filter_mode == "block" and any(
+        checklist[key] == FAIL for key in hard_time_keys
+    ):
         return _payload(
             symbol,
             as_of,

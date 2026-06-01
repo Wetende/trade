@@ -81,6 +81,12 @@ def test_runner_int_overrides(monkeypatch):
     assert dc.DEFAULT_CONFIG["runner_max_cycles"] == 5
 
 
+def test_time_filter_mode_env_updates_price_action_config(monkeypatch):
+    dc = _reload_with_env(monkeypatch, TRADINGAGENTS_TIME_FILTER_MODE="allow")
+
+    assert dc.DEFAULT_CONFIG["price_action"]["time_filter_mode"] == "allow"
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(
