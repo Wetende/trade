@@ -24,7 +24,7 @@ def _zone(kind, low, high, score=20):
     )
 
 
-def test_daily_block_rejects_trade():
+def test_higher_timeframe_context_records_opposing_daily_without_blocking():
     result = evaluate_higher_timeframe_permission(
         daily="SELL_ALLOWED",
         h4="BUY_ALLOWED",
@@ -32,11 +32,12 @@ def test_daily_block_rejects_trade():
         planned_direction="BUY",
     )
 
-    assert result["permission"] == "NO_TRADE"
-    assert "Daily blocks BUY" in result["reason"]
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["planned_direction"] == "BUY"
+    assert result["daily_permission"] == "SELL_ALLOWED"
 
 
-def test_h4_neutral_allows_if_daily_not_blocking_and_h1_agrees():
+def test_higher_timeframe_context_records_neutral_h4_and_aligned_h1():
     result = evaluate_higher_timeframe_permission(
         daily="NEUTRAL",
         h4="NEUTRAL",
@@ -44,10 +45,12 @@ def test_h4_neutral_allows_if_daily_not_blocking_and_h1_agrees():
         planned_direction="BUY",
     )
 
-    assert result["permission"] == "BUY_ALLOWED"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["h4_permission"] == "NEUTRAL"
+    assert result["h1_permission"] == "BUY_ALLOWED"
 
 
-def test_h1_must_agree():
+def test_higher_timeframe_context_records_unclear_1h_without_blocking():
     result = evaluate_higher_timeframe_permission(
         daily="NEUTRAL",
         h4="NEUTRAL",
@@ -55,10 +58,11 @@ def test_h1_must_agree():
         planned_direction="BUY",
     )
 
-    assert result["permission"] == "NO_TRADE"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["h1_permission"] == "NEUTRAL"
 
 
-def test_sell_permission_allows_when_higher_timeframes_agree():
+def test_higher_timeframe_context_records_sell_plan():
     result = evaluate_higher_timeframe_permission(
         daily="SELL_ALLOWED",
         h4="NEUTRAL",
@@ -66,10 +70,11 @@ def test_sell_permission_allows_when_higher_timeframes_agree():
         planned_direction="SELL",
     )
 
-    assert result["permission"] == "SELL_ALLOWED"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["planned_direction"] == "SELL"
 
 
-def test_h4_blocks_opposite_sell_direction():
+def test_higher_timeframe_context_records_opposing_h4_without_blocking():
     result = evaluate_higher_timeframe_permission(
         daily="NEUTRAL",
         h4="BUY_ALLOWED",
@@ -77,8 +82,8 @@ def test_h4_blocks_opposite_sell_direction():
         planned_direction="SELL",
     )
 
-    assert result["permission"] == "NO_TRADE"
-    assert "H4 blocks SELL" in result["reason"]
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["h4_permission"] == "BUY_ALLOWED"
 
 
 def test_permission_normalizes_lowercase_and_whitespace():
@@ -89,7 +94,9 @@ def test_permission_normalizes_lowercase_and_whitespace():
         planned_direction=" buy ",
     )
 
-    assert result["permission"] == "BUY_ALLOWED"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["planned_direction"] == "BUY"
+    assert result["h1_permission"] == "BUY_ALLOWED"
 
 
 def test_m30_bias_comes_from_breakout_direction():
@@ -191,34 +198,36 @@ def test_classify_timeframe_structure_marks_near_major_support_as_neutral_buy_co
     assert result["permission"] == "NEUTRAL"
 
 
-def test_higher_timeframe_permission_allows_buy_when_4h_neutral_and_1h_agrees():
+def test_higher_timeframe_context_allows_buy_when_4h_neutral_and_1h_agrees():
     daily = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "Daily neutral"}
     h4 = {"permission": "NEUTRAL", "classification": "NEAR_MAJOR_SUPPORT", "reason": "4H support"}
     h1 = {"permission": "BUY_ALLOWED", "classification": "BULLISH_STRUCTURE", "reason": "1H bullish"}
 
     result = evaluate_higher_timeframe_permission(daily, h4, h1, "BUY")
 
-    assert result["permission"] == "BUY_ALLOWED"
-    assert result["reason"] == "Higher timeframes permit BUY"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["daily_classification"] == "RANGE"
+    assert result["h4_classification"] == "NEAR_MAJOR_SUPPORT"
 
 
-def test_higher_timeframe_permission_blocks_buy_when_4h_clearly_bearish():
+def test_higher_timeframe_context_records_bearish_4h_without_blocking():
     daily = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "Daily neutral"}
     h4 = {"permission": "SELL_ALLOWED", "classification": "BEARISH_STRUCTURE", "reason": "4H bearish"}
     h1 = {"permission": "BUY_ALLOWED", "classification": "BULLISH_STRUCTURE", "reason": "1H bullish"}
 
     result = evaluate_higher_timeframe_permission(daily, h4, h1, "BUY")
 
-    assert result["permission"] == "NO_TRADE"
-    assert result["reason"] == "H4 blocks BUY"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["h4_permission"] == "SELL_ALLOWED"
+    assert result["h4_classification"] == "BEARISH_STRUCTURE"
 
 
-def test_higher_timeframe_permission_blocks_when_1h_is_unclear():
+def test_higher_timeframe_context_records_unclear_1h():
     daily = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "Daily neutral"}
     h4 = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "4H neutral"}
     h1 = {"permission": "NEUTRAL", "classification": "UNCLEAR", "reason": "1H unclear"}
 
     result = evaluate_higher_timeframe_permission(daily, h4, h1, "SELL")
 
-    assert result["permission"] == "NO_TRADE"
-    assert result["reason"] == "1H must agree with SELL"
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["h1_classification"] == "UNCLEAR"

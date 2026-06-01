@@ -1,4 +1,4 @@
-"""Higher-timeframe structure, permission, and M30 bias helpers."""
+"""Higher-timeframe context and M30 bias helpers."""
 
 from __future__ import annotations
 
@@ -21,10 +21,6 @@ STRUCTURE_CLASSIFICATIONS = {
 
 def _allowed(direction: str) -> str:
     return f"{direction}_ALLOWED"
-
-
-def _opposite(direction: str) -> str:
-    return "SELL" if direction == "BUY" else "BUY"
 
 
 def _permission_value(value: Any) -> str:
@@ -163,43 +159,32 @@ def classify_timeframe_structure(
     }
 
 
-def _zone_blocks_direction(classification: str, direction: str) -> bool:
-    return (direction == "BUY" and classification == "NEAR_MAJOR_RESISTANCE") or (
-        direction == "SELL" and classification == "NEAR_MAJOR_SUPPORT"
-    )
-
-
 def evaluate_higher_timeframe_permission(
     daily: Any,
     h4: Any,
     h1: Any,
     planned_direction: str,
 ) -> dict[str, str]:
-    """Evaluate whether daily, H4, and H1 structure permit a planned trade."""
+    """Describe Daily, H4, and H1 as context without blocking M30/M15 entries."""
     direction = str(planned_direction).strip().upper()
     daily_permission = _permission_value(daily)
     h4_permission = _permission_value(h4)
     h1_permission = _permission_value(h1)
     daily_classification = _classification_value(daily)
     h4_classification = _classification_value(h4)
+    h1_classification = _classification_value(h1)
 
-    if daily_permission == _allowed(_opposite(direction)):
-        return {"permission": "NO_TRADE", "reason": f"Daily blocks {direction}"}
-
-    if _zone_blocks_direction(daily_classification, direction):
-        return {"permission": "NO_TRADE", "reason": f"Daily danger zone blocks {direction}"}
-
-    if h4_permission == _allowed(_opposite(direction)):
-        return {"permission": "NO_TRADE", "reason": f"H4 blocks {direction}"}
-
-    if _zone_blocks_direction(h4_classification, direction):
-        return {"permission": "NO_TRADE", "reason": f"H4 danger zone blocks {direction}"}
-
-    required_permission = _allowed(direction)
-    if h1_permission != required_permission:
-        return {"permission": "NO_TRADE", "reason": f"1H must agree with {direction}"}
-
-    return {"permission": required_permission, "reason": f"Higher timeframes permit {direction}"}
+    return {
+        "permission": "CONTEXT_ONLY",
+        "planned_direction": direction,
+        "daily_permission": daily_permission,
+        "h4_permission": h4_permission,
+        "h1_permission": h1_permission,
+        "daily_classification": daily_classification,
+        "h4_classification": h4_classification,
+        "h1_classification": h1_classification,
+        "reason": "Daily/4H/1H structure is recorded for context; M30/M15 checklist controls approval.",
+    }
 
 
 def determine_m30_bias(breakouts: list[dict[str, Any]]) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Top-down deterministic price-action analysis engine."""
+"""Deterministic M30/M15 price-action analysis engine."""
 
 from __future__ import annotations
 
@@ -317,13 +317,12 @@ def analyze_playbook(
         )
 
     setup = candidate_setups[0]
-    higher_permission = evaluate_higher_timeframe_permission(
+    market_context["higher_timeframe_permission"] = evaluate_higher_timeframe_permission(
         market_context["daily_structure"],
         market_context["h4_structure"],
         market_context["h1_structure"],
         setup.direction,
     )
-    market_context["higher_timeframe_permission"] = higher_permission
 
     checklist["playbook_setup"] = PASS
     checklist["timeframe_correlation"] = PASS if m30_direction == setup.direction else FAIL
@@ -334,24 +333,6 @@ def analyze_playbook(
     checklist["trading_candle_stop_wick"] = (
         PASS if _has_stop_wick(setup.confirmation_candle, setup.direction) else FAIL
     )
-
-    if higher_permission["permission"] == "NO_TRADE":
-        return _payload(
-            symbol,
-            as_of,
-            "NO_SETUP",
-            "HOLD",
-            checklist,
-            zones,
-            market_context,
-            setups=[_setup_to_dict(setup)],
-            message=higher_permission["reason"],
-            telemetry=make_telemetry(
-                "higher_timeframe_permission",
-                higher_permission["reason"],
-                candidate_setups,
-            ),
-        )
 
     target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
     risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)

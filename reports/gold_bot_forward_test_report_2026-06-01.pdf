@@ -1,0 +1,223 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [7 0 R 9 0 R 11 0 R 13 0 R] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+6 0 obj
+<< /Length 3284 >>
+stream
+BT /F2 18.0 Tf 54 744.0 Td (Gold Trading Bot Forward Test Report) Tj ET
+BT /F1 9.6 Tf 54 702.0 Td (Report date: 2026-06-01) Tj ET
+BT /F1 9.6 Tf 54 689.8 Td (Market: Gold) Tj ET
+BT /F1 9.6 Tf 54 677.6 Td (Analysis symbol: GC=F) Tj ET
+BT /F1 9.6 Tf 54 665.4 Td (Broker execution symbol: XAUUSD.vx) Tj ET
+BT /F1 9.6 Tf 54 653.2 Td (Broker account: Valetax demo account on MT5) Tj ET
+BT /F1 9.6 Tf 54 641.0 Td (Captured run window: 2026-05-31 21:30 ET to 2026-06-01 01:30 ET) Tj ET
+BT /F1 9.6 Tf 54 628.8 Td (Purpose: Understand why the bot watched the market but did not place a trade.) Tj ET
+BT /F2 13.0 Tf 54 606.6 Td (1. Short Summary) Tj ET
+BT /F1 9.6 Tf 54 578.6 Td (The bot connected to MT5 correctly, read live Gold market data, created logs, created) Tj ET
+BT /F1 9.6 Tf 54 566.4 Td (telemetry, and kept the demo account safe. It did not leave any open orders or open positions.) Tj ET
+BT /F1 9.6 Tf 54 544.2 Td (The main issue was not MT5 execution. The main issue was the trading logic.) Tj ET
+BT /F1 9.6 Tf 54 522.0 Td (The bot was using extra higher-timeframe rules that are not part of the main checklist. In) Tj ET
+BT /F1 9.6 Tf 54 509.8 Td (simple terms, the bot was saying:) Tj ET
+BT /F1 9.6 Tf 54 487.6 Td ( "Even if M30 and M15 show something interesting, I will still refuse unless 1H, Daily, or 4H) Tj ET
+BT /F1 9.6 Tf 54 475.4 Td (also gives permission.") Tj ET
+BT /F1 9.6 Tf 54 453.2 Td (That is too strict for this strategy.) Tj ET
+BT /F1 9.6 Tf 54 431.0 Td (The real trading plan is based on M30 and M15:) Tj ET
+BT /F1 9.4 Tf 54 408.8 Td (- M30 is the main market filter.) Tj ET
+BT /F1 9.4 Tf 54 396.8 Td (- M15 is the entry and confirmation chart.) Tj ET
+BT /F1 9.4 Tf 54 384.8 Td (- Daily, 4H, and 1H can help us understand the bigger picture, but they should not) Tj ET
+BT /F1 9.4 Tf 54 372.8 Td (   automatically block a trade.) Tj ET
+BT /F1 9.6 Tf 54 350.8 Td (So the next fix is not to add another trading mode. The next fix is to make the main bot logic) Tj ET
+BT /F1 9.6 Tf 54 338.6 Td (match the checklist.) Tj ET
+BT /F2 13.0 Tf 54 316.4 Td (2. What Happened During The Run) Tj ET
+BT /F1 9.6 Tf 54 288.4 Td (The bot watched Gold during the test window and made 17 fresh trade decisions. Every decision) Tj ET
+BT /F1 9.6 Tf 54 276.2 Td (ended as NO TRADE.) Tj ET
+BT /F1 9.6 Tf 54 254.0 Td (The decisions split into two groups:) Tj ET
+BT /F3 7.1 Tf 54 231.8 Td (| Decision result | Count | Meaning |) Tj ET
+BT /F3 7.1 Tf 54 222.3 Td (|---|---:|---|) Tj ET
+BT /F3 7.1 Tf 54 212.8 Td (| Blocked by extra higher-timeframe rules | 9 | The bot saw possible setups, but rejected them because 1H/Daily/4H did not give permission |) Tj ET
+BT /F3 7.1 Tf 54 203.3 Td (| No clean M15 setup | 8 | M30 had context, but M15 did not confirm a proper entry |) Tj ET
+BT /F1 9.6 Tf 54 183.8 Td (The 8 cases with no clean M15 setup are acceptable. If M15 does not confirm, the bot should not) Tj ET
+BT /F1 9.6 Tf 54 171.6 Td (trade.) Tj ET
+BT /F1 9.6 Tf 54 149.4 Td (The 9 higher-timeframe blocks are the problem. Those blocks came from rules like:) Tj ET
+BT /F1 9.4 Tf 54 127.2 Td (- 1H must agree with BUY) Tj ET
+BT /F1 9.4 Tf 54 115.2 Td (- Daily danger zone blocks SELL) Tj ET
+BT /F1 9.6 Tf 54 93.2 Td (Those rules made the bot more restrictive than the checklist.) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 3715 >>
+stream
+BT /F2 13.0 Tf 54 744.0 Td (3. MT5 And Execution Health) Tj ET
+BT /F1 9.6 Tf 54 716.0 Td (The MT5 side looked healthy during the captured run.) Tj ET
+BT /F3 7.1 Tf 54 693.8 Td (| Item | Result |) Tj ET
+BT /F3 7.1 Tf 54 684.3 Td (|---|---|) Tj ET
+BT /F3 7.1 Tf 54 674.8 Td (| MT5 connected | Yes |) Tj ET
+BT /F3 7.1 Tf 54 665.3 Td (| Demo account connected | Yes |) Tj ET
+BT /F3 7.1 Tf 54 655.8 Td (| Open orders after check | 0 |) Tj ET
+BT /F3 7.1 Tf 54 646.3 Td (| Open positions after check | 0 |) Tj ET
+BT /F3 7.1 Tf 54 636.8 Td (| Broker rejections | 0 |) Tj ET
+BT /F3 7.1 Tf 54 627.3 Td (| Orders placed by this runner | 0 |) Tj ET
+BT /F3 7.1 Tf 54 617.8 Td (| Latest balance/equity checked | 99,999.62 USD / 99,999.62 USD |) Tj ET
+BT /F1 9.6 Tf 54 598.3 Td (This means we should not blame the lack of trades on MT5 first. The better explanation is that) Tj ET
+BT /F1 9.6 Tf 54 586.1 Td (the bot's rules were blocking entries before they reached execution.) Tj ET
+BT /F2 13.0 Tf 54 563.9 Td (4. What The Market Was Showing) Tj ET
+BT /F1 9.6 Tf 54 535.9 Td (During the captured decision candles, the bot repeatedly saw bullish M30 breakout context.) Tj ET
+BT /F1 9.6 Tf 54 513.7 Td (That matters because M30 is supposed to be the main filter. If M30 is bullish, the bot should) Tj ET
+BT /F1 9.6 Tf 54 501.5 Td (then look for a valid bullish M15 entry.) Tj ET
+BT /F1 9.6 Tf 54 479.3 Td (The bot did find candidate moments, but several of them were blocked before becoming brokerable) Tj ET
+BT /F1 9.6 Tf 54 467.1 Td (trade proposals.) Tj ET
+BT /F1 9.6 Tf 54 444.9 Td (Examples:) Tj ET
+BT /F3 7.1 Tf 54 422.7 Td (| Time ET | Candidate setups found | M30 context | Why bot still held |) Tj ET
+BT /F3 7.1 Tf 54 413.2 Td (|---|---:|---|---|) Tj ET
+BT /F3 7.1 Tf 54 403.7 Td (| 2026-05-31 21:30 | 5 | Bullish breakout | 1H must agree with BUY |) Tj ET
+BT /F3 7.1 Tf 54 394.2 Td (| 2026-05-31 21:45 | 5 | Bullish breakout | 1H must agree with BUY |) Tj ET
+BT /F3 7.1 Tf 54 384.7 Td (| 2026-05-31 22:15 | 5 | Bullish breakout | 1H must agree with BUY |) Tj ET
+BT /F3 7.1 Tf 54 375.2 Td (| 2026-05-31 22:30 | 3 | Bullish breakout | Daily danger zone blocks SELL |) Tj ET
+BT /F3 7.1 Tf 54 365.7 Td (| 2026-05-31 23:15 | 6 | Bullish breakout | Daily danger zone blocks SELL |) Tj ET
+BT /F3 7.1 Tf 54 356.2 Td (| 2026-06-01 00:15 | 1 | Bullish breakout | 1H must agree with BUY |) Tj ET
+BT /F1 9.6 Tf 54 336.7 Td (This shows the bot was not asleep. It was seeing market structure and candidate setups. The) Tj ET
+BT /F1 9.6 Tf 54 324.5 Td (issue is that it was applying extra approval rules before allowing an entry.) Tj ET
+BT /F2 13.0 Tf 54 302.3 Td (5. The Correct Checklist) Tj ET
+BT /F1 9.6 Tf 54 274.3 Td (The bot should not trade because one candle looks good. It should only trade when the full) Tj ET
+BT /F1 9.6 Tf 54 262.1 Td (checklist agrees.) Tj ET
+BT /F1 9.6 Tf 54 239.9 Td (The correct checklist is:) Tj ET
+BT /F1 9.4 Tf 54 217.7 Td (1. It is the right trading time.) Tj ET
+BT /F1 9.4 Tf 54 205.7 Td (2. A valid playbook setup appears.) Tj ET
+BT /F1 9.4 Tf 54 193.7 Td (3. M30 and M15 agree.) Tj ET
+BT /F1 9.4 Tf 54 181.7 Td (4. There is clean range to target.) Tj ET
+BT /F1 9.4 Tf 54 169.7 Td (5. The candle has closed.) Tj ET
+BT /F1 9.4 Tf 54 157.7 Td (6. Price is not overextended.) Tj ET
+BT /F1 9.4 Tf 54 145.7 Td (7. Wick rules are valid.) Tj ET
+BT /F1 9.4 Tf 54 133.7 Td (8. Risk rules approve the trade.) Tj ET
+BT /F1 9.6 Tf 54 111.7 Td (If any required rule fails, the result should still be NO TRADE.) Tj ET
+BT /F1 9.6 Tf 54 89.5 Td (This is still a safe strategy. We are not removing discipline. We are removing rules that do) Tj ET
+BT /F1 9.6 Tf 54 77.3 Td (not belong to the main checklist.) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 3428 >>
+stream
+BT /F2 13.0 Tf 54 744.0 Td (6. Timeframe Roles Going Forward) Tj ET
+BT /F1 9.6 Tf 54 716.0 Td (M30 should answer:) Tj ET
+BT /F1 9.4 Tf 54 693.8 Td (- Is Gold bullish, bearish, or unclear?) Tj ET
+BT /F1 9.4 Tf 54 681.8 Td (- Is price near support or resistance?) Tj ET
+BT /F1 9.4 Tf 54 669.8 Td (- Has there been a real breakout?) Tj ET
+BT /F1 9.4 Tf 54 657.8 Td (- Is the move already overextended?) Tj ET
+BT /F1 9.4 Tf 54 645.8 Td (- Is there enough room to target?) Tj ET
+BT /F1 9.6 Tf 54 623.8 Td (M15 should answer:) Tj ET
+BT /F1 9.4 Tf 54 601.6 Td (- Has the setup confirmed?) Tj ET
+BT /F1 9.4 Tf 54 589.6 Td (- Has the candle closed?) Tj ET
+BT /F1 9.4 Tf 54 577.6 Td (- Is there a valid wick for stop-loss?) Tj ET
+BT /F1 9.4 Tf 54 565.6 Td (- Is the entry still fresh?) Tj ET
+BT /F1 9.4 Tf 54 553.6 Td (- Can we place a clean limit order?) Tj ET
+BT /F1 9.6 Tf 54 531.6 Td (Daily, 4H, and 1H should answer:) Tj ET
+BT /F1 9.4 Tf 54 509.4 Td (- What is the bigger market story?) Tj ET
+BT /F1 9.4 Tf 54 497.4 Td (- Are we near a major zone?) Tj ET
+BT /F1 9.4 Tf 54 485.4 Td (- Is there extra caution needed?) Tj ET
+BT /F1 9.4 Tf 54 473.4 Td (- What should we record in the report?) Tj ET
+BT /F1 9.6 Tf 54 451.4 Td (Daily, 4H, and 1H should not automatically say:) Tj ET
+BT /F1 9.4 Tf 54 429.2 Td (- "No trade because 1H does not agree.") Tj ET
+BT /F1 9.4 Tf 54 417.2 Td (- "No trade because Daily is neutral.") Tj ET
+BT /F1 9.4 Tf 54 405.2 Td (- "No trade because 4H did not give permission.") Tj ET
+BT /F1 9.6 Tf 54 383.2 Td (The trade decision should come from the M30/M15 checklist.) Tj ET
+BT /F2 13.0 Tf 54 361.0 Td (7. What We Will Change) Tj ET
+BT /F1 9.6 Tf 54 333.0 Td (We will update the main trading logic so the bot follows the M30/M15 checklist directly.) Tj ET
+BT /F1 9.6 Tf 54 310.8 Td (Planned changes:) Tj ET
+BT /F1 9.4 Tf 54 288.6 Td (1. Remove hard blocks such as 1H must agree with BUY.) Tj ET
+BT /F1 9.4 Tf 54 276.6 Td (2. Remove hard Daily/4H/1H permission gates from the main trade approval path.) Tj ET
+BT /F1 9.4 Tf 54 264.6 Td (3. Keep Daily/4H/1H in the reports as market context, not as automatic trade blockers.) Tj ET
+BT /F1 9.4 Tf 54 252.6 Td (4. Keep M30 as the main filter.) Tj ET
+BT /F1 9.4 Tf 54 240.6 Td (5. Keep M15 as the entry and confirmation chart.) Tj ET
+BT /F1 9.4 Tf 54 228.6 Td (6. Require M30 and M15 to agree before any trade is approved.) Tj ET
+BT /F1 9.4 Tf 54 216.6 Td (7. Keep the session and time filters, including Sunday Asian and last 15 minutes of a 4H) Tj ET
+BT /F1 9.4 Tf 54 204.6 Td (   candle.) Tj ET
+BT /F1 9.4 Tf 54 192.6 Td (8. Keep candle-close validation so the bot does not trade on forming candles.) Tj ET
+BT /F1 9.4 Tf 54 180.6 Td (9. Keep clean range checks, with at least 1.5R required and 2R preferred.) Tj ET
+BT /F1 9.4 Tf 54 168.6 Td (10. Keep overextension checks so the bot does not chase Gold after the move is mostly gone.) Tj ET
+BT /F1 9.4 Tf 54 156.6 Td (11. Keep wick rules for confirmation and stop-loss placement.) Tj ET
+BT /F1 9.4 Tf 54 144.6 Td (12. Keep limit-order activation timing, so orders are not triggered too late in the M15) Tj ET
+BT /F1 9.4 Tf 54 132.6 Td (   candle.) Tj ET
+BT /F1 9.4 Tf 54 120.6 Td (13. Improve telemetry so every NO TRADE decision says exactly which checklist rule failed.) Tj ET
+BT /F2 13.0 Tf 54 98.6 Td (8. What We Will Not Change) Tj ET
+BT /F1 9.6 Tf 54 70.6 Td (We will not make the bot force trades.) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 2732 >>
+stream
+BT /F1 9.6 Tf 54 734.0 Td (We will not remove risk management.) Tj ET
+BT /F1 9.6 Tf 54 711.8 Td (We will not let the bot trade from one attractive candle alone.) Tj ET
+BT /F1 9.6 Tf 54 689.6 Td (We will not treat Daily, 4H, and 1H as useless. They will still be useful context, but they) Tj ET
+BT /F1 9.6 Tf 54 677.4 Td (will not override the core M30/M15 entry model.) Tj ET
+BT /F1 9.6 Tf 54 655.2 Td (We will not move to live funds. Testing remains on demo until execution and logic are proven.) Tj ET
+BT /F2 13.0 Tf 54 633.0 Td (9. Next Test After The Fix) Tj ET
+BT /F1 9.6 Tf 54 605.0 Td (After the logic is corrected, we should run another demo forward test.) Tj ET
+BT /F1 9.6 Tf 54 582.8 Td (The next test should answer these questions:) Tj ET
+BT /F1 9.4 Tf 54 560.6 Td (1. When M30 is bullish, does the bot wait for a valid bullish M15 setup?) Tj ET
+BT /F1 9.4 Tf 54 548.6 Td (2. When M30 is bearish, does the bot wait for a valid bearish M15 setup?) Tj ET
+BT /F1 9.4 Tf 54 536.6 Td (3. When M30 and M15 disagree, does the bot correctly hold?) Tj ET
+BT /F1 9.4 Tf 54 524.6 Td (4. When M15 does not confirm, does the bot correctly hold?) Tj ET
+BT /F1 9.4 Tf 54 512.6 Td (5. When all checklist rules pass, does the bot create a brokerable proposal?) Tj ET
+BT /F1 9.4 Tf 54 500.6 Td (6. Can MT5 place, monitor, cancel, or manage that demo order correctly?) Tj ET
+BT /F1 9.4 Tf 54 488.6 Td (7. Does the report clearly explain every HOLD, proposal, rejection, and order event?) Tj ET
+BT /F1 9.6 Tf 54 466.6 Td (Success does not mean the bot must trade often. Success means the bot only trades when the) Tj ET
+BT /F1 9.6 Tf 54 454.4 Td (checklist truly passes, and when it holds, we can clearly see why.) Tj ET
+BT /F2 13.0 Tf 54 432.2 Td (10. Final Conclusion) Tj ET
+BT /F1 9.6 Tf 54 404.2 Td (The last run was useful because it showed the difference between a broken execution system and) Tj ET
+BT /F1 9.6 Tf 54 392.0 Td (an overly strict decision system.) Tj ET
+BT /F1 9.6 Tf 54 369.8 Td (The execution system looked healthy. MT5 was connected, data was fresh, telemetry was working,) Tj ET
+BT /F1 9.6 Tf 54 357.6 Td (and no unwanted orders remained open.) Tj ET
+BT /F1 9.6 Tf 54 335.4 Td (The decision system needs correction. The bot should be centered on the M30/M15 strategy from) Tj ET
+BT /F1 9.6 Tf 54 323.2 Td (the checklist. The extra Daily/4H/1H permission rules should be removed from the hard approval) Tj ET
+BT /F1 9.6 Tf 54 311.0 Td (path and kept only as market context.) Tj ET
+BT /F1 9.6 Tf 54 288.8 Td (Once that is fixed, the next demo run will give a much cleaner answer: whether the actual) Tj ET
+BT /F1 9.6 Tf 54 276.6 Td (M30/M15 strategy can find valid Gold entries and execute them correctly on MT5.) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000141 00000 n 
+0000000211 00000 n 
+0000000286 00000 n 
+0000000354 00000 n 
+0000003690 00000 n 
+0000003836 00000 n 
+0000007603 00000 n 
+0000007749 00000 n 
+0000011230 00000 n 
+0000011378 00000 n 
+0000014163 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+14311
+%%EOF

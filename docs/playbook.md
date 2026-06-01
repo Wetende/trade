@@ -159,33 +159,35 @@ It answers:
 - Where are the important 4H support and resistance zones?
 - Has 4H rejected a major level?
 - Has 4H broken structure?
+- Is price near a major 4H support or resistance area?
 - Is the trade happening in the final 15 minutes of a 4H candle?
 
-The 4H chart is a strong filter. If 4H clearly disagrees with the trade, the answer should be `NO TRADE`.
+The 4H chart is context, not the final permission gate. It should help the report describe the bigger structure and danger zones, but the trade approval path is still driven by the M30/M15 checklist.
 
-4H permission rule:
+4H context rule:
 
-- 4H must agree with the planned direction or be neutral.
-- If 4H clearly disagrees, the answer is `NO TRADE`.
-- The final 15 minutes of a 4H candle are always blocked for new entries.
+- Record whether 4H is bullish, bearish, ranging, unclear, or near a major zone.
+- Do not automatically block a valid M30/M15 setup just because 4H does not agree.
+- The final 15 minutes of a 4H candle remain blocked for new entries because that is a timing/volatility rule.
 
 ### 1-Hour Chart
 
-The 1H chart is the bridge between higher-timeframe structure and execution.
+The 1H chart is an intraday context layer between the bigger structure and execution.
 
 It answers:
 
 - Is intraday momentum bullish, bearish, or unclear?
 - Is price approaching a 1H support or resistance zone for context?
 - Is there enough room before the next 1H level?
-- Would the M30/M15 setup be fighting 1H structure?
+- Would the M30/M15 setup be moving with or against recent intraday momentum?
 
-The 1H chart should agree with the trade. In the current engine, 1H is used as the momentum confirmation layer. Daily and 4H carry the heavier danger-zone blocking responsibility.
+The 1H chart should be recorded for context and caution, but it should not override a valid M30/M15 setup by itself.
 
-1H permission rule:
+1H context rule:
 
-- 1H must agree with the planned direction.
-- If 1H is unclear or clearly disagrees, the answer is `NO TRADE`.
+- Record whether 1H is bullish, bearish, ranging, or unclear.
+- Do not automatically block a valid M30/M15 setup just because 1H is unclear or pointing the other way.
+- If 1H context is risky, surface it clearly in the report and telemetry.
 
 ### 30-Minute Chart
 
@@ -231,20 +233,18 @@ Examples:
 
 This should be one of the strongest rules in the bot.
 
-Higher-timeframe agreement rule:
+Higher-timeframe context rule:
 
 ```text
-Daily must not block.
-4H must agree or be neutral.
-1H must agree.
 M30 direction must equal M15 setup direction.
+Daily, 4H, and 1H are recorded as context.
 ```
 
 If M30 and M15 do not match, the answer is always `NO TRADE`.
 
-### Current Structure-Aware Permission Model
+### Current Structure-Aware Context Model
 
-The engine should not decide higher-timeframe permission by only comparing the first candle close to the latest candle close. It should classify structure first, then decide whether the planned M15 entry is allowed.
+The engine should not decide trade permission from Daily, 4H, or 1H alone. It should classify those timeframes first, then record them as context for the report.
 
 Current structure labels:
 
@@ -257,15 +257,15 @@ Current structure labels:
 - `BREAK_OF_STRUCTURE_DOWN`
 - `UNCLEAR`
 
-Permission behavior:
+Context behavior:
 
-- Daily may agree, stay neutral, or block the planned direction.
-- 4H may agree, stay neutral, or block the planned direction.
-- Daily/4H danger zones block the wrong-side trade, such as buying into major resistance or selling into major support.
-- 1H must agree with the planned direction as an intraday momentum check.
-- M30 and M15 still decide whether the actual playbook setup exists.
+- Daily may be bullish, bearish, neutral, or near a major zone.
+- 4H may be bullish, bearish, neutral, or near a major zone.
+- 1H may be bullish, bearish, ranging, or unclear.
+- These higher timeframes are recorded in telemetry and reports as context.
+- M30 and M15 decide whether the actual playbook setup exists and whether the entry is valid.
 
-This means a 4-hour live run is not the same thing as a 4H-only strategy. During the run, the bot repeatedly asks whether the current M15 setup is allowed by Daily, 4H, 1H, and M30 context.
+This means a 4-hour live run is not the same thing as a 4H-only strategy. During the run, the bot repeatedly asks whether the current M15 setup is valid under the M30/M15 checklist while still recording Daily, 4H, and 1H context.
 
 ## Support and Resistance Zone Detection
 

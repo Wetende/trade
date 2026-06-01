@@ -63,6 +63,29 @@ def test_engine_approves_buy_when_top_down_and_m15_retest_align():
     assert payload["risk"]["available_risk_reward"] >= 1.5
 
 
+def test_engine_approves_m30_m15_setup_when_higher_timeframe_is_only_context():
+    data = aligned_buy_setup_data()
+    data["1d"] = candles(
+        "2026-05-15 00:00:00,120,122,116,118,1000\n"
+        "2026-05-16 00:00:00,118,119,112,114,1000\n"
+        "2026-05-17 00:00:00,114,115,108,110,1000"
+    )
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["checklist"]["timeframe_correlation"] == "passed"
+    assert payload["telemetry"]["decision_stage"] == "setup_found"
+    assert payload["market_context"]["daily_structure"]["permission"] == "SELL_ALLOWED"
+    assert payload["telemetry"]["permissions"]["higher_timeframe"]["permission"] == "CONTEXT_ONLY"
+
+
 def test_engine_rejects_setup_without_real_target_zone():
     data = {
         "1d": candles(
