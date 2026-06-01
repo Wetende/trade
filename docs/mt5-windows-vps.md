@@ -1,4 +1,4 @@
-# MT5 Account-Ready Execution on Windows and VPS
+# MT5 Broker Execution on Windows and VPS
 
 This runbook is for running TradingAgents with MetaTrader 5 Desktop on a home
 Windows computer first, then moving the same setup to a Windows VPS.
@@ -6,8 +6,9 @@ Windows computer first, then moving the same setup to a Windows VPS.
 If another AI agent is continuing this on the Windows machine, start with
 [Windows AI Agent Handoff](windows-agent-handoff.md).
 
-The code does not assume demo or real accounts. You must set
-`TRADINGAGENTS_MT5_ACCOUNT_MODE` to match the account currently logged into MT5.
+Configure one MT5 broker connection. TradingAgents reads the account type from
+MT5 at runtime and only asks for a real-money acknowledgement when MT5 reports a
+real account.
 
 ## 1. Install Prerequisites
 
@@ -29,26 +30,33 @@ git checkout main
 git pull origin main
 ```
 
-## 3. Configure Account Mode
-
-Use demo, real, or contest exactly as intended:
+## 3. Configure Broker Connection
 
 ```bash
-TRADINGAGENTS_MT5_ACCOUNT_MODE=demo
-TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run
+TRADINGAGENTS_MT5_LOGIN=123456789
+TRADINGAGENTS_MT5_PASSWORD=your-broker-password
+TRADINGAGENTS_MT5_SERVER=YourBroker-Server
+TRADINGAGENTS_MT5_EXPECTED_LOGIN=123456789
+TRADINGAGENTS_MT5_EXPECTED_SERVER=YourBroker-Server
+TRADINGAGENTS_MT5_VOLUME=0.01
+TRADINGAGENTS_MT5_DEVIATION=20
+TRADINGAGENTS_MT5_MAGIC=150015
 ```
 
-For broker order sending:
+Optional terminal path:
 
 ```bash
-TRADINGAGENTS_MT5_EXECUTION_MODE=broker
+TRADINGAGENTS_MT5_PATH="C:\Program Files\MetaTrader 5\terminal64.exe"
 ```
 
-For real-account broker order sending, this acknowledgement is also required:
+When MT5 reports a real account, broker order sending also requires:
 
 ```bash
 TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS=I_UNDERSTAND_REAL_MONEY_IS_AT_RISK
 ```
+
+Do not add the acknowledgement unless the human operator has explicitly approved
+real-money order sending.
 
 ## 4. Configure Symbols
 
@@ -81,8 +89,9 @@ tradingagents mt5-run --once
 tradingagents mt5-run --poll-seconds 30
 ```
 
-For a bounded live-market demo test, `.env` can remain `dry_run`; the process
-environment controls this one run:
+For a bounded live-market forward test, keep `.env` pointed at the intended MT5
+account and use only process-local overrides for network or time-filter
+settings:
 
 ```powershell
 $env:HTTP_PROXY=""
@@ -90,16 +99,14 @@ $env:HTTPS_PROXY=""
 $env:ALL_PROXY=""
 $env:GIT_HTTP_PROXY=""
 $env:GIT_HTTPS_PROXY=""
-$env:TRADINGAGENTS_MT5_ACCOUNT_MODE="demo"
-$env:TRADINGAGENTS_MT5_EXECUTION_MODE="broker"
 $env:TRADINGAGENTS_TIME_FILTER_MODE="block"
 tradingagents mt5-run --poll-seconds 30 --duration-hours 4
 ```
 
-For short demo validation during a normally blocked Sunday/Asian window, set
-`TRADINGAGENTS_TIME_FILTER_MODE="allow"` only for that process. For production
-observation that records setup evidence but still blocks brokerable orders, use
-`TRADINGAGENTS_TIME_FILTER_MODE="observe"`.
+For short forward-test validation during a normally blocked Sunday/Asian window,
+set `TRADINGAGENTS_TIME_FILTER_MODE="allow"` only for that process. For
+production observation that records setup evidence but still blocks brokerable
+orders, use `TRADINGAGENTS_TIME_FILTER_MODE="observe"`.
 
 Do not start a setup-validation run after the Friday gold close. For
 observation, Sunday New York reopen is acceptable. For cleaner strategy

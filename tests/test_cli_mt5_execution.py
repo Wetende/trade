@@ -33,6 +33,7 @@ def test_mt5_run_command_exists():
     assert result.exit_code == 0
     assert "Run unattended MT5 automation" in result.output
     assert "Seconds between runner cycles." in result.output
+    assert "--decision-mode" in result.output
 
 
 def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
@@ -71,7 +72,7 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
     monkeypatch.setattr(
         cli_main,
-        "_mt5_runner_analysis_func",
+        "_mt5_runner_engine_analysis_func",
         lambda: analysis_func,
         raising=False,
     )
@@ -120,7 +121,7 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
     monkeypatch.setattr(
         cli_main,
-        "_mt5_runner_analysis_func",
+        "_mt5_runner_engine_analysis_func",
         lambda: lambda: None,
         raising=False,
     )
@@ -165,7 +166,7 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
     monkeypatch.setattr(
         cli_main,
-        "_mt5_runner_analysis_func",
+        "_mt5_runner_engine_analysis_func",
         lambda: lambda: None,
         raising=False,
     )
@@ -211,7 +212,7 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
     monkeypatch.setattr(
         cli_main,
-        "_mt5_runner_analysis_func",
+        "_mt5_runner_engine_analysis_func",
         lambda: lambda: None,
         raising=False,
     )
@@ -231,6 +232,58 @@ def test_mt5_run_rejects_too_short_poll_interval():
     invalid_result = runner.invoke(app, ["mt5-run", "--poll-seconds", "4"])
 
     assert invalid_result.exit_code != 0
+
+
+def test_mt5_run_graph_decision_mode_uses_graph_analysis_func(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_execution, mt5_runner
+
+    graph_analysis_func = object()
+    engine_analysis_func = object()
+    calls = {}
+
+    class Executor:
+        def __init__(self, config, results_dir):
+            pass
+
+    class Runner:
+        def __init__(self, runner_config, executor, analysis_func):
+            calls["analysis_func"] = analysis_func
+
+        def run_once(self):
+            return {"status": "NO_TRADE"}
+
+        def run_forever(self):
+            raise AssertionError("--once should call run_once")
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
+    monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
+    monkeypatch.setattr(
+        cli_main,
+        "_mt5_runner_analysis_func",
+        lambda: graph_analysis_func,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "_mt5_runner_engine_analysis_func",
+        lambda: engine_analysis_func,
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--once", "--decision-mode", "graph"])
+
+    assert result.exit_code == 0
+    assert calls["analysis_func"] is graph_analysis_func
+
+
+def test_mt5_run_invalid_decision_mode_is_rejected():
+    result = runner.invoke(app, ["mt5-run", "--once", "--decision-mode", "llm"])
+
+    assert result.exit_code != 0
+    assert "decision-mode must be 'engine' or 'graph'" in result.output
 
 
 def test_mt5_runner_analysis_func_attaches_engine_telemetry(monkeypatch, tmp_path):
@@ -295,6 +348,67 @@ def test_mt5_runner_analysis_func_attaches_engine_telemetry(monkeypatch, tmp_pat
     assert analysis["telemetry_path"] == str(telemetry_path)
     assert analysis["telemetry"]["decision_stage"] == "time_filter"
     assert analysis["data_status"]["healthy"] is True
+
+
+def test_mt5_runner_engine_analysis_func_builds_proposal_from_engine(monkeypatch, tmp_path):
+    from tradingagents.agents.price_action import decision
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda: {
+            "ticker": "GC=F",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": "2026-06-01 08:15",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "market_timezone": "America/New_York",
+        },
+    )
+
+    def fake_run_engine_decision(**kwargs):
+        return {
+            "company_of_interest": kwargs["symbol"],
+            "broker_symbol": kwargs["broker_symbol"],
+            "as_of": kwargs["as_of"],
+            "timeframe": kwargs["timeframe"],
+            "confirmation_timeframe": kwargs["confirmation_timeframe"],
+            "market_timezone": kwargs["market_timezone"],
+            "price_action_report": "Final Action: HOLD",
+            "trade_plan": "Action: HOLD",
+            "data_status": {"healthy": True},
+            "telemetry_path": str(tmp_path / "GC=F" / "engine_telemetry" / "engine_payload_2026-06-01_08_15.json"),
+            "engine_telemetry": {
+                "decision_stage": "no_m15_setup",
+                "primary_hold_reason": "No valid M15 setup. Default to HOLD.",
+            },
+            "engine_payload": {
+                "symbol": "GC=F",
+                "as_of": "2026-06-01 08:15",
+                "status": "NO_SETUP",
+                "recommendation": "HOLD",
+                "message": "No valid M15 setup. Default to HOLD.",
+                "checklist": {"playbook_setup": "failed"},
+                "risk": {},
+                "telemetry": {
+                    "decision_stage": "no_m15_setup",
+                    "primary_hold_reason": "No valid M15 setup. Default to HOLD.",
+                },
+                "data_status": {"healthy": True},
+            },
+        }
+
+    monkeypatch.setattr(decision, "run_engine_decision", fake_run_engine_decision)
+
+    as_of, proposal, analysis = cli_main._mt5_runner_engine_analysis_func()()
+
+    assert as_of == "2026-06-01 08:15"
+    assert proposal.status.value == "NO_TRADE"
+    assert proposal.broker_symbol == "XAUUSD.vx"
+    assert analysis["telemetry"]["decision_stage"] == "no_m15_setup"
+    assert analysis["data_status"]["healthy"] is True
+    assert analysis["order_proposal_path"].endswith("order_proposal_2026-06-01_08_15.json")
 
 
 def test_retired_account_specific_commands_are_not_registered():

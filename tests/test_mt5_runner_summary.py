@@ -21,6 +21,33 @@ def test_categorize_hold_reason_falls_back_to_text():
     assert categorize_hold_reason("Insufficient closed OHLCV data.", {}) == "data_health"
 
 
+def test_categorize_hold_reason_uses_data_health_before_text():
+    assert (
+        categorize_hold_reason(
+            "No valid M15 setup. Default to HOLD.",
+            {"decision_stage": "no_m15_setup"},
+            {"healthy": False},
+        )
+        == "data_health"
+    )
+
+
+def test_categorize_hold_reason_uses_stage_before_misleading_text():
+    telemetry = {
+        "decision_stage": "no_m15_setup",
+        "primary_hold_reason": "No valid M15 setup. Default to HOLD.",
+    }
+
+    assert (
+        categorize_hold_reason(
+            "No price data was provided by the analyst report.",
+            telemetry,
+            {"healthy": True},
+        )
+        == "no_m15_setup"
+    )
+
+
 def test_runner_summary_records_cycle_and_writes_files(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 
@@ -58,3 +85,28 @@ def test_runner_summary_records_cycle_and_writes_files(tmp_path):
 
     written = json.loads(store.summary_path.read_text(encoding="utf-8"))
     assert written["total_checks"] == 1
+
+
+def test_runner_summary_hold_reason_prefers_telemetry_over_proposal_text(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "as_of": "2026-06-01 01:45",
+            "proposal": {
+                "status": "NO_TRADE",
+                "reason": "No price data was provided by the analyst report.",
+            },
+            "analysis": {
+                "telemetry": {
+                    "decision_stage": "no_m15_setup",
+                    "primary_hold_reason": "No valid M15 setup. Default to HOLD.",
+                },
+                "data_status": {"healthy": True},
+            },
+        }
+    )
+
+    assert summary["hold_reason_counts"] == {"no_m15_setup": 1}
+    assert summary["latest_cycle"]["hold_reason"] == "no_m15_setup"

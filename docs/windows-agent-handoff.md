@@ -9,37 +9,43 @@ TradingAgents now has a generic MT5 execution surface:
 
 - Use `tradingagents mt5-execute`, `tradingagents mt5-monitor`, and
   `tradingagents mt5-run`.
-- Account mode is explicit: `demo`, `real`, or `contest`.
+- Users configure one MT5 broker connection; the account type is read from MT5
+  at runtime.
 - Analysis/data symbols and broker execution symbols are separate.
 - The runner writes summary reporting for each cycle.
 - The price-action engine writes raw telemetry for each analysis.
 - Market data freshness is checked before a setup is trusted.
-- The old MT5 demo-named commands, aliases, files, and docs have been removed.
+- The old environment-specific command names and aliases have been removed.
 
 The MT5 path is ready to verify on Windows. It is not automatically allowed to
-send real-money orders. Start with `TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run`.
+send real-money orders; when MT5 reports a real account, order sending requires
+the real-money acknowledgement below.
 
 ## Do Not Skip These Guards
 
 Before attempting any broker action, confirm `.env` has:
 
 ```bash
-TRADINGAGENTS_MT5_ACCOUNT_MODE=demo
-TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run
+TRADINGAGENTS_MT5_LOGIN=<broker login>
+TRADINGAGENTS_MT5_PASSWORD=<broker password>
+TRADINGAGENTS_MT5_SERVER=<broker server>
+TRADINGAGENTS_MT5_SYMBOL=<broker symbol shown in MT5>
 TRADINGAGENTS_MT5_EXPECTED_LOGIN=<same login shown in MT5>
 TRADINGAGENTS_MT5_EXPECTED_SERVER=<same server shown in MT5>
+TRADINGAGENTS_MT5_VOLUME=0.01
 ```
 
-For a real account, broker execution additionally requires:
+Do not add legacy MT5 toggles. The current setup uses the single broker
+connection plus MT5 runtime metadata.
+
+When MT5 reports a real account, broker order sending additionally requires:
 
 ```bash
-TRADINGAGENTS_MT5_ACCOUNT_MODE=real
-TRADINGAGENTS_MT5_EXECUTION_MODE=broker
 TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS=I_UNDERSTAND_REAL_MONEY_IS_AT_RISK
 ```
 
 Do not add that acknowledgement unless the human operator explicitly asks for
-real-money broker execution.
+real-money order sending.
 
 ## Windows Setup Checklist
 
@@ -116,7 +122,7 @@ Probe MT5 without placing orders:
 uv run tradingagents broker-probe
 ```
 
-Run one unattended dry-run cycle:
+Run one unattended cycle on the intended forward test account:
 
 ```powershell
 uv run tradingagents mt5-run --once
@@ -155,9 +161,8 @@ Only after tests, `broker-probe`, and `mt5-run --once` pass:
 uv run tradingagents mt5-run --poll-seconds 30
 ```
 
-For a bounded market-reopen or London/New York overlap test, keep `.env` safe
-with `TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run` and override only the current
-PowerShell process:
+For a bounded market-reopen or London/New York overlap test, keep `.env` pointed
+at the intended forward test account and override only process-local settings:
 
 ```powershell
 $env:HTTP_PROXY=""
@@ -165,14 +170,12 @@ $env:HTTPS_PROXY=""
 $env:ALL_PROXY=""
 $env:GIT_HTTP_PROXY=""
 $env:GIT_HTTPS_PROXY=""
-$env:TRADINGAGENTS_MT5_ACCOUNT_MODE="demo"
-$env:TRADINGAGENTS_MT5_EXECUTION_MODE="broker"
 $env:TRADINGAGENTS_TIME_FILTER_MODE="block"
 tradingagents mt5-run --poll-seconds 30 --duration-hours 4
 ```
 
-For a short demo-only validation where the operator intentionally wants to test
-setup detection and broker execution during a normally blocked Sunday/Asian
+For a short forward-test validation where the operator intentionally wants to
+test setup detection and broker execution during a normally blocked Sunday/Asian
 window, set `TRADINGAGENTS_TIME_FILTER_MODE="allow"` for that one process. For
 production observation without brokerable orders during blocked windows, use
 `TRADINGAGENTS_TIME_FILTER_MODE="observe"`.
@@ -200,7 +203,8 @@ For Task Scheduler, use:
 
 - `MetaTrader5 Python bridge is not installed`: run `uv pip install MetaTrader5`
   on Windows.
-- `MT5 account mode` error: set `TRADINGAGENTS_MT5_ACCOUNT_MODE` to match MT5.
+- Real-money acknowledgement required: MT5 reported a real account. Add the
+  acknowledgement only after explicit human approval.
 - `unexpected MT5 account login/server`: update `.env` or log into the intended
   MT5 account.
 - `symbol must match configured MT5 symbol`: set `TRADINGAGENTS_MT5_SYMBOL` to
@@ -214,7 +218,8 @@ For Task Scheduler, use:
 
 ## Readiness Signal
 
-The Windows setup is ready for unattended dry-run execution when these pass:
+The Windows setup is ready for unattended forward-test execution when these
+pass:
 
 ```text
 pytest focused MT5 suite: pass
@@ -223,5 +228,5 @@ mt5-run --once: exits with JSON status, with no MT5 guard errors
 summary.json: records the cycle and data-health state
 ```
 
-Broker order sending is a separate human decision controlled by
-`TRADINGAGENTS_MT5_EXECUTION_MODE=broker`.
+Real-money order sending is a separate human decision controlled by the
+acknowledgement required when MT5 reports a real account.

@@ -126,6 +126,108 @@ def test_order_proposal_uses_engine_payload_for_proposed_trade_without_llm_level
 
 
 @pytest.mark.unit
+def test_engine_no_setup_overrides_llm_buy_text(tmp_path):
+    state = _state(
+        "**Action**: BUY\n\n"
+        "**Reason**: LLM says buy.\n\n"
+        "**Entry Price**: 100\n\n"
+        "**Stop Loss**: 99\n\n"
+        "**Take Profit**: 103",
+        tmp_path,
+    )
+    state["engine_payload"] = {
+        "status": "NO_SETUP",
+        "recommendation": "HOLD",
+        "message": "No valid M15 setup. Default to HOLD.",
+        "checklist": {"playbook_setup": "failed"},
+        "telemetry": {
+            "decision_stage": "no_m15_setup",
+            "primary_hold_reason": "No valid M15 setup. Default to HOLD.",
+            "candidate_setup_count": 0,
+            "m30_context": {"bias": "BULLISH", "context": "BREAKOUT"},
+        },
+    }
+
+    proposal = build_order_proposal(state)
+
+    assert proposal.status == OrderStatus.NO_TRADE
+    assert proposal.side == TradeAction.HOLD
+    assert proposal.entry_price is None
+    assert "LLM says buy" not in proposal.reason
+    assert "No valid M15 setup" in proposal.reason
+
+
+@pytest.mark.unit
+def test_engine_setup_found_overrides_llm_hold_text(tmp_path):
+    state = _state(
+        "**Action**: HOLD\n\n"
+        "**Reason**: LLM says hold.",
+        tmp_path,
+    )
+    state["engine_payload"] = {
+        "status": "SETUP_FOUND",
+        "recommendation": "BUY",
+        "message": "A deterministic A+ price-action setup passed the checklist.",
+        "setups": [
+            {
+                "name": "Break and Retest",
+                "direction": "BUY",
+                "entry_price": 100.5,
+                "stop_loss": 99.25,
+                "take_profit": 103.0,
+            }
+        ],
+        "risk": {
+            "approved": True,
+            "risk_reward": 2.0,
+            "take_profit": 103.0,
+        },
+        "telemetry": {
+            "decision_stage": "setup_found",
+            "primary_hold_reason": "A deterministic A+ price-action setup passed the checklist.",
+            "candidate_setup_count": 1,
+            "m30_context": {"bias": "BULLISH", "context": "BREAKOUT"},
+        },
+    }
+
+    proposal = build_order_proposal(state)
+
+    assert proposal.status == OrderStatus.PROPOSED
+    assert proposal.side == TradeAction.BUY
+    assert proposal.entry_price == 100.5
+    assert "LLM says hold" not in proposal.reason
+
+
+@pytest.mark.unit
+def test_engine_setup_missing_levels_creates_no_trade_even_if_llm_has_levels(tmp_path):
+    state = _state(
+        "**Action**: SELL\n\n"
+        "**Reason**: LLM has levels.\n\n"
+        "**Entry Price**: 100\n\n"
+        "**Stop Loss**: 101\n\n"
+        "**Take Profit**: 98",
+        tmp_path,
+    )
+    state["engine_payload"] = {
+        "status": "SETUP_FOUND",
+        "recommendation": "SELL",
+        "setups": [{"name": "Break and Retest", "direction": "SELL"}],
+        "telemetry": {
+            "decision_stage": "setup_found",
+            "primary_hold_reason": "A deterministic A+ price-action setup passed the checklist.",
+        },
+    }
+
+    proposal = build_order_proposal(state)
+
+    assert proposal.status == OrderStatus.NO_TRADE
+    assert proposal.side == TradeAction.SELL
+    assert proposal.entry_price is None
+    assert "missing entry, stop, or target" in proposal.reason
+    assert "LLM has levels" not in proposal.reason
+
+
+@pytest.mark.unit
 def test_executor_loads_engine_payload_before_writing_order_proposal(tmp_path):
     state = _state(
         "**Action**: HOLD\n\n"

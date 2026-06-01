@@ -50,16 +50,18 @@ The CLI asks for a ticker, an as-of timestamp, provider/model choices, then writ
 
 No live broker orders are placed.
 
-## MT5 Account-Ready Execution
+## MT5 Broker Execution
 
-The MT5 execution layer runs through MetaTrader 5 Desktop on Windows. Account
-mode is explicit configuration: demo, real, or contest. Broker order sending is
-guarded by account mode, expected login, expected server, execution mode, and
-real-money acknowledgement when applicable.
+The MT5 execution layer runs through MetaTrader 5 Desktop on Windows. Configure
+one broker connection with MT5 credentials, symbol, volume, expected login, and
+expected server. TradingAgents reads the account type from MT5 at runtime, and
+broker order sending requires a real-money acknowledgement when MT5 reports a
+real account.
 
 Follow the Windows and VPS runbook here:
 
-- [MT5 Account-Ready Execution on Windows and VPS](docs/mt5-windows-vps.md)
+- [MT5 Broker Execution on Windows and VPS](docs/mt5-windows-vps.md)
+- [MT5 Broker Execution on Windows](docs/mt5-windows.md)
 - [Windows AI Agent Handoff](docs/windows-agent-handoff.md)
 
 ## Development

@@ -416,6 +416,49 @@ def _mt5_runner_analysis_func():
     return analyze_once
 
 
+def _mt5_runner_engine_analysis_func():
+    def analyze_once():
+        selections = build_env_selections()
+        from tradingagents.agents.execution.order_proposal import (
+            create_order_proposal_executor,
+        )
+        from tradingagents.agents.price_action.decision import run_engine_decision
+        from tradingagents.brokers.mt5_execution import load_order_proposal
+
+        state = run_engine_decision(
+            symbol=selections["ticker"],
+            broker_symbol=selections.get("broker_symbol"),
+            as_of=selections["as_of"],
+            results_dir=DEFAULT_CONFIG["results_dir"],
+            timeframe=selections.get("timeframe", DEFAULT_CONFIG["timeframe"]),
+            confirmation_timeframe=selections.get(
+                "confirmation_timeframe",
+                DEFAULT_CONFIG["confirmation_timeframe"],
+            ),
+            market_timezone=selections.get(
+                "market_timezone",
+                DEFAULT_CONFIG["market_timezone"],
+            ),
+            session_config=DEFAULT_CONFIG.get("price_action"),
+        )
+        proposal_state = create_order_proposal_executor(DEFAULT_CONFIG)(state)
+        proposal_path = proposal_state["order_proposal_path"]
+        proposal = load_order_proposal(proposal_path)
+        engine_payload = state.get("engine_payload") or {}
+        analysis = {
+            "order_proposal_path": proposal_path,
+            "telemetry_path": state.get("telemetry_path"),
+            "telemetry": engine_payload.get("telemetry", {}),
+            "data_status": engine_payload.get("data_status", {}),
+            "price_action_report": state.get("price_action_report", ""),
+            "trade_plan": state.get("trade_plan", ""),
+            "engine_status": engine_payload.get("status"),
+        }
+        return selections["as_of"], proposal, analysis
+
+    return analyze_once
+
+
 @app.command("mt5-execute")
 def mt5_execute(
     proposal_path: Path = typer.Option(
@@ -468,6 +511,11 @@ def mt5_run(
         min=0.0,
         help="Stop the runner after this many wall-clock hours. Zero means no duration limit.",
     ),
+    decision_mode: str = typer.Option(
+        DEFAULT_CONFIG.get("decision_mode", "engine"),
+        "--decision-mode",
+        help="Decision path for runner execution: engine or graph.",
+    ),
 ):
     """Run unattended MT5 automation.
 
@@ -478,8 +526,16 @@ def mt5_run(
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
 
     try:
+        normalized_decision_mode = decision_mode.strip().lower()
+        if normalized_decision_mode not in {"engine", "graph"}:
+            raise typer.BadParameter("decision-mode must be 'engine' or 'graph'")
         config = MT5ConnectionConfig.from_env()
         executor = MT5Executor(config, DEFAULT_CONFIG["results_dir"])
+        analysis_func = (
+            _mt5_runner_engine_analysis_func()
+            if normalized_decision_mode == "engine"
+            else _mt5_runner_analysis_func()
+        )
         runner = MT5Runner(
             MT5RunnerConfig(
                 results_dir=DEFAULT_CONFIG["results_dir"],
@@ -500,7 +556,7 @@ def mt5_run(
                 ),
             ),
             executor=executor,
-            analysis_func=_mt5_runner_analysis_func(),
+            analysis_func=analysis_func,
         )
         result = runner.run_once() if once else runner.run_forever()
     except (MT5BrokerError, ValueError) as exc:

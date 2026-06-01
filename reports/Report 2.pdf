@@ -1,0 +1,262 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [7 0 R 9 0 R 11 0 R 13 0 R] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+6 0 obj
+<< /Length 4637 >>
+stream
+q
+BT /F2 16.00 Tf 54.00 788.00 Td (Report 2: Two-Hour Gold Bot Forward Test Review) Tj ET
+BT /F1 10.50 Tf 54.00 758.00 Td (Report date: 2026-06-01) Tj ET
+BT /F1 10.50 Tf 54.00 745.00 Td (Market: Gold) Tj ET
+BT /F1 10.50 Tf 54.00 732.00 Td (Analysis symbol: GC=F) Tj ET
+BT /F1 10.50 Tf 54.00 719.00 Td (Broker execution symbol: XAUUSD.vx) Tj ET
+BT /F1 10.50 Tf 54.00 706.00 Td (Broker account: Valetax demo account on MetaTrader 5) Tj ET
+BT /F1 10.50 Tf 54.00 693.00 Td (Run directory:) Tj ET
+BT /F1 10.50 Tf 54.00 680.00 Td (C:\\Users\\Wetende\\.tradingagents\\logs\\live_runs\\m30_m15_core_run_20260601_155624) Tj ET
+BT /F1 10.50 Tf 54.00 667.00 Td (Run window: 2026-06-01 15:56 to 17:56 Brisbane time) Tj ET
+BT /F1 10.50 Tf 54.00 654.00 Td (Decision candles reviewed: 2026-06-01 01:45 to 03:45 New York time) Tj ET
+BT /F1 10.50 Tf 54.00 641.00 Td (Purpose: Check whether the bot can watch live market data, detect valid M30/M15 setups,) Tj ET
+BT /F1 10.50 Tf 54.00 628.00 Td (create proposals, and reach MT5 execution safely.) Tj ET
+BT /F2 13.00 Tf 54.00 607.00 Td (1. Executive Summary) Tj ET
+BT /F1 10.50 Tf 54.00 581.00 Td (The two-hour forward test was useful because it separated three different questions:) Tj ET
+BT /F1 10.50 Tf 54.00 560.00 Td (1. Can the bot stay connected and read market data?) Tj ET
+BT /F1 10.50 Tf 54.00 547.00 Td (2. Can the trading engine explain why it is holding?) Tj ET
+BT /F1 10.50 Tf 54.00 534.00 Td (3. Can the MT5 execution layer place and cancel a broker order when asked?) Tj ET
+BT /F1 10.50 Tf 54.00 513.00 Td (The answer to all three is mostly positive, but there is one important design issue to) Tj ET
+BT /F1 10.50 Tf 54.00 500.00 Td (correct before the next longer run.) Tj ET
+BT /F1 10.50 Tf 54.00 479.00 Td (During the two-hour runner test, the bot completed 135 checks. Most checks were repeated) Tj ET
+BT /F1 10.50 Tf 54.00 466.00 Td (reads of the same already-processed 15-minute candle. There were 9 fresh trade decisions,) Tj ET
+BT /F1 10.50 Tf 54.00 453.00 Td (and all 9 ended as NO_TRADE / NO_SETUP.) Tj ET
+BT /F1 10.50 Tf 54.00 432.00 Td (No broker orders were placed by the runner. There were no broker rejections, no open) Tj ET
+BT /F1 10.50 Tf 54.00 419.00 Td (orders, and no open positions left behind.) Tj ET
+BT /F1 10.50 Tf 54.00 398.00 Td (The telemetry showed that market data was healthy throughout the run. The bot was not) Tj ET
+BT /F1 10.50 Tf 54.00 385.00 Td (blocked by missing GC=F data during this test. The real reason for holding was trading) Tj ET
+BT /F1 10.50 Tf 54.00 372.00 Td (logic: either there was no valid M15 playbook setup, or a candidate setup failed the A+) Tj ET
+BT /F1 10.50 Tf 54.00 359.00 Td (checklist because the clean range and risk-to-reward were not good enough.) Tj ET
+BT /F1 10.50 Tf 54.00 338.00 Td (The most important issue found is not the holding decision itself. The important issue is) Tj ET
+BT /F1 10.50 Tf 54.00 325.00 Td (that the order proposal and explanation path can still rely too much on LLM text. That) Tj ET
+BT /F1 10.50 Tf 54.00 312.00 Td (can create confusing wording, for example saying "no price data" even when the telemetry) Tj ET
+BT /F1 10.50 Tf 54.00 299.00 Td (says the data was fresh and healthy. The next engineering step should be to make the) Tj ET
+BT /F1 10.50 Tf 54.00 286.00 Td (deterministic engine and telemetry the trusted source for trade decisions and order) Tj ET
+BT /F1 10.50 Tf 54.00 273.00 Td (proposals.) Tj ET
+BT /F2 13.00 Tf 54.00 252.00 Td (2. Run Results) Tj ET
+BT /F3 7.50 Tf 54.00 226.00 Td (| Metric | Result |) Tj ET
+BT /F3 7.50 Tf 54.00 216.00 Td (| Total runner checks | 135 |) Tj ET
+BT /F3 7.50 Tf 54.00 206.00 Td (| Fresh trade decisions | 9 |) Tj ET
+BT /F3 7.50 Tf 54.00 196.00 Td (| Repeated candle checks | 126 |) Tj ET
+BT /F3 7.50 Tf 54.00 186.00 Td (| Trade proposals created by runner | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 176.00 Td (| Broker orders placed by runner | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 166.00 Td (| Broker rejections | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 156.00 Td (| Open orders after test | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 146.00 Td (| Open positions after test | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 136.00 Td (| Healthy data checks | 135 |) Tj ET
+BT /F3 7.50 Tf 54.00 126.00 Td (| Unhealthy data checks | 0 |) Tj ET
+BT /F1 10.50 Tf 54.00 108.00 Td (The runner stopped because the configured two-hour duration ended. This did not mean MT5) Tj ET
+BT /F1 10.50 Tf 54.00 95.00 Td (was closed or disconnected. It means the bot process ended normally after reaching its) Tj ET
+BT /F1 10.50 Tf 54.00 82.00 Td (time cap.) Tj ET
+BT /F1 8.00 Tf 54.00 28.00 Td (Page 1 of 4) Tj ET
+Q
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 5261 >>
+stream
+q
+BT /F2 13.00 Tf 54.00 788.00 Td (3. Data Health) Tj ET
+BT /F1 10.50 Tf 54.00 762.00 Td (Data health was good in this two-hour run.) Tj ET
+BT /F3 7.50 Tf 54.00 741.00 Td (| Timeframe | Status at latest check | Latest candle age | Rows available |) Tj ET
+BT /F3 7.50 Tf 54.00 731.00 Td (| M15 | Fresh | 0 minutes | 636 |) Tj ET
+BT /F3 7.50 Tf 54.00 721.00 Td (| M30 | Fresh | 15 minutes | 318 |) Tj ET
+BT /F3 7.50 Tf 54.00 711.00 Td (| H1 | Fresh | 45 minutes | 1102 |) Tj ET
+BT /F3 7.50 Tf 54.00 701.00 Td (| H4 | Fresh | 225 minutes | 298 |) Tj ET
+BT /F3 7.50 Tf 54.00 691.00 Td (| Daily | Fresh | 225 minutes | 252 |) Tj ET
+BT /F1 10.50 Tf 54.00 673.00 Td (This is important because an earlier concern was the intermittent GC=F: possibly) Tj ET
+BT /F1 10.50 Tf 54.00 660.00 Td (delisted; no price data found warning. In this specific two-hour run, telemetry says all) Tj ET
+BT /F1 10.50 Tf 54.00 647.00 Td (135 checks were healthy and no timeframe was blocking.) Tj ET
+BT /F1 10.50 Tf 54.00 626.00 Td (There was still one misleading summary category labeled data_health. That came from the) Tj ET
+BT /F1 10.50 Tf 54.00 613.00 Td (proposal/explanation text, not from the real telemetry. The real telemetry showed healthy) Tj ET
+BT /F1 10.50 Tf 54.00 600.00 Td (data. This confirms that the report/proposal layer must trust structured telemetry before) Tj ET
+BT /F1 10.50 Tf 54.00 587.00 Td (trusting LLM wording.) Tj ET
+BT /F2 13.00 Tf 54.00 566.00 Td (4. Fresh Trading Decisions) Tj ET
+BT /F1 10.50 Tf 54.00 540.00 Td (The runner made one fresh decision per completed 15-minute candle.) Tj ET
+BT /F3 7.50 Tf 54.00 519.00 Td (| Candle time ET | Result | M30 context | Candidate setups | Failed reason |) Tj ET
+BT /F3 7.50 Tf 54.00 509.00 Td (| 01:45 | NO_SETUP | Bullish breakout | 1 | Clean range / R:R too weak |) Tj ET
+BT /F3 7.50 Tf 54.00 499.00 Td (| 02:00 | NO_SETUP | Bullish breakout | 0 | No valid M15 playbook setup |) Tj ET
+BT /F3 7.50 Tf 54.00 489.00 Td (| 02:15 | NO_SETUP | Bullish breakout | 7 | Clean range / R:R too weak; timeframe correlation failed |) Tj ET
+BT /F3 7.50 Tf 54.00 479.00 Td (| 02:30 | NO_SETUP | Bullish breakout | 0 | No valid M15 playbook setup |) Tj ET
+BT /F3 7.50 Tf 54.00 469.00 Td (| 02:45 | NO_SETUP | Bullish breakout | 0 | No valid M15 playbook setup |) Tj ET
+BT /F3 7.50 Tf 54.00 459.00 Td (| 03:00 | NO_SETUP | Bullish breakout | 2 | Clean range / R:R too weak |) Tj ET
+BT /F3 7.50 Tf 54.00 449.00 Td (| 03:15 | NO_SETUP | Bullish breakout | 0 | No valid M15 playbook setup |) Tj ET
+BT /F3 7.50 Tf 54.00 439.00 Td (| 03:30 | NO_SETUP | Bearish breakout | 0 | No valid M15 playbook setup |) Tj ET
+BT /F3 7.50 Tf 54.00 429.00 Td (| 03:45 | NO_SETUP | Bearish breakout | 1 | Clean range / R:R too weak |) Tj ET
+BT /F1 10.50 Tf 54.00 411.00 Td (This tells us the bot was not idle. It was reading structure and finding candidate) Tj ET
+BT /F1 10.50 Tf 54.00 398.00 Td (moments. But no candidate passed enough of the checklist to become a brokerable trade.) Tj ET
+BT /F2 13.00 Tf 54.00 377.00 Td (5. What The Bot Saw) Tj ET
+BT /F1 10.50 Tf 54.00 351.00 Td (For most of the run, the M30 context was bullish breakout. Near the end of the run, the) Tj ET
+BT /F1 10.50 Tf 54.00 338.00 Td (M30 context changed to bearish breakout. That means the market did move enough for the) Tj ET
+BT /F1 10.50 Tf 54.00 325.00 Td (engine to update its read.) Tj ET
+BT /F1 10.50 Tf 54.00 304.00 Td (The strongest repeated failure was not higher-timeframe permission. Daily, H4, and H1) Tj ET
+BT /F1 10.50 Tf 54.00 291.00 Td (were being recorded as context. The failures came from the core checklist:) Tj ET
+BT /F3 7.50 Tf 54.00 270.00 Td (| Failure category | Count | Trading meaning |) Tj ET
+BT /F3 7.50 Tf 54.00 260.00 Td (| No valid M15 playbook setup | 5 | M30 had context, but M15 did not give the entry candle required by the) Tj ET
+BT /F3 7.50 Tf 54.00 250.00 Td (strategy |) Tj ET
+BT /F3 7.50 Tf 54.00 240.00 Td (| A+ checklist failure | 4 | A candidate existed, but one or more required trade-quality checks failed |) Tj ET
+BT /F3 7.50 Tf 54.00 230.00 Td (| Clean range / R:R too weak | 4 | The entry, stop, and target did not give enough room to justify the) Tj ET
+BT /F3 7.50 Tf 54.00 220.00 Td (trade |) Tj ET
+BT /F3 7.50 Tf 54.00 210.00 Td (| Timeframe correlation failed | 1 | A candidate direction did not align cleanly with the confirmation) Tj ET
+BT /F3 7.50 Tf 54.00 200.00 Td (context |) Tj ET
+BT /F1 10.50 Tf 54.00 182.00 Td (The best example is the final candle at 03:45 ET. The engine found a possible Break and) Tj ET
+BT /F1 10.50 Tf 54.00 169.00 Td (Retest SELL, but the risk-to-reward was only 0.62R. That is below the required threshold,) Tj ET
+BT /F1 10.50 Tf 54.00 156.00 Td (so holding was the correct action.) Tj ET
+BT /F2 13.00 Tf 54.00 135.00 Td (6. MT5 Execution Status) Tj ET
+BT /F1 10.50 Tf 54.00 109.00 Td (The two-hour runner itself did not place any orders because no trade passed the rules.) Tj ET
+BT /F1 10.50 Tf 54.00 88.00 Td (After the runner, a separate direct demo execution smoke test was performed without) Tj ET
+BT /F1 10.50 Tf 54.00 75.00 Td (relying on market analysis or the LLM. That test proved the MT5 execution layer can place) Tj ET
+BT /F1 8.00 Tf 54.00 28.00 Td (Page 2 of 4) Tj ET
+Q
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 4352 >>
+stream
+q
+BT /F1 10.50 Tf 54.00 788.00 Td (and cancel a pending demo order.) Tj ET
+BT /F3 7.50 Tf 54.00 767.00 Td (| Execution check | Result |) Tj ET
+BT /F3 7.50 Tf 54.00 757.00 Td (| MT5 connected | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 747.00 Td (| Correct Valetax demo account detected | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 737.00 Td (| Broker symbol XAUUSD.vx detected | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 727.00 Td (| Pending SELL LIMIT request built | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 717.00 Td (| Broker accepted pending order | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 707.00 Td (| Broker ticket returned | 73390225 |) Tj ET
+BT /F3 7.50 Tf 54.00 697.00 Td (| Pending order was visible in MT5 state | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 687.00 Td (| Pending order cancelled | Passed |) Tj ET
+BT /F3 7.50 Tf 54.00 677.00 Td (| Final open orders | 0 |) Tj ET
+BT /F3 7.50 Tf 54.00 667.00 Td (| Final open positions | 0 |) Tj ET
+BT /F1 10.50 Tf 54.00 649.00 Td (This means the execution layer is capable of talking to MT5. The main remaining question) Tj ET
+BT /F1 10.50 Tf 54.00 636.00 Td (is not "can MT5 receive an order?" It can. The main question is "when the strategy finds) Tj ET
+BT /F1 10.50 Tf 54.00 623.00 Td (a valid setup, can the full bot send the right proposal to MT5 without the LLM confusing) Tj ET
+BT /F1 10.50 Tf 54.00 610.00 Td (the decision?") Tj ET
+BT /F2 13.00 Tf 54.00 589.00 Td (7. Main Issue Found) Tj ET
+BT /F1 10.50 Tf 54.00 563.00 Td (The most important issue is the split between deterministic telemetry and LLM-generated) Tj ET
+BT /F1 10.50 Tf 54.00 550.00 Td (text.) Tj ET
+BT /F1 10.50 Tf 54.00 529.00 Td (The engine telemetry is structured and reliable. It knows:) Tj ET
+BT /F1 10.50 Tf 54.00 508.00 Td (- Whether data is healthy.) Tj ET
+BT /F1 10.50 Tf 54.00 495.00 Td (- Which timeframe was fresh.) Tj ET
+BT /F1 10.50 Tf 54.00 482.00 Td (- What M30 context was detected.) Tj ET
+BT /F1 10.50 Tf 54.00 469.00 Td (- How many candidate setups existed.) Tj ET
+BT /F1 10.50 Tf 54.00 456.00 Td (- Which checklist rule failed.) Tj ET
+BT /F1 10.50 Tf 54.00 443.00 Td (- Whether risk-to-reward passed.) Tj ET
+BT /F1 10.50 Tf 54.00 430.00 Td (- Whether the final result was NO_SETUP or SETUP_FOUND.) Tj ET
+BT /F1 10.50 Tf 54.00 409.00 Td (The LLM explanation is useful for readable summaries, but it can say something misleading) Tj ET
+BT /F1 10.50 Tf 54.00 396.00 Td (if it receives incomplete text or if the report path is empty. In this run, one proposal) Tj ET
+BT /F1 10.50 Tf 54.00 383.00 Td (reason suggested missing price-action data even though telemetry showed data was healthy.) Tj ET
+BT /F1 10.50 Tf 54.00 362.00 Td (That mismatch matters because execution should never depend on wording. Execution should) Tj ET
+BT /F1 10.50 Tf 54.00 349.00 Td (depend on structured facts.) Tj ET
+BT /F2 13.00 Tf 54.00 328.00 Td (8. Recommended Next Fix) Tj ET
+BT /F1 10.50 Tf 54.00 302.00 Td (The next fix should be to make the order proposal and runner execution path trust the) Tj ET
+BT /F1 10.50 Tf 54.00 289.00 Td (deterministic engine first.) Tj ET
+BT /F1 10.50 Tf 54.00 268.00 Td (Recommended behavior:) Tj ET
+BT /F1 10.50 Tf 54.00 247.00 Td (1. The engine reads candles and produces telemetry.) Tj ET
+BT /F1 10.50 Tf 54.00 234.00 Td (2. The engine decides NO_SETUP or SETUP_FOUND.) Tj ET
+BT /F1 10.50 Tf 54.00 221.00 Td (3. If NO_SETUP, the proposal must say NO_TRADE using the engine's failed checklist) Tj ET
+BT /F1 10.50 Tf 54.00 208.00 Td (   reason.) Tj ET
+BT /F1 10.50 Tf 54.00 195.00 Td (4. If SETUP_FOUND, the proposal must use the engine's side, entry, stop loss, take) Tj ET
+BT /F1 10.50 Tf 54.00 182.00 Td (   profit, setup name, risk-reward, and activation window.) Tj ET
+BT /F1 10.50 Tf 54.00 169.00 Td (5. The LLM may still write a human explanation, but it should not decide side, levels, or) Tj ET
+BT /F1 10.50 Tf 54.00 156.00 Td (   whether a trade exists.) Tj ET
+BT /F1 10.50 Tf 54.00 143.00 Td (6. The runner summary should categorize holds from telemetry, not from LLM wording.) Tj ET
+BT /F1 10.50 Tf 54.00 122.00 Td (In short: telemetry should drive execution; the LLM should explain after the fact.) Tj ET
+BT /F2 13.00 Tf 54.00 101.00 Td (9. What Should Stay Strict) Tj ET
+BT /F1 10.50 Tf 54.00 75.00 Td (The bot should still remain disciplined.) Tj ET
+BT /F1 8.00 Tf 54.00 28.00 Td (Page 3 of 4) Tj ET
+Q
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 3530 >>
+stream
+q
+BT /F1 10.50 Tf 54.00 788.00 Td (Rules that should stay strict:) Tj ET
+BT /F1 10.50 Tf 54.00 767.00 Td (- No trade without a valid M15 setup.) Tj ET
+BT /F1 10.50 Tf 54.00 754.00 Td (- No trade without M30/M15 alignment.) Tj ET
+BT /F1 10.50 Tf 54.00 741.00 Td (- No trade when the candle has not closed.) Tj ET
+BT /F1 10.50 Tf 54.00 728.00 Td (- No trade when clean range is too small.) Tj ET
+BT /F1 10.50 Tf 54.00 715.00 Td (- No trade when R:R is below the minimum.) Tj ET
+BT /F1 10.50 Tf 54.00 702.00 Td (- No trade when wick rules fail.) Tj ET
+BT /F1 10.50 Tf 54.00 689.00 Td (- No trade when the order would activate too late in the M15 candle.) Tj ET
+BT /F1 10.50 Tf 54.00 676.00 Td (- No live account execution while the system is still under demo validation.) Tj ET
+BT /F1 10.50 Tf 54.00 655.00 Td (This is not about forcing trades. The goal is to remove unreliable decision sources and) Tj ET
+BT /F1 10.50 Tf 54.00 642.00 Td (keep the real checklist strong.) Tj ET
+BT /F2 13.00 Tf 54.00 621.00 Td (10. Next Test Plan) Tj ET
+BT /F1 10.50 Tf 54.00 595.00 Td (After the deterministic proposal fix, the next test should be another demo forward run.) Tj ET
+BT /F1 10.50 Tf 54.00 574.00 Td (The next run should confirm:) Tj ET
+BT /F3 7.50 Tf 54.00 553.00 Td (| Question | Expected proof |) Tj ET
+BT /F3 7.50 Tf 54.00 543.00 Td (| Does the bot read fresh GC=F data? | Data health is green across M15, M30, H1, H4, Daily |) Tj ET
+BT /F3 7.50 Tf 54.00 533.00 Td (| Does the engine explain every HOLD? | Telemetry shows the exact failed checklist rule |) Tj ET
+BT /F3 7.50 Tf 54.00 523.00 Td (| Does the proposal match telemetry? | Proposal reason agrees with engine decision stage |) Tj ET
+BT /F3 7.50 Tf 54.00 513.00 Td (| Does the bot ignore misleading LLM wording? | Side, levels, and status come from engine data |) Tj ET
+BT /F3 7.50 Tf 54.00 503.00 Td (| Does MT5 execute when a setup passes? | A demo order is placed only after SETUP_FOUND |) Tj ET
+BT /F3 7.50 Tf 54.00 493.00 Td (| Does risk management stay intact? | No proposal is sent with weak R:R or missing levels |) Tj ET
+BT /F1 10.50 Tf 54.00 475.00 Td (Success does not mean the bot trades often. Success means every HOLD and every trade) Tj ET
+BT /F1 10.50 Tf 54.00 462.00 Td (proposal can be traced back to the checklist.) Tj ET
+BT /F2 13.00 Tf 54.00 441.00 Td (11. Final Conclusion) Tj ET
+BT /F1 10.50 Tf 54.00 415.00 Td (The two-hour test did not produce a trade, but it was still a strong diagnostic run.) Tj ET
+BT /F1 10.50 Tf 54.00 394.00 Td (The market data path worked. The telemetry path worked. The runner stopped normally after) Tj ET
+BT /F1 10.50 Tf 54.00 381.00 Td (its two-hour cap. MT5 remained safe with no open orders or positions. A separate direct) Tj ET
+BT /F1 10.50 Tf 54.00 368.00 Td (execution smoke test confirmed that MT5 can accept and cancel a demo pending order.) Tj ET
+BT /F1 10.50 Tf 54.00 347.00 Td (The main weakness is the decision handoff between the deterministic engine and the LLM-) Tj ET
+BT /F1 10.50 Tf 54.00 334.00 Td (based proposal/explanation layer. The next engineering step is to make the engine and) Tj ET
+BT /F1 10.50 Tf 54.00 321.00 Td (telemetry the source of truth for execution. Once that is done, the bot can be tested) Tj ET
+BT /F1 10.50 Tf 54.00 308.00 Td (again with more confidence, because a valid M30/M15 setup will produce a deterministic) Tj ET
+BT /F1 10.50 Tf 54.00 295.00 Td (broker proposal instead of passing through uncertain LLM wording.) Tj ET
+BT /F1 8.00 Tf 54.00 28.00 Td (Page 4 of 4) Tj ET
+Q
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 12 0 R >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000141 00000 n 
+0000000211 00000 n 
+0000000286 00000 n 
+0000000354 00000 n 
+0000005043 00000 n 
+0000005189 00000 n 
+0000010502 00000 n 
+0000010648 00000 n 
+0000015053 00000 n 
+0000015201 00000 n 
+0000018784 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+18932
+%%EOF

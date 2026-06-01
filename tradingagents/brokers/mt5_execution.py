@@ -64,15 +64,6 @@ class MT5Executor:
         )
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
-        if self.config.execution_mode == "dry_run":
-            result = {
-                "status": "DRY_RUN",
-                "symbol": self.config.symbol,
-                "request": request,
-            }
-            self.journal.append("ORDER_DRY_RUN", result)
-            return result
-
         broker_result = self.broker.place_pending_order(request)
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
@@ -120,21 +111,6 @@ class MT5Executor:
             self.journal.append("ORDER_CANCEL_SKIPPED", result)
             return result
 
-        if self.config.execution_mode == "dry_run":
-            broker_result = {
-                "ok": True,
-                "dry_run": True,
-                "comment": "DRY_RUN_CANCEL",
-                "order": ticket,
-            }
-            result = {
-                "status": "DRY_RUN_CANCEL",
-                "ticket": ticket,
-                "result": broker_result,
-            }
-            self.journal.append("ORDER_DRY_RUN_CANCEL", result)
-            return result
-
         broker_result = self.broker.cancel_order(ticket)
         ok = bool(broker_result.get("ok"))
         if ok:
@@ -162,23 +138,13 @@ class MT5Executor:
             ticket = int(position["ticket"])
             stop_loss = float(managed["stop_loss"])
             take_profit = float(position["take_profit"])
-            if self.config.execution_mode == "dry_run":
-                result = {
-                    "ok": True,
-                    "dry_run": True,
-                    "comment": "DRY_RUN_MOVE_TO_BREAK_EVEN",
-                    "position": ticket,
-                }
-                action_name = "DRY_RUN_MOVE_TO_BREAK_EVEN"
-                event_type = "POSITION_DRY_RUN_STOP_MOVE"
-            else:
-                result = self.broker.modify_position_stops(
-                    ticket,
-                    stop_loss,
-                    take_profit,
-                )
-                action_name = "MOVE_TO_BREAK_EVEN"
-                event_type = "POSITION_STOP_MOVED"
+            result = self.broker.modify_position_stops(
+                ticket,
+                stop_loss,
+                take_profit,
+            )
+            action_name = "MOVE_TO_BREAK_EVEN"
+            event_type = "POSITION_STOP_MOVED"
             action = {
                 "ticket": position["ticket"],
                 "action": action_name,
@@ -190,13 +156,7 @@ class MT5Executor:
             self.journal.append(event_type, action)
 
         return {
-            "status": (
-                "DRY_RUN_MANAGED"
-                if actions and self.config.execution_mode == "dry_run"
-                else "MANAGED"
-                if actions
-                else "NO_POSITION_ACTION"
-            ),
+            "status": "MANAGED" if actions else "NO_POSITION_ACTION",
             "actions": actions,
         }
 

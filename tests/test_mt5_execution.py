@@ -43,7 +43,6 @@ def test_build_buy_limit_request_rounds_prices():
         login=123456789,
         password="secret",
         server="ExampleBroker-Demo",
-        account_mode="demo",
         symbol="XAUUSD",
         volume=0.01,
         deviation=20,
@@ -80,7 +79,6 @@ def test_build_request_uses_broker_symbol_when_analysis_symbol_differs():
         login=123456789,
         password="secret",
         server="ExampleBroker-Demo",
-        account_mode="demo",
         symbol="XAUUSD.vx",
     )
     builder = MT5OrderRequestBuilder(config)
@@ -106,7 +104,6 @@ def test_build_request_rejects_no_trade_proposal():
         login=123456789,
         password="secret",
         server="ExampleBroker-Demo",
-        account_mode="demo",
     )
     builder = MT5OrderRequestBuilder(config)
     proposal = _proposal()
@@ -122,7 +119,6 @@ def test_build_request_rejects_non_limit_proposal():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
     proposal = _proposal()
@@ -138,7 +134,6 @@ def test_build_sell_limit_request_maps_side():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
 
@@ -157,7 +152,6 @@ def test_build_request_rejects_broker_symbol_mismatch():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
             symbol="XAUUSD",
         )
     )
@@ -175,7 +169,6 @@ def test_build_request_rejects_symbol_info_name_mismatch():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
             symbol="XAUUSD",
         )
     )
@@ -193,7 +186,6 @@ def test_build_request_rejects_missing_levels():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
     proposal = _proposal()
@@ -212,7 +204,6 @@ def test_build_request_rejects_invalid_buy_levels():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
     proposal = _proposal()
@@ -228,7 +219,6 @@ def test_build_request_rejects_invalid_sell_levels():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
     proposal = _proposal(TradeAction.SELL)
@@ -243,7 +233,6 @@ def test_build_request_snaps_prices_to_trade_tick_size():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
 
@@ -263,7 +252,6 @@ def test_build_request_preserves_digits_zero():
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
 
@@ -285,7 +273,6 @@ def test_build_request_rejects_non_positive_or_non_finite_prices(
             login=123456789,
             password="secret",
             server="ExampleBroker-Demo",
-            account_mode="demo",
         )
     )
     proposal = _proposal()
@@ -349,13 +336,11 @@ class FakeBroker:
         return {"ok": True, "position": position_ticket, "retcode": 10009}
 
 
-def _config(execution_mode: str = "broker") -> MT5ConnectionConfig:
+def _config() -> MT5ConnectionConfig:
     return MT5ConnectionConfig(
         login=123456789,
         password="secret",
         server="ExampleBroker-Demo",
-        account_mode="demo",
-        execution_mode=execution_mode,
         symbol="XAUUSD",
         volume=0.01,
         deviation=20,
@@ -387,29 +372,6 @@ def test_executor_places_pending_order_when_no_active_trade(tmp_path):
     assert result["order"] == 111222
     assert len(broker.placed_requests) == 1
     assert broker.placed_requests[0]["type"] == "BUY_LIMIT"
-
-
-def test_executor_dry_run_builds_request_without_placing_order_or_state(tmp_path):
-    broker = FakeBroker()
-    executor = MT5Executor(
-        _config(execution_mode="dry_run"), tmp_path, broker=broker
-    )
-
-    result = executor.execute_proposal(_proposal())
-
-    assert result["status"] == "DRY_RUN"
-    assert result["request"]["type"] == "BUY_LIMIT"
-    assert broker.placed_requests == []
-    assert executor.state.load()["active_order_ticket"] is None
-
-    journal_path = (
-        tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
-    )
-    event_types = [
-        json.loads(line)["event_type"]
-        for line in journal_path.read_text(encoding="utf-8").splitlines()
-    ]
-    assert event_types == ["CONNECTED", "ORDER_REQUEST_BUILT", "ORDER_DRY_RUN"]
 
 
 def test_executor_refuses_when_active_order_exists(tmp_path):
@@ -574,44 +536,6 @@ def test_executor_keeps_state_when_stale_cancel_fails(tmp_path):
     assert executor.state.load()["active_order_ticket"] == 111
 
 
-def test_executor_dry_run_stale_cancel_does_not_call_broker(tmp_path):
-    broker = FakeBroker()
-    executor = MT5Executor(
-        _config(execution_mode="dry_run"), tmp_path, broker=broker
-    )
-    executor.state.save(
-        {
-            "symbol": "XAUUSD",
-            "active_order_ticket": 111,
-            "cancel_after_utc": "2026-05-27T14:00:00+00:00",
-        }
-    )
-
-    result = executor.cancel_stale_pending_orders(
-        now_utc="2026-05-27T14:01:00+00:00"
-    )
-
-    assert result["status"] == "DRY_RUN_CANCEL"
-    assert result["ticket"] == 111
-    assert result["result"] == {
-        "ok": True,
-        "dry_run": True,
-        "comment": "DRY_RUN_CANCEL",
-        "order": 111,
-    }
-    assert broker.cancelled == []
-    assert executor.state.load()["active_order_ticket"] == 111
-
-    journal_path = (
-        tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
-    )
-    event_types = [
-        json.loads(line)["event_type"]
-        for line in journal_path.read_text(encoding="utf-8").splitlines()
-    ]
-    assert event_types == ["ORDER_DRY_RUN_CANCEL"]
-
-
 def test_executor_moves_stop_to_break_even(tmp_path):
     broker = FakeBroker()
     broker.positions = [
@@ -677,52 +601,6 @@ def test_executor_moves_sell_stop_to_break_even(tmp_path):
     assert result["status"] == "MANAGED"
     assert broker.modified_stops[0]["position_ticket"] == 333445
     assert broker.modified_stops[0]["stop_loss"] == 2450.0
-
-
-def test_executor_dry_run_manage_positions_does_not_modify_stops(tmp_path):
-    broker = FakeBroker()
-    broker.positions = [
-        {
-            "ticket": 333444,
-            "symbol": "XAUUSD",
-            "side": "BUY",
-            "entry_price": 2450.0,
-            "stop_loss": 2447.0,
-            "take_profit": 2456.0,
-            "current_price": 2453.0,
-        }
-    ]
-    executor = MT5Executor(
-        _config(execution_mode="dry_run"), tmp_path, broker=broker
-    )
-
-    result = executor.manage_open_positions(break_even_threshold_pips=20)
-
-    assert result["status"] == "DRY_RUN_MANAGED"
-    assert result["actions"] == [
-        {
-            "ticket": 333444,
-            "action": "DRY_RUN_MOVE_TO_BREAK_EVEN",
-            "stop_loss": 2450.0,
-            "take_profit": 2456.0,
-            "result": {
-                "ok": True,
-                "dry_run": True,
-                "comment": "DRY_RUN_MOVE_TO_BREAK_EVEN",
-                "position": 333444,
-            },
-        }
-    ]
-    assert broker.modified_stops == []
-
-    journal_path = (
-        tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
-    )
-    event_types = [
-        json.loads(line)["event_type"]
-        for line in journal_path.read_text(encoding="utf-8").splitlines()
-    ]
-    assert event_types == ["POSITION_DRY_RUN_STOP_MOVE"]
 
 
 def test_full_fake_mt5_flow_places_cancels_and_manages(tmp_path):

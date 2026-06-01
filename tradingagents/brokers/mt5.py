@@ -19,12 +19,11 @@ class MT5BrokerError(RuntimeError):
     """Raised when the MT5 terminal bridge cannot connect or inspect symbols."""
 
 
-_ACCOUNT_MODE_CONSTANTS = {
-    "demo": "ACCOUNT_TRADE_MODE_DEMO",
-    "real": "ACCOUNT_TRADE_MODE_REAL",
-    "contest": "ACCOUNT_TRADE_MODE_CONTEST",
+_TRADE_MODE_LABEL_CONSTANTS = {
+    "DEMO": "ACCOUNT_TRADE_MODE_DEMO",
+    "REAL": "ACCOUNT_TRADE_MODE_REAL",
+    "CONTEST": "ACCOUNT_TRADE_MODE_CONTEST",
 }
-_EXECUTION_MODES = {"dry_run", "broker"}
 _REAL_ORDER_ACK = "I_UNDERSTAND_REAL_MONEY_IS_AT_RISK"
 
 
@@ -35,8 +34,6 @@ class MT5ConnectionConfig:
     server: str
     symbol: str = "XAUUSD"
     terminal_path: str | None = None
-    account_mode: str | None = None
-    execution_mode: str = "dry_run"
     allow_real_orders: bool = False
     expected_login: int | None = None
     expected_server: str | None = None
@@ -46,30 +43,8 @@ class MT5ConnectionConfig:
     order_comment: str = "TradingAgents"
 
     def __post_init__(self) -> None:
-        account_mode = (self.account_mode or "").strip().lower()
-        if account_mode not in _ACCOUNT_MODE_CONSTANTS:
-            raise MT5BrokerError(
-                "TRADINGAGENTS_MT5_ACCOUNT_MODE must be one of: demo, real, contest"
-            )
-        object.__setattr__(self, "account_mode", account_mode)
-
-        execution_mode = str(self.execution_mode or "dry_run").strip().lower()
-        if execution_mode not in _EXECUTION_MODES:
-            raise MT5BrokerError(
-                "TRADINGAGENTS_MT5_EXECUTION_MODE must be dry_run or broker"
-            )
-        object.__setattr__(self, "execution_mode", execution_mode)
-
         if not isinstance(self.allow_real_orders, bool):
             raise MT5BrokerError("allow_real_orders must be a boolean")
-        if (
-            account_mode == "real"
-            and execution_mode == "broker"
-            and not self.allow_real_orders
-        ):
-            raise MT5BrokerError(
-                "Real-account broker execution requires real-money acknowledgement"
-            )
 
         if self.expected_login is None:
             object.__setattr__(self, "expected_login", self.login)
@@ -112,12 +87,6 @@ class MT5ConnectionConfig:
         except ValueError as exc:
             raise MT5BrokerError("TRADINGAGENTS_MT5_LOGIN must be numeric") from exc
 
-        account_mode_raw = os.environ.get("TRADINGAGENTS_MT5_ACCOUNT_MODE")
-        if not account_mode_raw:
-            raise MT5BrokerError(
-                "TRADINGAGENTS_MT5_ACCOUNT_MODE is required; set demo, real, or contest"
-            )
-
         allow_real_orders = (
             os.environ.get("TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS") == _REAL_ORDER_ACK
         )
@@ -128,8 +97,6 @@ class MT5ConnectionConfig:
             server=os.environ["TRADINGAGENTS_MT5_SERVER"],
             symbol=os.environ.get("TRADINGAGENTS_MT5_SYMBOL", "XAUUSD"),
             terminal_path=os.environ.get("TRADINGAGENTS_MT5_PATH") or None,
-            account_mode=account_mode_raw,
-            execution_mode=os.environ.get("TRADINGAGENTS_MT5_EXECUTION_MODE", "dry_run"),
             allow_real_orders=allow_real_orders,
             expected_login=_int_env("TRADINGAGENTS_MT5_EXPECTED_LOGIN", login),
             expected_server=os.environ.get("TRADINGAGENTS_MT5_EXPECTED_SERVER")
@@ -353,6 +320,8 @@ class MT5Broker:
             "account": {
                 "login": account.get("login"),
                 "server": account.get("server"),
+                "trade_mode": account.get("trade_mode"),
+                "trade_mode_label": self._trade_mode_label(account.get("trade_mode")),
                 "name": account.get("name"),
                 "company": account.get("company"),
                 "currency": account.get("currency"),
@@ -381,14 +350,6 @@ class MT5Broker:
     def _assert_expected_account(self, account: dict[str, Any]) -> None:
         login = account.get("login")
         server = account.get("server")
-        trade_mode = account.get("trade_mode")
-        expected_constant_name = _ACCOUNT_MODE_CONSTANTS[self.config.account_mode]
-        expected_trade_mode = self._constant(expected_constant_name)
-        if trade_mode != expected_trade_mode:
-            raise MT5BrokerError(
-                "unexpected MT5 account mode: "
-                f"got trade_mode {trade_mode}, expected {self.config.account_mode}"
-            )
         if self.config.expected_login is not None and login != self.config.expected_login:
             raise MT5BrokerError(
                 f"unexpected MT5 account login: got {login}, expected {self.config.expected_login}"
@@ -397,6 +358,15 @@ class MT5Broker:
             raise MT5BrokerError(
                 f"unexpected MT5 account server: got {server}, expected {self.config.expected_server}"
             )
+
+    def _trade_mode_label(self, trade_mode: Any) -> str:
+        for label, constant_name in _TRADE_MODE_LABEL_CONSTANTS.items():
+            try:
+                if trade_mode == self._constant(constant_name):
+                    return label
+            except MT5BrokerError:
+                continue
+        return "UNKNOWN"
 
     def _constants(self) -> dict[str, Any]:
         return {
@@ -452,17 +422,7 @@ class MT5Broker:
         return converted
 
     def _send(self, request: dict[str, Any]) -> dict[str, Any]:
-        self._assert_active_session()
-        if self.config.execution_mode == "dry_run":
-            return {
-                "ok": True,
-                "dry_run": True,
-                "retcode": None,
-                "order": None,
-                "deal": None,
-                "comment": "DRY_RUN",
-                "request": dict(request),
-            }
+        self._assert_order_send_allowed()
         mt5 = self._module()
         result = mt5.order_send(request)
         result_data = _asdict(result)
@@ -495,6 +455,20 @@ class MT5Broker:
         if not account:
             raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
         self._assert_expected_account(account)
+
+    def _assert_order_send_allowed(self) -> None:
+        self._assert_active_session()
+        mt5 = self._module()
+        account = _asdict(mt5.account_info())
+        trade_mode_label = self._trade_mode_label(account.get("trade_mode"))
+        if trade_mode_label == "REAL" and not self.config.allow_real_orders:
+            raise MT5BrokerError(
+                "Real-account broker execution requires real-money acknowledgement"
+            )
+        if trade_mode_label == "UNKNOWN":
+            raise MT5BrokerError(
+                "MT5 account trade mode is unknown; refusing broker order"
+            )
 
     def _success_retcodes_for_action(self, action: Any) -> set[Any]:
         constants = self._constants()

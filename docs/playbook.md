@@ -59,18 +59,21 @@ The bot should behave like a rule engine:
 - Let large winning trades develop when market structure supports them.
 - Never force a trade outside the playbook.
 
-The system is intended for demo-account testing first, but the rules should be written as production-ready trading logic. Demo mode validates the strategy without risking real money; it should not make the bot sloppy, permissive, or experimental in its trade decisions.
+The system is intended for forward testing first, but the rules should be
+written as production-ready trading logic. A forward test account validates the
+strategy without risking real money; it should not make the bot sloppy,
+permissive, or experimental in its trade decisions.
 
 ## Broker and Execution Assumptions
 
-The current execution target is a demo account first.
+The current execution target is a forward test account first.
 
 The user is based in Kenya, so U.S.-resident restrictions are not the primary blocker for the broker choice. The broker still must be verified during onboarding and checked against local rules before any real-money use.
 
 The preferred broker path is:
 
 ```text
-Trading engine -> local trade proposal -> broker adapter -> demo execution -> later live execution
+Trading engine -> local trade proposal -> broker adapter -> forward-test broker execution -> carefully approved real-money execution
 ```
 
 The broker layer must be generic. Valetax is only a testing candidate because it supports metals and MetaTrader platforms. It must not become a hard dependency.
@@ -78,7 +81,7 @@ The broker layer must be generic. Valetax is only a testing candidate because it
 The system should support adding other XAUUSD brokers through adapters, especially brokers that provide:
 
 - XAUUSD or broker-specific Gold symbols.
-- Demo accounts.
+- Broker-provided forward test accounts.
 - MT4, MT5, or another automation-friendly platform/API.
 - Reliable order placement, order cancellation, and order modification.
 - Clear trading specifications for spread, tick size, lot size, stop levels, and server time.
@@ -104,7 +107,8 @@ Broker adapter responsibilities:
 - Map internal symbol to broker symbol, such as `XAUUSD`, `XAUUSDm`, or another broker-specific code.
 - Convert Gold points/pips using the broker's tick size.
 - Validate minimum lot size and order constraints.
-- Place limit orders in demo mode.
+- Place limit orders through the configured broker connection during forward
+  testing.
 - Cancel stale limit orders.
 - Modify stop-loss for break-even.
 - Trail stop-loss behind M15 structure.
@@ -112,7 +116,7 @@ Broker adapter responsibilities:
 
 Before broker integration, confirm:
 
-- Demo account is available.
+- Forward test account is available.
 - XAUUSD or the broker-specific Gold symbol is available.
 - MT5 or MT4 is available for automated execution.
 - Broker server timezone.
@@ -905,7 +909,9 @@ Automation goals:
 - Move stop-loss to break even when the rule is met.
 - Trail stop-loss according to market structure.
 
-The system is tested on demo accounts first, but the implementation should be production-ready. Before any real-money use, the full rule set must be backtested against historical data and forward-tested on demo.
+The system is tested on forward test accounts first, but the implementation
+should be production-ready. Before any real-money use, the full rule set must be
+backtested against historical data and forward-tested without real capital.
 
 Backtesting should measure:
 
@@ -934,7 +940,19 @@ Current data-quality behavior:
 - The raw engine payload is saved under `<results_dir>/<symbol>/engine_telemetry/`.
 - The MT5 runner summary is saved under `<results_dir>/mt5_runner/summary.json`.
 
-After every demo test, review the summary and telemetry before deciding whether a HOLD was correct, a valid setup was missed, or execution should be tested again.
+After every forward test, review the summary and telemetry before deciding
+whether a HOLD was correct, a valid setup was missed, or execution should be
+tested again.
+
+## Engine-First Execution Boundary
+
+For MT5 runner execution, the deterministic price-action engine is the source of truth.
+
+- The engine reads Daily, 4H, 1H, M30, and M15 candles.
+- The engine records data health, higher-timeframe context, zones, M30 context, candidate setups, failed checklist rules, and risk/reward.
+- The engine decides `NO_SETUP` or `SETUP_FOUND`.
+- Order proposals must use the engine payload for side, entry, stop-loss, take-profit, status, and reason.
+- The LLM may explain the completed engine decision in plain language, but it must not decide whether to buy, sell, hold, or what levels to send to MT5.
 
 ## Recommended Trade Decision Flow
 
@@ -944,15 +962,15 @@ After every demo test, review the summary and telemetry before deciding whether 
 4. Check 15 minutes before session open filter.
 5. Wait for candle close.
 6. Mark Daily support/resistance and danger zones.
-7. Determine Daily permission.
+7. Record Daily context and danger zones.
 8. Mark 4H structure and support/resistance zones.
-9. Determine 4H permission.
+9. Record 4H context and danger zones.
 10. Mark 1H structure and support/resistance zones.
-11. Determine 1H permission.
+11. Record 1H context and caution notes.
 12. Determine M30 context.
 13. Detect M15 playbook setup.
 14. Confirm M15/M30 correlation.
-15. Confirm higher-timeframe permission.
+15. Record higher-timeframe context in telemetry.
 16. Check clean range to target.
 17. Check overextension.
 18. Check wick rules.

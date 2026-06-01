@@ -25,6 +25,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_RUNNER_MAX_CYCLES":    "runner_max_cycles",
     "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
     "TRADINGAGENTS_TIME_FILTER_MODE":     "time_filter_mode",
+    "TRADINGAGENTS_DECISION_MODE":        "decision_mode",
 }
 
 
@@ -84,6 +85,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "runner_poll_seconds": 30,
     "runner_max_cycles": 0,
     "runner_max_runtime_seconds": 0,
+    "decision_mode": "engine",
     "time_filter_mode": DEFAULT_SESSION_CONFIG["time_filter_mode"],
     "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
