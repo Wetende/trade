@@ -204,6 +204,11 @@ For Task Scheduler, use:
 
 - `MetaTrader5 Python bridge is not installed`: run `uv pip install MetaTrader5`
   on Windows.
+- `MT5 initialize failed: (-10005, 'IPC timeout')`: MT5 Desktop is running, but
+  the Python bridge cannot attach to the terminal session. Confirm the terminal
+  is fully open, logged in, responsive, and attached to the same account/server
+  in `.env`. If the error persists, check the terminal's own logs and the local
+  broker connection state before retrying the runner.
 - Real-money acknowledgement required: MT5 reported a real account. Add the
   acknowledgement only after explicit human approval.
 - `unexpected MT5 account login/server`: update `.env` or log into the intended
@@ -231,3 +236,18 @@ summary.json: records the cycle and data-health state
 
 Real-money order sending is a separate human decision controlled by the
 acknowledgement required when MT5 reports a real account.
+
+## This Session
+
+What I verified on the current machine:
+
+- The repo's MT5 code path exists and the CLI exposes `broker-probe`,
+  `mt5-execute`, `mt5-monitor`, and `mt5-run`.
+- Local `.env` loading was added to the CLI so MT5 commands use the machine's
+  broker settings.
+- `MetaTrader5` imports successfully in the project environment.
+- `terminal64.exe` was present and running.
+- `broker-probe` still failed with `IPC timeout`.
+
+That means the next Windows-side check is the terminal bridge itself, not the
+strategy or runner code.

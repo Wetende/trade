@@ -1,4 +1,6 @@
 import io
+import os
+import shutil
 from pathlib import Path
 
 import cli.main as cli_main
@@ -143,6 +145,61 @@ def test_analyze_non_interactive_cli_symbol_overrides_env(monkeypatch):
     assert result.exit_code == 0
     assert captured["selections"]["ticker"] == "SI=F"
     assert captured["selections"]["broker_symbol"] == "XAGUSD.vx"
+
+
+def test_load_runtime_env_reads_dotenv_from_cwd(monkeypatch):
+    original_cwd = Path.cwd()
+    workspace = (Path.cwd() / "test-artifacts" / "dotenv-cwd").resolve()
+    if workspace.exists():
+        if workspace.exists():
+            shutil.rmtree(workspace)
+    workspace.mkdir(parents=True)
+    env_file = workspace / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "TRADINGAGENTS_ANALYSIS_SYMBOL=SI=F",
+                "TRADINGAGENTS_BROKER_SYMBOL=XAGUSD.vx",
+                "TRADINGAGENTS_TIMEFRAME=30m",
+                "TRADINGAGENTS_TIME_FILTER_MODE=allow",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+    for key in (
+        "TRADINGAGENTS_ANALYSIS_SYMBOL",
+        "TRADINGAGENTS_BROKER_SYMBOL",
+        "TRADINGAGENTS_TIMEFRAME",
+        "TRADINGAGENTS_TIME_FILTER_MODE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    original = {
+        "analysis_symbol": cli_main.DEFAULT_CONFIG.get("analysis_symbol"),
+        "broker_symbol": cli_main.DEFAULT_CONFIG.get("broker_symbol"),
+        "timeframe": cli_main.DEFAULT_CONFIG.get("timeframe"),
+        "time_filter_mode": cli_main.DEFAULT_CONFIG.get("time_filter_mode"),
+        "price_action_time_filter_mode": cli_main.DEFAULT_CONFIG["price_action"].get("time_filter_mode"),
+    }
+    try:
+        cli_main._load_runtime_env()
+        assert os.environ["TRADINGAGENTS_ANALYSIS_SYMBOL"] == "SI=F"
+        assert cli_main.DEFAULT_CONFIG["analysis_symbol"] == "SI=F"
+        assert cli_main.DEFAULT_CONFIG["broker_symbol"] == "XAGUSD.vx"
+        assert cli_main.DEFAULT_CONFIG["timeframe"] == "30m"
+        assert cli_main.DEFAULT_CONFIG["time_filter_mode"] == "allow"
+        assert cli_main.DEFAULT_CONFIG["price_action"]["time_filter_mode"] == "allow"
+    finally:
+        monkeypatch.chdir(original_cwd)
+        cli_main.DEFAULT_CONFIG["analysis_symbol"] = original["analysis_symbol"]
+        cli_main.DEFAULT_CONFIG["broker_symbol"] = original["broker_symbol"]
+        cli_main.DEFAULT_CONFIG["timeframe"] = original["timeframe"]
+        cli_main.DEFAULT_CONFIG["time_filter_mode"] = original["time_filter_mode"]
+        cli_main.DEFAULT_CONFIG["price_action"]["time_filter_mode"] = original[
+            "price_action_time_filter_mode"
+        ]
+        shutil.rmtree(workspace)
 
 
 class Cp1252Buffer(io.StringIO):

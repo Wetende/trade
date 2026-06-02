@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
@@ -40,6 +41,52 @@ app = typer.Typer(
 )
 
 
+def _load_runtime_env() -> None:
+    """Load local .env and refresh config values used by the CLI."""
+    load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
+    env_overrides = {
+        "TRADINGAGENTS_ANALYSIS_SYMBOL": "analysis_symbol",
+        "TRADINGAGENTS_BROKER_SYMBOL": "broker_symbol",
+        "TRADINGAGENTS_LLM_PROVIDER": "llm_provider",
+        "TRADINGAGENTS_DEEP_THINK_LLM": "deep_think_llm",
+        "TRADINGAGENTS_QUICK_THINK_LLM": "quick_think_llm",
+        "TRADINGAGENTS_LLM_BACKEND_URL": "backend_url",
+        "TRADINGAGENTS_OUTPUT_LANGUAGE": "output_language",
+        "TRADINGAGENTS_CHECKPOINT_ENABLED": "checkpoint_enabled",
+        "TRADINGAGENTS_TIMEFRAME": "timeframe",
+        "TRADINGAGENTS_CONFIRMATION_TIMEFRAME": "confirmation_timeframe",
+        "TRADINGAGENTS_MARKET_TIMEZONE": "market_timezone",
+        "TRADINGAGENTS_RUNNER_POLL_SECONDS": "runner_poll_seconds",
+        "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
+        "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
+        "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
+        "TRADINGAGENTS_DECISION_MODE": "decision_mode",
+    }
+    for env_var, key in env_overrides.items():
+        raw = os.environ.get(env_var)
+        if raw in (None, ""):
+            continue
+        reference = DEFAULT_CONFIG.get(key)
+        if isinstance(reference, bool):
+            DEFAULT_CONFIG[key] = raw.strip().lower() in ("true", "1", "yes", "on")
+        elif isinstance(reference, int) and not isinstance(reference, bool):
+            DEFAULT_CONFIG[key] = int(raw)
+        elif isinstance(reference, float):
+            DEFAULT_CONFIG[key] = float(raw)
+        else:
+            DEFAULT_CONFIG[key] = raw
+
+    DEFAULT_CONFIG["results_dir"] = os.getenv(
+        "TRADINGAGENTS_RESULTS_DIR",
+        DEFAULT_CONFIG["results_dir"],
+    )
+    DEFAULT_CONFIG["data_cache_dir"] = os.getenv(
+        "TRADINGAGENTS_CACHE_DIR",
+        DEFAULT_CONFIG["data_cache_dir"],
+    )
+    DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
+
+
 def _console_encoding(console_obj: Console) -> str:
     file_encoding = getattr(getattr(console_obj, "file", None), "encoding", None)
     return file_encoding or locale.getpreferredencoding(False) or "utf-8"
@@ -69,6 +116,7 @@ def _render_panel_body(text: str, console_obj: Console):
 
 
 def get_user_selections():
+    _load_runtime_env()
     console.print(Panel("[bold green]Price Action Playbook[/bold green]", title="TradingAgents"))
 
     ticker = DEFAULT_CONFIG.get("analysis_symbol") or get_ticker()
@@ -123,6 +171,7 @@ def get_user_selections():
 
 
 def build_env_selections(as_of: str | None = None) -> dict:
+    _load_runtime_env()
     timeframe = DEFAULT_CONFIG["timeframe"]
     confirmation_timeframe = DEFAULT_CONFIG["confirmation_timeframe"]
     market_timezone = DEFAULT_CONFIG["market_timezone"]
@@ -295,6 +344,7 @@ def analyze(
         help="As-of timestamp in market timezone, YYYY-MM-DD HH:MM.",
     ),
 ):
+    _load_runtime_env()
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
 
@@ -327,6 +377,7 @@ def backtest(
 @app.command("broker-probe")
 def broker_probe():
     """Check MT5 account connectivity without placing orders."""
+    _load_runtime_env()
     from tradingagents.brokers.mt5 import MT5Broker, MT5BrokerError, MT5ConnectionConfig
 
     try:
@@ -470,6 +521,7 @@ def mt5_execute(
     ),
 ):
     """Place a guarded MT5 pending order from an order proposal."""
+    _load_runtime_env()
     result = _execute_mt5_proposal(proposal_path)
     console.print(json.dumps(result, indent=2, sort_keys=True))
 
@@ -488,6 +540,7 @@ def mt5_monitor(
     ),
 ):
     """Monitor MT5 orders and positions."""
+    _load_runtime_env()
     results = _monitor_mt5(cancel_stale, manage_stops)
     console.print(json.dumps(results, indent=2, sort_keys=True))
 
@@ -521,6 +574,7 @@ def mt5_run(
 
     Seconds between runner cycles.
     """
+    _load_runtime_env()
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_execution import MT5Executor
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig

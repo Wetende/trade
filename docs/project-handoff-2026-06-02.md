@@ -12,6 +12,23 @@
 - All tracked repo files were pushed to `Wetende/trade`.
 - The `reports/` directory contents currently in git were included in the pushed history.
 - The repo can be cloned on another machine and continued from there.
+- The CLI now loads local `.env` at runtime, so MT5 commands use the local
+  broker configuration without manual environment injection.
+
+## Local Run Log
+
+On this machine, I verified the repo and tried the MT5 connection path:
+
+- `tradingagents broker-probe` was attempted after installing and importing
+  `MetaTrader5`.
+- `terminal64.exe` was running and MT5 was opened/logged in.
+- The probe still failed with `MT5 initialize failed: (-10005, 'IPC timeout')`.
+- I did not reach a successful `mt5-run --once` cycle here, because the same
+  MT5 bridge failure would block the runner at the same connection step.
+
+The saved evidence in `reports/broker-probe.log` contains the same IPC timeout.
+That means the blocking issue is the MT5 desktop bridge on this machine, not the
+Python runner logic.
 
 ## Recent Progress
 
@@ -62,18 +79,18 @@ This means the next meaningful demo task is to fix the clock/candle freshness mi
 
 ## Suggested Next Steps
 
-1. Reproduce the dry run on the next machine:
-   - set `TRADINGAGENTS_MT5_ACCOUNT_MODE=demo`
-   - set `TRADINGAGENTS_MT5_EXECUTION_MODE=dry_run`
-   - set `TRADINGAGENTS_DECISION_MODE=engine`
-   - run `tradingagents mt5-run --once --decision-mode engine`
-2. Inspect the generated:
+1. On the Windows machine, confirm MT5 Desktop is fully open, logged in, and
+   actually attachable by the Python bridge.
+2. Re-run `tradingagents broker-probe` first.
+3. If the probe passes, run:
+   - `tradingagents mt5-run --once --decision-mode engine`
+4. Inspect the generated:
    - `mt5_runner/summary.json`
    - `mt5_runner/cycles.jsonl`
    - `engine_telemetry/`
    - `order_proposals/`
-3. Fix the `as_of` / candle freshness mismatch before the next broker-mode demo run.
-4. After that, run a short demo broker validation with volume `0.01`.
+5. If the runner still fails, review the MT5 terminal logs and the account/server
+   pairing in `.env`.
 
 ## Clone Checklist For Another Machine
 
