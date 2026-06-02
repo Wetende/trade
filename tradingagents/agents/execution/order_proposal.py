@@ -179,6 +179,7 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     status = OrderStatus.NO_TRADE
     entry = stop = target = None
     setup_name = None
+    setup_grade = None
     strategy_type = None
     reason = _telemetry_reason(state) or str(payload.get("message") or "No engine reason supplied.")
 
@@ -186,6 +187,7 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         side = TradeAction(recommendation)
         setup = (payload.get("setups") or [{}])[0]
         setup_name = str(setup.get("name") or "").strip() or None
+        setup_grade = str(setup.get("setup_grade") or "").strip() or None
         strategy_type = _strategy_type_from_setup(setup)
         risk = payload.get("risk") or {}
         entry = _float_value(setup.get("entry_price"))
@@ -203,6 +205,7 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         side=side,
         order_type="AUTO" if status == OrderStatus.PROPOSED else "LIMIT",
         setup_name=setup_name,
+        setup_grade=setup_grade,
         strategy_type=strategy_type,
         entry_price=entry,
         stop_loss=stop,

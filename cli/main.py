@@ -61,6 +61,8 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
+        "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
+        "TRADINGAGENTS_B_PLUS_MIN_RR": "b_plus_min_rr",
     }
     for env_var, key in env_overrides.items():
         raw = os.environ.get(env_var)
@@ -85,6 +87,8 @@ def _load_runtime_env() -> None:
         DEFAULT_CONFIG["data_cache_dir"],
     )
     DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
+    DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] = DEFAULT_CONFIG["minimum_setup_grade"]
+    DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] = DEFAULT_CONFIG["b_plus_min_rr"]
 
 
 def _console_encoding(console_obj: Console) -> str:

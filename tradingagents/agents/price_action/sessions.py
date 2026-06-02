@@ -24,6 +24,8 @@ DEFAULT_SESSION_CONFIG = {
     "sunday_asian_block_start": "17:00",
     "monday_early_asian_cutoff": "03:00",
     "time_filter_mode": "block",
+    "minimum_setup_grade": "A_PLUS",
+    "b_plus_min_rr": 1.2,
 }
 
 _UNKNOWN_FILTERS = {

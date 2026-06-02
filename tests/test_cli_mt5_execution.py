@@ -11,6 +11,12 @@ app = cli_main.app
 runner = CliRunner()
 
 
+def _isolate_runtime_env(monkeypatch):
+    monkeypatch.setattr(cli_main, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("TRADINGAGENTS_RESULTS_DIR", raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_CACHE_DIR", raising=False)
+
+
 def test_mt5_execute_command_help_mentions_proposal():
     result = runner.invoke(app, ["mt5-execute", "--help"])
 
@@ -67,6 +73,7 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
         def run_forever(self):
             raise AssertionError("mt5-run --once should call run_once")
 
+    _isolate_runtime_env(monkeypatch)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
@@ -115,6 +122,7 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
                 "max_cycles": calls["runner_config"].max_cycles,
             }
 
+    _isolate_runtime_env(monkeypatch)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "runner_max_cycles", 3)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
@@ -161,6 +169,7 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
                 "max_runtime_seconds": calls["runner_config"].max_runtime_seconds,
             }
 
+    _isolate_runtime_env(monkeypatch)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)

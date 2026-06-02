@@ -138,6 +138,7 @@ def test_engine_proposal_records_strategy_metadata_and_auto_order_type(tmp_path)
         "setups": [
             {
                 "name": "Breakout",
+                "setup_grade": "B_PLUS",
                 "strategy_type": "BREAKOUT",
                 "direction": "SELL",
                 "entry_price": 4490.85,
@@ -162,8 +163,10 @@ def test_engine_proposal_records_strategy_metadata_and_auto_order_type(tmp_path)
     assert proposal.status == OrderStatus.PROPOSED
     assert proposal.order_type == "AUTO"
     assert proposal.setup_name == "Breakout"
+    assert proposal.setup_grade == "B_PLUS"
     assert proposal.strategy_type == "BREAKOUT"
     assert "**Setup Name**: Breakout" in rendered
+    assert "**Setup Grade**: B_PLUS" in rendered
     assert "**Strategy Type**: BREAKOUT" in rendered
 
 
@@ -397,6 +400,7 @@ def test_order_proposal_defaults_missing_metadata_for_old_json():
     )
 
     assert proposal.setup_name is None
+    assert proposal.setup_grade is None
     assert proposal.strategy_type is None
 
 

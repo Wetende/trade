@@ -26,6 +26,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
     "TRADINGAGENTS_TIME_FILTER_MODE":     "time_filter_mode",
     "TRADINGAGENTS_DECISION_MODE":        "decision_mode",
+    "TRADINGAGENTS_MIN_SETUP_GRADE":      "minimum_setup_grade",
+    "TRADINGAGENTS_B_PLUS_MIN_RR":        "b_plus_min_rr",
 }
 
 
@@ -87,6 +89,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "runner_max_runtime_seconds": 0,
     "decision_mode": "engine",
     "time_filter_mode": DEFAULT_SESSION_CONFIG["time_filter_mode"],
+    "minimum_setup_grade": DEFAULT_SESSION_CONFIG["minimum_setup_grade"],
+    "b_plus_min_rr": DEFAULT_SESSION_CONFIG["b_plus_min_rr"],
     "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
     # Data vendor configuration: keep only core OHLC fetching for now.
@@ -98,3 +102,5 @@ DEFAULT_CONFIG = _apply_env_overrides({
 })
 
 DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
+DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] = DEFAULT_CONFIG["minimum_setup_grade"]
+DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] = DEFAULT_CONFIG["b_plus_min_rr"]

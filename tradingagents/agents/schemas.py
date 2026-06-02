@@ -88,6 +88,7 @@ class OrderProposal(BaseModel):
     side: TradeAction
     order_type: str = "LIMIT"
     setup_name: Optional[str] = None
+    setup_grade: Optional[str] = None
     strategy_type: Optional[str] = None
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
@@ -122,6 +123,8 @@ def render_order_proposal(proposal: OrderProposal) -> str:
     ]
     if proposal.setup_name:
         parts.extend(["", f"**Setup Name**: {proposal.setup_name}"])
+    if proposal.setup_grade:
+        parts.extend(["", f"**Setup Grade**: {proposal.setup_grade}"])
     if proposal.strategy_type:
         parts.extend(["", f"**Strategy Type**: {proposal.strategy_type}"])
     parts.extend(

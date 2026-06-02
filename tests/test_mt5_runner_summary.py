@@ -187,3 +187,40 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     assert summary["latest_execution"]["side"] == "BUY"
     assert summary["latest_execution"]["as_of"] == "2026-06-01 10:15"
     assert summary["latest_execution"]["heartbeat_utc"] == "2026-06-01T14:15:00+00:00"
+
+
+def test_runner_summary_excludes_duplicate_processed_candles_from_check_counts(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    first = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "as_of": "2026-06-01 10:15",
+            "proposal": {
+                "status": "NO_TRADE",
+                "reason": "Time filter failed. Default to HOLD.",
+            },
+            "analysis": {
+                "telemetry": {
+                    "decision_stage": "time_filter",
+                    "primary_hold_reason": "Time filter failed. Default to HOLD.",
+                },
+                "data_status": {"healthy": True},
+            },
+        }
+    )
+    second = store.record_cycle(
+        {
+            "status": "CANDLE_ALREADY_PROCESSED",
+            "as_of": "2026-06-01 10:15",
+            "proposal": {
+                "status": "NO_TRADE",
+                "reason": "Current candle already processed.",
+            },
+        }
+    )
+
+    assert first["total_checks"] == 1
+    assert second["total_checks"] == 1
+    assert second["status_counts"] == {"NO_TRADE": 1}
+    assert second["latest_cycle"]["status"] == "CANDLE_ALREADY_PROCESSED"

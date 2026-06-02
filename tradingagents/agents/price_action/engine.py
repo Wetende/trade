@@ -146,11 +146,17 @@ def _has_stop_wick(candle: Candle, direction: str) -> bool:
     return candle.high > max(candle.open, candle.close)
 
 
-def _setup_to_dict(setup: Setup, risk: dict[str, Any] | None = None) -> dict[str, Any]:
+def _setup_to_dict(
+    setup: Setup,
+    risk: dict[str, Any] | None = None,
+    setup_grade: str | None = None,
+) -> dict[str, Any]:
     result = asdict(setup)
     result["zone"] = zone_to_dict(setup.zone)
     if setup.confirmation_candle is not None:
         result["confirmation_candle"] = asdict(setup.confirmation_candle)
+    if setup_grade:
+        result["setup_grade"] = setup_grade
     if risk and risk.get("approved"):
         result.update(
             {
@@ -226,10 +232,26 @@ def _timeframe_priority(timeframe: str | None) -> int:
     }.get(normalized, 0)
 
 
+def _normalize_setup_grade(value: Any) -> str:
+    normalized = str(value or "").strip().upper()
+    if normalized == "B_PLUS":
+        return "B_PLUS"
+    return "A_PLUS"
+
+
+def _setup_grade_rank(value: Any) -> int:
+    return {
+        "REJECTED": 0,
+        "B_PLUS": 1,
+        "A_PLUS": 2,
+    }.get(str(value or "").strip().upper(), 0)
+
+
 def _candidate_quality(candidate: dict[str, Any]) -> tuple[float, int, float]:
     setup = candidate["setup"]
     zone = setup.get("zone", {})
     return (
+        float(_setup_grade_rank(candidate.get("setup_grade"))),
         _risk_reward_value(candidate.get("risk", {})),
         _timeframe_priority(zone.get("timeframe")),
         float(zone.get("score") or 0),
@@ -258,6 +280,13 @@ def analyze_playbook(
     ).strip().lower()
     if time_filter_mode not in {"block", "observe", "allow"}:
         time_filter_mode = "block"
+    minimum_setup_grade = _normalize_setup_grade(
+        (session_config or {}).get("minimum_setup_grade", "A_PLUS")
+    )
+    try:
+        b_plus_min_rr = float((session_config or {}).get("b_plus_min_rr", 1.2))
+    except (TypeError, ValueError):
+        b_plus_min_rr = 1.2
 
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
@@ -296,6 +325,8 @@ def analyze_playbook(
         "h1_permission": h1_structure["permission"],
         "range": classify_range(m30, m30_zones),
         "time_filter_mode": time_filter_mode,
+        "minimum_setup_grade": minimum_setup_grade,
+        "b_plus_min_rr": b_plus_min_rr,
     }
     m30_rejections: list[Setup] = []
     if not m30_breakouts:
@@ -426,27 +457,51 @@ def analyze_playbook(
         )
 
         target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
-        risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)
-        candidate_checklist["clean_range_to_fill"] = PASS if risk.get("approved") else FAIL
+        b_plus_risk = approve_risk(
+            setup,
+            target_zone,
+            minimum_rr=b_plus_min_rr,
+            preferred_rr=3.0,
+        )
+        candidate_checklist["clean_range_to_fill"] = PASS if b_plus_risk.get("approved") else FAIL
         failed_rules = [key for key in required if candidate_checklist[key] != PASS]
-        approved = not failed_rules
+        risk = b_plus_risk
+        setup_grade = "REJECTED"
+        if not failed_rules:
+            a_plus_risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)
+            if a_plus_risk.get("approved"):
+                risk = a_plus_risk
+                setup_grade = "A_PLUS"
+            elif b_plus_risk.get("approved"):
+                setup_grade = "B_PLUS"
+        approved = _setup_grade_rank(setup_grade) >= _setup_grade_rank(minimum_setup_grade)
         permission = evaluate_higher_timeframe_permission(
             market_context["daily_structure"],
             market_context["h4_structure"],
             market_context["h1_structure"],
             setup.direction,
         )
+        if setup_grade == "REJECTED":
+            rejection_reason = _candidate_rejection_reason(
+                candidate_checklist,
+                risk,
+                failed_rules,
+            )
+        elif not approved:
+            rejection_reason = (
+                f"Setup grade {setup_grade} is below minimum required {minimum_setup_grade}."
+            )
+        else:
+            rejection_reason = None
         candidate_evaluations.append(
             {
                 "index": index,
                 "approved": approved,
-                "rejection_reason": _candidate_rejection_reason(
-                    candidate_checklist,
-                    risk,
-                    failed_rules,
-                ),
+                "setup_grade": setup_grade,
+                "meets_minimum_setup_grade": approved,
+                "rejection_reason": rejection_reason,
                 "failed_rules": failed_rules,
-                "setup": _setup_to_dict(setup, risk),
+                "setup": _setup_to_dict(setup, risk, setup_grade if setup_grade != "REJECTED" else None),
                 "risk": risk,
                 "target_zone": target_zone,
                 "checklist": candidate_checklist,
@@ -461,11 +516,13 @@ def analyze_playbook(
         setup = selected["_setup"]
         risk = selected["risk"]
         checklist = selected["checklist"]
+        setup_grade = selected["setup_grade"]
         market_context["higher_timeframe_permission"] = selected["higher_timeframe_permission"]
         telemetry_candidates = [
             {key: value for key, value in item.items() if key != "_setup"}
             for item in candidate_evaluations
         ]
+        setup_grade_label = "A+" if setup_grade == "A_PLUS" else "B+"
         return _payload(
             symbol,
             as_of,
@@ -474,12 +531,12 @@ def analyze_playbook(
             checklist,
             zones,
             market_context,
-            setups=[_setup_to_dict(setup, risk)],
+            setups=[_setup_to_dict(setup, risk, setup_grade)],
             risk=risk,
-            message="A deterministic A+ price-action setup passed the checklist.",
+            message=f"A deterministic {setup_grade_label} price-action setup passed the checklist.",
             telemetry=make_telemetry(
                 "setup_found",
-                "A deterministic A+ price-action setup passed the checklist.",
+                f"A deterministic {setup_grade_label} price-action setup passed the checklist.",
                 candidate_setups,
                 telemetry_candidates,
             ),
@@ -489,11 +546,31 @@ def analyze_playbook(
     setup = selected["_setup"]
     risk = selected["risk"]
     checklist = selected["checklist"]
+    setup_grade = selected["setup_grade"]
     market_context["higher_timeframe_permission"] = selected["higher_timeframe_permission"]
     telemetry_candidates = [
         {key: value for key, value in item.items() if key != "_setup"}
         for item in candidate_evaluations
     ]
+    if setup_grade == "B_PLUS":
+        return _payload(
+            symbol,
+            as_of,
+            "NO_SETUP",
+            "HOLD",
+            checklist,
+            zones,
+            market_context,
+            setups=[_setup_to_dict(setup, risk, setup_grade)],
+            risk=risk,
+            message=f"A B+ setup was found but the minimum required setup grade is {minimum_setup_grade}.",
+            telemetry=make_telemetry(
+                "setup_grade_filter",
+                f"A B+ setup was found but the minimum required setup grade is {minimum_setup_grade}.",
+                candidate_setups,
+                telemetry_candidates,
+            ),
+        )
     if any(checklist[key] != PASS for key in required):
         return _payload(
             symbol,

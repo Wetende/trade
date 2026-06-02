@@ -211,6 +211,167 @@ def test_engine_evaluates_next_candidate_when_first_candidate_fails(monkeypatch)
     assert payload["telemetry"]["candidate_evaluations"][1]["approved"] is True
 
 
+def test_engine_allows_b_plus_candidate_when_minimum_setup_grade_is_b_plus(monkeypatch):
+    data = aligned_buy_setup_data()
+    zone = Zone(
+        type="resistance",
+        timeframe="30m",
+        low=105.0,
+        high=106.0,
+        midpoint=105.5,
+        touches=3,
+        score=30.0,
+        source="test",
+    )
+    candle = Candle(
+        timestamp="2026-05-18 08:15:00",
+        open=106.0,
+        high=108.0,
+        low=105.5,
+        close=107.0,
+        volume=1000,
+    )
+    m30_context = Setup(
+        name="Breakout",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=data["30m"][-1],
+    )
+    candidate = Setup(
+        name="Break and Retest",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=candle,
+    )
+
+    def fake_breakouts(raw_candles, _zones):
+        latest = list(raw_candles)[-1]
+        return [m30_context] if latest.timestamp.endswith("08:00:00") else []
+
+    def fake_approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0):
+        available_rr = 1.3
+        if available_rr < minimum_rr:
+            return {
+                "approved": False,
+                "reason": "Clean range is below minimum risk-to-reward",
+                "risk_reward": available_rr,
+            }
+        return {
+            "approved": True,
+            "entry_price": setup.entry_price,
+            "stop_loss": setup.stop_loss,
+            "take_profit": 107.3,
+            "risk_distance": 1.0,
+            "reward_distance": 1.3,
+            "risk_reward": available_rr,
+            "available_risk_reward": available_rr,
+        }
+
+    monkeypatch.setattr(engine, "detect_breakouts", fake_breakouts)
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [candidate])
+    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "nearest_target_zone", lambda *_args, **_kwargs: {"midpoint": 107.3})
+    monkeypatch.setattr(engine, "approve_risk", fake_approve_risk)
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+        session_config={"minimum_setup_grade": "B_PLUS", "b_plus_min_rr": 1.2},
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["setup_grade"] == "B_PLUS"
+    assert payload["telemetry"]["candidate_evaluations"][0]["setup_grade"] == "B_PLUS"
+    assert payload["telemetry"]["decision_stage"] == "setup_found"
+
+
+def test_engine_holds_b_plus_candidate_when_minimum_setup_grade_is_a_plus(monkeypatch):
+    data = aligned_buy_setup_data()
+    zone = Zone(
+        type="resistance",
+        timeframe="30m",
+        low=105.0,
+        high=106.0,
+        midpoint=105.5,
+        touches=3,
+        score=30.0,
+        source="test",
+    )
+    candle = Candle(
+        timestamp="2026-05-18 08:15:00",
+        open=106.0,
+        high=108.0,
+        low=105.5,
+        close=107.0,
+        volume=1000,
+    )
+    m30_context = Setup(
+        name="Breakout",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=data["30m"][-1],
+    )
+    candidate = Setup(
+        name="Break and Retest",
+        direction="BUY",
+        zone=zone,
+        entry_price=106.0,
+        stop_loss=105.0,
+        confirmation_candle=candle,
+    )
+
+    def fake_breakouts(raw_candles, _zones):
+        latest = list(raw_candles)[-1]
+        return [m30_context] if latest.timestamp.endswith("08:00:00") else []
+
+    def fake_approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0):
+        available_rr = 1.3
+        if available_rr < minimum_rr:
+            return {
+                "approved": False,
+                "reason": "Clean range is below minimum risk-to-reward",
+                "risk_reward": available_rr,
+            }
+        return {
+            "approved": True,
+            "entry_price": setup.entry_price,
+            "stop_loss": setup.stop_loss,
+            "take_profit": 107.3,
+            "risk_distance": 1.0,
+            "reward_distance": 1.3,
+            "risk_reward": available_rr,
+            "available_risk_reward": available_rr,
+        }
+
+    monkeypatch.setattr(engine, "detect_breakouts", fake_breakouts)
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [candidate])
+    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "nearest_target_zone", lambda *_args, **_kwargs: {"midpoint": 107.3})
+    monkeypatch.setattr(engine, "approve_risk", fake_approve_risk)
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+        session_config={"minimum_setup_grade": "A_PLUS", "b_plus_min_rr": 1.2},
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["setups"][0]["setup_grade"] == "B_PLUS"
+    assert payload["telemetry"]["candidate_evaluations"][0]["setup_grade"] == "B_PLUS"
+    assert payload["telemetry"]["decision_stage"] == "setup_grade_filter"
+
+
 def test_engine_rejects_setup_without_real_target_zone():
     data = {
         "1d": candles(

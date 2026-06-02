@@ -87,6 +87,19 @@ def test_time_filter_mode_env_updates_price_action_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["price_action"]["time_filter_mode"] == "allow"
 
 
+def test_setup_grade_env_updates_price_action_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_MIN_SETUP_GRADE="B_PLUS",
+        TRADINGAGENTS_B_PLUS_MIN_RR="1.2",
+    )
+
+    assert dc.DEFAULT_CONFIG["minimum_setup_grade"] == "B_PLUS"
+    assert dc.DEFAULT_CONFIG["b_plus_min_rr"] == 1.2
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] == "B_PLUS"
+    assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.2
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(

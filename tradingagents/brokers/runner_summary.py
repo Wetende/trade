@@ -111,16 +111,18 @@ class RunnerSummaryStore:
     def record_cycle(self, result: dict[str, Any]) -> dict[str, Any]:
         summary = _read_json(self.summary_path, self._empty_summary())
         status = str(result.get("status") or "UNKNOWN")
+        countable_check = status != "CANDLE_ALREADY_PROCESSED"
         analysis = result.get("analysis") or {}
         telemetry = analysis.get("telemetry") or {}
         data_status = analysis.get("data_status") or {}
         proposal = result.get("proposal") or {}
         reason = str(proposal.get("reason") or telemetry.get("primary_hold_reason") or status)
 
-        status_counts = Counter(summary.get("status_counts", {}))
-        status_counts[status] += 1
-        summary["status_counts"] = dict(status_counts)
-        summary["total_checks"] = int(summary.get("total_checks", 0)) + 1
+        if countable_check:
+            status_counts = Counter(summary.get("status_counts", {}))
+            status_counts[status] += 1
+            summary["status_counts"] = dict(status_counts)
+            summary["total_checks"] = int(summary.get("total_checks", 0)) + 1
         summary["updated_at_utc"] = _utc_now()
 
         candidate_counts = Counter(summary.get("candidate_strategy_counts", {}))
@@ -136,7 +138,7 @@ class RunnerSummaryStore:
         summary["candidate_strategy_counts"] = dict(candidate_counts)
         summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
 
-        if status == "NO_TRADE":
+        if countable_check and status == "NO_TRADE":
             hold_reason = categorize_hold_reason(reason, telemetry, data_status)
             hold_counts = Counter(summary.get("hold_reason_counts", {}))
             hold_counts[hold_reason] += 1
@@ -181,7 +183,7 @@ class RunnerSummaryStore:
                 "heartbeat_utc": result.get("heartbeat_utc"),
             }
 
-        if data_status:
+        if countable_check and data_status:
             data_health = summary.setdefault("data_health", {})
             data_health["latest_status"] = data_status
             if data_status.get("healthy", True):
