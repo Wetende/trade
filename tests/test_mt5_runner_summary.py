@@ -159,6 +159,14 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     summary = store.record_cycle(
         {
             "status": "ORDER_NOT_PLACED",
+            "as_of": "2026-06-01 10:15",
+            "heartbeat_utc": "2026-06-01T14:15:00+00:00",
+            "proposal": {
+                "setup_name": "Breakout",
+                "strategy_type": "BREAKOUT",
+                "order_type": "BUY_STOP",
+                "side": "BUY",
+            },
             "execution": {
                 "status": "REJECTED",
                 "broker_result": {
@@ -175,3 +183,7 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     assert summary["latest_execution"]["retcode"] == 10015
     assert summary["latest_execution"]["comment"] == "Invalid price"
     assert summary["latest_execution"]["request_type"] == "SELL_LIMIT"
+    assert summary["latest_execution"]["setup_name"] == "Breakout"
+    assert summary["latest_execution"]["side"] == "BUY"
+    assert summary["latest_execution"]["as_of"] == "2026-06-01 10:15"
+    assert summary["latest_execution"]["heartbeat_utc"] == "2026-06-01T14:15:00+00:00"

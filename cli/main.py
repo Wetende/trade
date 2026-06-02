@@ -510,6 +510,13 @@ def _mt5_runner_engine_analysis_func():
     return analyze_once
 
 
+def _mt5_runner_current_as_of_func():
+    def current_as_of():
+        return build_env_selections()["as_of"]
+
+    return current_as_of
+
+
 @app.command("mt5-execute")
 def mt5_execute(
     proposal_path: Path = typer.Option(
@@ -611,6 +618,7 @@ def mt5_run(
             ),
             executor=executor,
             analysis_func=analysis_func,
+            current_as_of_func=_mt5_runner_current_as_of_func(),
         )
         result = runner.run_once() if once else runner.run_forever()
     except (MT5BrokerError, ValueError) as exc:

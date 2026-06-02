@@ -44,10 +44,12 @@ class MT5Runner:
         *,
         executor,
         analysis_func: Callable[[], tuple[str, OrderProposal]],
+        current_as_of_func: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
         self.executor = executor
         self.analysis_func = analysis_func
+        self.current_as_of_func = current_as_of_func
         self.runner_dir = Path(config.results_dir) / "mt5_runner"
         self.runner_dir.mkdir(parents=True, exist_ok=True)
         self.heartbeat_path = self.runner_dir / "heartbeat.json"
@@ -68,6 +70,18 @@ class MT5Runner:
                 }
             )
 
+        state = self._load_state()
+        if self.current_as_of_func is not None:
+            current_as_of = self.current_as_of_func()
+            if state.get("last_processed_as_of") == current_as_of:
+                return self._write_heartbeat(
+                    {
+                        "status": "CANDLE_ALREADY_PROCESSED",
+                        "started_at_utc": started_at,
+                        "as_of": current_as_of,
+                    }
+                )
+
         try:
             as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
         except Exception as exc:
@@ -82,7 +96,6 @@ class MT5Runner:
                 }
             )
 
-        state = self._load_state()
         if state.get("last_processed_as_of") == as_of:
             return self._write_heartbeat(
                 {
@@ -95,6 +108,7 @@ class MT5Runner:
 
         status = str(getattr(proposal.status, "value", proposal.status)).upper()
         if status != "PROPOSED":
+            self._save_state({"last_processed_as_of": as_of})
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",
@@ -116,6 +130,7 @@ class MT5Runner:
                 ),
                 "started_at_utc": started_at,
                 "as_of": as_of,
+                "proposal": proposal.model_dump(mode="json"),
                 "execution": execution,
                 "analysis": analysis,
             }

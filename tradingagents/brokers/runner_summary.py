@@ -177,6 +177,8 @@ class RunnerSummaryStore:
                 "strategy_type": execution_proposal.get("strategy_type"),
                 "side": execution_proposal.get("side"),
                 "order_type": execution_proposal.get("order_type"),
+                "as_of": result.get("as_of"),
+                "heartbeat_utc": result.get("heartbeat_utc"),
             }
 
         if data_status:

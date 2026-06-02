@@ -50,10 +50,11 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
             calls["executor_results_dir"] = results_dir
 
     class Runner:
-        def __init__(self, runner_config, executor, analysis_func):
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
             calls["runner_config"] = runner_config
             calls["runner_executor"] = executor
             calls["runner_analysis_func"] = analysis_func
+            calls["runner_current_as_of_func"] = current_as_of_func
 
         def run_once(self):
             calls["run_once"] = True
@@ -102,7 +103,7 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
             calls["executor"] = (config, results_dir)
 
     class Runner:
-        def __init__(self, runner_config, executor, analysis_func):
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
             calls["runner_config"] = runner_config
 
         def run_once(self):
@@ -146,7 +147,7 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
             calls["executor"] = (config, results_dir)
 
     class Runner:
-        def __init__(self, runner_config, executor, analysis_func):
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
             calls["runner_config"] = runner_config
             calls["runner_executor"] = executor
             calls["runner_analysis_func"] = analysis_func
@@ -193,7 +194,7 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
             calls["executor"] = (config, results_dir)
 
     class Runner:
-        def __init__(self, runner_config, executor, analysis_func):
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
             calls["runner_config"] = runner_config
 
         def run_once(self):
@@ -247,7 +248,7 @@ def test_mt5_run_graph_decision_mode_uses_graph_analysis_func(monkeypatch, tmp_p
             pass
 
     class Runner:
-        def __init__(self, runner_config, executor, analysis_func):
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
             calls["analysis_func"] = analysis_func
 
         def run_once(self):

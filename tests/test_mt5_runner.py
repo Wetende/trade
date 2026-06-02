@@ -116,7 +116,7 @@ def test_runner_records_no_trade_without_execution(tmp_path):
     assert executor.executed == []
 
 
-def test_runner_can_execute_same_candle_after_initial_no_trade(tmp_path):
+def test_runner_marks_no_trade_candle_as_processed(tmp_path):
     no_trade = proposed_order()
     no_trade.status = OrderStatus.NO_TRADE
     proposed = proposed_order()
@@ -137,8 +137,24 @@ def test_runner_can_execute_same_candle_after_initial_no_trade(tmp_path):
     second = runner.run_once()
 
     assert first["status"] == "NO_TRADE"
-    assert second["status"] == "ORDER_PLACED"
-    assert len(executor.executed) == 1
+    assert second["status"] == "CANDLE_ALREADY_PROCESSED"
+    assert executor.executed == []
+
+
+def test_runner_skips_analysis_for_already_processed_current_candle(tmp_path):
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: (_ for _ in ()).throw(RuntimeError("analysis should not run")),
+        current_as_of_func=lambda: "2026-05-28 10:15",
+    )
+
+    runner._save_state({"last_processed_as_of": "2026-05-28 10:15"})
+    result = runner.run_once()
+
+    assert result["status"] == "CANDLE_ALREADY_PROCESSED"
+    assert executor.executed == []
 
 
 def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
