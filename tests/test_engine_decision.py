@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from tradingagents.agents.price_action.models import Candle
 from tradingagents.agents.price_action import decision
+from tradingagents.dataflows.price_action import PriceActionSnapshot
 
 
 def _healthy_status():
@@ -131,3 +132,33 @@ def test_engine_decision_returns_data_health_hold_when_data_is_unhealthy(
     assert state["engine_telemetry"]["decision_stage"] == "data_health"
     assert "Data health failed" in state["price_action_report"]
     assert "15m" in state["price_action_report"]
+
+
+def test_run_engine_decision_accepts_prebuilt_snapshot(monkeypatch, tmp_path):
+    unhealthy = _healthy_status()
+    unhealthy["healthy"] = False
+    unhealthy["blocking_timeframes"] = ["15m"]
+    unhealthy["timeframes"]["15m"]["fresh"] = False
+    snapshot = PriceActionSnapshot(candles=_candles(), data_status=unhealthy)
+
+    def fail_fetch(*args, **kwargs):
+        raise AssertionError("prebuilt snapshot should bypass vendor fetch")
+
+    def fail_analyze(*args, **kwargs):
+        raise AssertionError("unhealthy data should not reach analyze_playbook")
+
+    monkeypatch.setattr(decision, "fetch_price_action_snapshot", fail_fetch)
+    monkeypatch.setattr(decision, "analyze_playbook", fail_analyze)
+
+    state = decision.run_engine_decision(
+        "XAUUSD.vx",
+        broker_symbol="XAUUSD.vx",
+        as_of="2026-06-02T19:16:00-04:00",
+        results_dir=tmp_path,
+        snapshot=snapshot,
+    )
+
+    assert state["company_of_interest"] == "XAUUSD.vx"
+    assert state["broker_symbol"] == "XAUUSD.vx"
+    assert state["data_status"]["blocking_timeframes"] == ["15m"]
+    assert state["engine_telemetry"]["decision_stage"] == "data_health"

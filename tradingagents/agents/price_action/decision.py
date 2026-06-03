@@ -11,7 +11,10 @@ from tradingagents.agents.utils.price_action_tools import (
     write_engine_payload,
 )
 from tradingagents.dataflows.data_health import data_is_healthy
-from tradingagents.dataflows.price_action import fetch_price_action_snapshot
+from tradingagents.dataflows.price_action import (
+    PriceActionSnapshot,
+    fetch_price_action_snapshot,
+)
 
 
 def _timeframe_rows(data_status: dict[str, Any]) -> dict[str, int]:
@@ -147,13 +150,15 @@ def run_engine_decision(
     confirmation_timeframe: str = "30m",
     market_timezone: str = "America/New_York",
     session_config: dict[str, Any] | None = None,
+    snapshot: PriceActionSnapshot | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic price-action engine and return proposal-ready state."""
-    snapshot = fetch_price_action_snapshot(
-        symbol,
-        as_of=as_of,
-        market_timezone=market_timezone,
-    )
+    if snapshot is None:
+        snapshot = fetch_price_action_snapshot(
+            symbol,
+            as_of=as_of,
+            market_timezone=market_timezone,
+        )
     data_status = snapshot.data_status
 
     if not data_is_healthy(data_status):
