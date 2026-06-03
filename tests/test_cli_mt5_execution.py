@@ -487,6 +487,25 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     assert calls[1]["session_config"]["entry_profile"] == "fast"
 
 
+def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli_main, "_load_runtime_env", lambda: None)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "market_timezone", "America/New_York")
+    monkeypatch.setattr(
+        cli_main,
+        "last_closed_candle",
+        lambda timeframe, market_timezone: seen.append((timeframe, market_timezone))
+        or "2026-06-03 08:16",
+    )
+
+    as_of = cli_main._mt5_runner_current_as_of_func()()
+
+    assert as_of == "2026-06-03 08:16"
+    assert seen == [("1m", "America/New_York")]
+
+
 def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path):
     from tradingagents.brokers import mt5
     from tradingagents.brokers.mt5 import MT5ConnectionConfig

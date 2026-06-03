@@ -609,7 +609,13 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
 
 def _mt5_runner_current_as_of_func():
     def current_as_of():
-        return build_env_selections()["as_of"]
+        _load_runtime_env()
+        timeframe = (
+            DEFAULT_CONFIG.get("fast_timeframe", "1m")
+            if DEFAULT_CONFIG.get("fast_entries_enabled")
+            else DEFAULT_CONFIG["timeframe"]
+        )
+        return last_closed_candle(timeframe, DEFAULT_CONFIG["market_timezone"])
 
     return current_as_of
 
