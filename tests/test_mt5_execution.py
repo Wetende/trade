@@ -1,5 +1,6 @@
 import json
 import math
+from datetime import datetime, timezone
 
 import pytest
 
@@ -435,6 +436,8 @@ class FakeBroker:
         self.placed_requests = []
         self.cancelled = []
         self.modified_stops = []
+        self.history_deals_result = []
+        self.history_deals_calls = []
         self.place_result = {
             "ok": True,
             "order": 111222,
@@ -474,6 +477,10 @@ class FakeBroker:
             }
         )
         return {"ok": True, "position": position_ticket, "retcode": 10009}
+
+    def history_deals(self, symbol, start_utc, end_utc):
+        self.history_deals_calls.append((symbol, start_utc, end_utc))
+        return list(self.history_deals_result)
 
 
 def _config() -> MT5ConnectionConfig:
@@ -716,6 +723,74 @@ def test_executor_clears_state_when_tracked_ticket_is_not_open_anymore(tmp_path)
     assert result["ticket"] == 111
     assert broker.cancelled == []
     assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_reconciles_closed_bot_trade_history(tmp_path):
+    broker = FakeBroker()
+    broker.history_deals_result = [
+        {
+            "ticket": 1001,
+            "order": 111222,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 1779610000,
+            "type": 0,
+            "entry": 0,
+            "volume": 0.01,
+            "price": 2450.12,
+            "profit": 0.0,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "TradingAgents",
+        },
+        {
+            "ticket": 1002,
+            "order": 111333,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 1779610300,
+            "type": 1,
+            "entry": 1,
+            "volume": 0.01,
+            "price": 2456.79,
+            "profit": 6.67,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "[tp 2456.79]",
+        },
+        {
+            "ticket": 2001,
+            "order": 222222,
+            "position_id": 222222,
+            "symbol": "XAUUSD",
+            "time": 1779610300,
+            "type": 0,
+            "entry": 0,
+            "volume": 0.01,
+            "price": 2451.00,
+            "profit": 0.0,
+            "magic": 0,
+            "comment": "manual trade",
+        },
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.reconcile_trade_history(
+        now_utc=datetime.fromtimestamp(1779610400, tz=timezone.utc),
+    )
+
+    assert broker.history_deals_calls
+    assert result["status"] == "RECONCILED"
+    assert result["filled_trade_count"] == 1
+    assert result["closed_trade_count"] == 1
+    assert result["net_profit"] == 6.67
+    assert result["wins"] == 1
+    assert result["losses"] == 0
+    assert result["closed_trades"][0]["position_id"] == 111222
+    assert result["closed_trades"][0]["outcome"] == "TP"
+    assert result["closed_trades"][0]["exit_deal_ticket"] == 1002
 
 
 def test_executor_leaves_non_stale_active_pending_order(tmp_path):

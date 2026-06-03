@@ -427,6 +427,12 @@ def _asdict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _mt5_history_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class MT5Broker:
     def __init__(self, config: MT5ConnectionConfig, mt5_module: Any | None = None):
         self.config = config
@@ -845,6 +851,40 @@ class MT5Broker:
                     "take_profit": item.get("tp"),
                 }
             )
+        return normalized
+
+    def history_deals(
+        self,
+        symbol: str,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[dict[str, Any]]:
+        """Read normalized MT5 deal history for one symbol."""
+        self._assert_active_session()
+        mt5 = self._module()
+        deals = mt5.history_deals_get(
+            _mt5_history_datetime(start_utc),
+            _mt5_history_datetime(end_utc),
+        )
+        if deals is None:
+            raise MT5BrokerError(f"MT5 history_deals_get failed: {mt5.last_error()}")
+
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        normalized = []
+        for deal in deals:
+            item = _asdict(deal)
+            if item.get("symbol") != symbol:
+                continue
+            raw_time = item.get("time")
+            if raw_time not in (None, ""):
+                try:
+                    item["time_utc"] = datetime.fromtimestamp(
+                        int(raw_time) - server_time_offset_seconds,
+                        tz=timezone.utc,
+                    ).isoformat()
+                except (TypeError, ValueError, OSError):
+                    pass
+            normalized.append(item)
         return normalized
 
     def fetch_rates(self, timeframe: str, count: int) -> list[dict[str, Any]]:

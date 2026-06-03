@@ -61,12 +61,14 @@ class MT5Runner:
         snapshot = self.executor.snapshot_state()
         self.executor.cancel_stale_pending_orders()
         self.executor.manage_open_positions()
+        history_reconciliation = self._reconcile_trade_history()
 
         if snapshot.get("orders") or snapshot.get("positions"):
             return self._write_heartbeat(
                 {
                     "status": "ACTIVE_TRADE_MONITORED",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
                 }
             )
 
@@ -79,6 +81,7 @@ class MT5Runner:
                         "status": "CANDLE_ALREADY_PROCESSED",
                         "started_at_utc": started_at,
                         "as_of": current_as_of,
+                        "history_reconciliation": history_reconciliation,
                     }
                 )
 
@@ -90,6 +93,7 @@ class MT5Runner:
                 {
                     "status": "RUNNER_ERROR",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
                     "analysis": {
                         "error_type": type(exc).__name__,
                         "error": str(exc),
@@ -121,6 +125,7 @@ class MT5Runner:
                     "status": "CANDLE_ALREADY_PROCESSED",
                     "started_at_utc": started_at,
                     "profiles": [],
+                    "history_reconciliation": history_reconciliation,
                 }
             )
 
@@ -142,12 +147,14 @@ class MT5Runner:
                         "as_of": as_of,
                         "proposal": proposal.model_dump(mode="json"),
                         "analysis": analysis,
+                        "history_reconciliation": history_reconciliation,
                     }
                 )
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
                     "profiles": [
                         {
                             "entry_profile": profile,
@@ -175,10 +182,24 @@ class MT5Runner:
             "proposal": proposal.model_dump(mode="json"),
             "execution": execution,
             "analysis": analysis,
+            "history_reconciliation": history_reconciliation,
         }
         if not multi_profile_result:
             payload.pop("entry_profile", None)
         return self._write_heartbeat(payload)
+
+    def _reconcile_trade_history(self) -> dict:
+        reconcile = getattr(self.executor, "reconcile_trade_history", None)
+        if not callable(reconcile):
+            return {"status": "UNAVAILABLE"}
+        try:
+            return reconcile()
+        except Exception as exc:
+            return {
+                "status": "RECONCILE_ERROR",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
 
     def run_forever(self) -> dict:
         cycles = 0

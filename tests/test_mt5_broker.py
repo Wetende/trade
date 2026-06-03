@@ -52,6 +52,8 @@ class FakeMT5:
         self.terminal_connected = True
         self.result_request = None
         self.order_send_returns_none = False
+        self.history_deals = []
+        self.history_deals_calls = []
         self.orders = [
             SimpleNamespace(ticket=111222, symbol="XAUUSD", price_open=2450.12)
         ]
@@ -172,6 +174,10 @@ class FakeMT5:
             for position in self.positions
             if symbol is None or position.symbol == symbol
         ]
+
+    def history_deals_get(self, date_from, date_to, group=None):
+        self.history_deals_calls.append((date_from, date_to, group))
+        return self.history_deals
 
     def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
         self.copy_rates_calls.append((symbol, timeframe, start_pos, count))
@@ -582,6 +588,68 @@ def test_mt5_broker_reads_open_orders_and_positions():
     assert positions[0]["current_price"] == 2453.12
     assert positions[0]["stop_loss"] == 2447.99
     assert positions[0]["take_profit"] == 2456.79
+
+
+def test_mt5_broker_reads_history_deals_for_symbol():
+    fake_mt5 = FakeMT5()
+    fake_mt5.history_deals = [
+        SimpleNamespace(
+            ticket=555,
+            order=111222,
+            position_id=111222,
+            symbol="XAUUSD",
+            time=1779610000,
+            type=fake_mt5.POSITION_TYPE_BUY,
+            entry=0,
+            volume=0.01,
+            price=2450.12,
+            profit=0.0,
+            commission=0.0,
+            swap=0.0,
+            magic=150015,
+            comment="TradingAgents",
+        ),
+        SimpleNamespace(
+            ticket=556,
+            order=111333,
+            position_id=111222,
+            symbol="XAUUSD",
+            time=1779610300,
+            type=fake_mt5.POSITION_TYPE_SELL,
+            entry=1,
+            volume=0.01,
+            price=2456.79,
+            profit=6.67,
+            commission=0.0,
+            swap=0.0,
+            magic=150015,
+            comment="[tp 2456.79]",
+        ),
+        SimpleNamespace(ticket=777, symbol="EURUSD", position_id=777),
+    ]
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker._server_time_offset_seconds = lambda mt5: 3 * 3600
+    broker.connect()
+
+    deals = broker.history_deals(
+        "XAUUSD",
+        datetime.fromtimestamp(1779609900, tz=timezone.utc),
+        datetime.fromtimestamp(1779610400, tz=timezone.utc),
+    )
+
+    assert fake_mt5.history_deals_calls
+    assert fake_mt5.history_deals_calls[0][0].tzinfo is None
+    assert fake_mt5.history_deals_calls[0][1].tzinfo is None
+    assert [deal["ticket"] for deal in deals] == [555, 556]
+    assert deals[1]["position_id"] == 111222
+    assert deals[1]["profit"] == 6.67
+    assert deals[1]["time_utc"] == "2026-05-24T05:11:40+00:00"
 
 
 def test_mt5_broker_fetch_rates_normalizes_mt5_candles():

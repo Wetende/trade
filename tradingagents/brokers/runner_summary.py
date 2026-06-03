@@ -105,6 +105,23 @@ class RunnerSummaryStore:
                 "unhealthy_checks": 0,
                 "latest_status": {},
             },
+            "trade_history": {
+                "filled_trade_count": 0,
+                "closed_trade_count": 0,
+                "wins": 0,
+                "losses": 0,
+                "break_even": 0,
+                "net_profit": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "processed_entry_deal_tickets": [],
+                "processed_exit_deal_tickets": [],
+                "filled_trades": [],
+                "closed_trades": [],
+                "latest_filled_trade": {},
+                "latest_closed_trade": {},
+                "latest_reconciliation": {},
+            },
             "latest_execution": {},
             "latest_cycle": {},
         }
@@ -209,6 +226,11 @@ class RunnerSummaryStore:
             else:
                 data_health["unhealthy_checks"] = int(data_health.get("unhealthy_checks", 0)) + 1
 
+        self._record_trade_history(
+            summary,
+            result.get("history_reconciliation") or {},
+        )
+
         summary["latest_cycle"] = {
             "status": status,
             "as_of": result.get("as_of"),
@@ -222,6 +244,106 @@ class RunnerSummaryStore:
         self._append_cycle(result)
         self._write_summary(summary)
         return summary
+
+    def _record_trade_history(
+        self,
+        summary: dict[str, Any],
+        reconciliation: dict[str, Any],
+    ) -> None:
+        if not reconciliation:
+            return
+
+        history = summary.setdefault("trade_history", {})
+        history.setdefault("filled_trade_count", 0)
+        history.setdefault("closed_trade_count", 0)
+        history.setdefault("wins", 0)
+        history.setdefault("losses", 0)
+        history.setdefault("break_even", 0)
+        history.setdefault("net_profit", 0.0)
+        history.setdefault("gross_profit", 0.0)
+        history.setdefault("gross_loss", 0.0)
+        history.setdefault("processed_entry_deal_tickets", [])
+        history.setdefault("processed_exit_deal_tickets", [])
+        history.setdefault("filled_trades", [])
+        history.setdefault("closed_trades", [])
+        history["latest_reconciliation"] = {
+            key: value
+            for key, value in reconciliation.items()
+            if key not in {"filled_trades", "closed_trades"}
+        }
+
+        seen_entries = {
+            str(ticket) for ticket in history.get("processed_entry_deal_tickets", [])
+        }
+        seen_exits = {
+            str(ticket) for ticket in history.get("processed_exit_deal_tickets", [])
+        }
+
+        for trade in reconciliation.get("filled_trades") or []:
+            entry_key = str(
+                trade.get("entry_deal_ticket")
+                or f"position:{trade.get('position_id')}:entry"
+            )
+            if entry_key not in seen_entries:
+                seen_entries.add(entry_key)
+                history["filled_trade_count"] = int(history["filled_trade_count"]) + 1
+                history["filled_trades"].append(trade)
+                history["latest_filled_trade"] = trade
+
+        for trade in reconciliation.get("closed_trades") or []:
+            entry_key = str(
+                trade.get("entry_deal_ticket")
+                or f"position:{trade.get('position_id')}:entry"
+            )
+            if entry_key not in seen_entries:
+                seen_entries.add(entry_key)
+                history["filled_trade_count"] = int(history["filled_trade_count"]) + 1
+                fill_trade = {
+                    key: trade.get(key)
+                    for key in (
+                        "position_id",
+                        "entry_deal_ticket",
+                        "entry_order",
+                        "side",
+                        "volume",
+                        "entry_price",
+                        "opened_at_utc",
+                    )
+                    if key in trade
+                }
+                history["filled_trades"].append(fill_trade)
+                history["latest_filled_trade"] = fill_trade
+
+            exit_key = str(
+                trade.get("exit_deal_ticket")
+                or f"position:{trade.get('position_id')}:exit"
+            )
+            if exit_key in seen_exits:
+                continue
+            seen_exits.add(exit_key)
+
+            profit = float(trade.get("profit") or 0.0)
+            history["closed_trade_count"] = int(history["closed_trade_count"]) + 1
+            history["net_profit"] = round(float(history["net_profit"]) + profit, 2)
+            if profit > 0:
+                history["wins"] = int(history["wins"]) + 1
+                history["gross_profit"] = round(
+                    float(history["gross_profit"]) + profit,
+                    2,
+                )
+            elif profit < 0:
+                history["losses"] = int(history["losses"]) + 1
+                history["gross_loss"] = round(
+                    float(history["gross_loss"]) + profit,
+                    2,
+                )
+            else:
+                history["break_even"] = int(history["break_even"]) + 1
+            history["closed_trades"].append(trade)
+            history["latest_closed_trade"] = trade
+
+        history["processed_entry_deal_tickets"] = sorted(seen_entries)
+        history["processed_exit_deal_tickets"] = sorted(seen_exits)
 
     def _append_cycle(self, result: dict[str, Any]) -> None:
         line = json.dumps(result, sort_keys=True, default=str) + "\n"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -205,6 +205,206 @@ class MT5Executor:
             "status": "MANAGED" if actions else "NO_POSITION_ACTION",
             "actions": actions,
         }
+
+    def reconcile_trade_history(
+        self,
+        *,
+        lookback_hours: int = 24,
+        now_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Summarize recently filled and closed MT5 deals for this bot."""
+        self.broker.connect()
+        current = now_utc or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        current = current.astimezone(timezone.utc)
+        start = current - timedelta(hours=int(lookback_hours))
+        deals = self.broker.history_deals(self.config.symbol, start, current)
+        result = self._summarize_trade_history(deals, start, current)
+        self.journal.append("TRADE_HISTORY_RECONCILED", result)
+        return result
+
+    def _summarize_trade_history(
+        self,
+        deals: list[dict[str, Any]],
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> dict[str, Any]:
+        bot_position_ids = {
+            self._deal_position_id(deal)
+            for deal in deals
+            if self._is_bot_entry_deal(deal)
+        }
+        bot_position_ids.discard(None)
+
+        grouped: dict[int, list[dict[str, Any]]] = {}
+        for deal in deals:
+            position_id = self._deal_position_id(deal)
+            if position_id in bot_position_ids:
+                grouped.setdefault(position_id, []).append(deal)
+
+        filled_trades = []
+        closed_trades = []
+        for position_id, position_deals in grouped.items():
+            ordered = sorted(position_deals, key=self._deal_sort_key)
+            entry_deal = next(
+                (deal for deal in ordered if self._is_entry_deal(deal)),
+                ordered[0],
+            )
+            exit_deals = [deal for deal in ordered if self._is_exit_deal(deal)]
+            filled_trades.append(self._trade_fill_summary(position_id, entry_deal))
+            if exit_deals:
+                closed_trades.append(
+                    self._closed_trade_summary(position_id, entry_deal, exit_deals)
+                )
+
+        net_profit = round(
+            sum(float(trade.get("profit") or 0.0) for trade in closed_trades),
+            2,
+        )
+        wins = sum(1 for trade in closed_trades if float(trade["profit"]) > 0)
+        losses = sum(1 for trade in closed_trades if float(trade["profit"]) < 0)
+        break_even = len(closed_trades) - wins - losses
+
+        return {
+            "status": "RECONCILED",
+            "symbol": self.config.symbol,
+            "lookback_start_utc": start_utc.isoformat(),
+            "lookback_end_utc": end_utc.isoformat(),
+            "deal_count": len(deals),
+            "filled_trade_count": len(filled_trades),
+            "closed_trade_count": len(closed_trades),
+            "wins": wins,
+            "losses": losses,
+            "break_even": break_even,
+            "net_profit": net_profit,
+            "filled_trades": filled_trades,
+            "closed_trades": closed_trades,
+            "latest_closed_trade": closed_trades[-1] if closed_trades else {},
+        }
+
+    def _is_bot_entry_deal(self, deal: dict[str, Any]) -> bool:
+        if not self._is_entry_deal(deal):
+            return False
+        if self._deal_int(deal.get("magic")) == int(self.config.magic):
+            return True
+        comment = str(deal.get("comment") or "")
+        return bool(self.config.order_comment and self.config.order_comment in comment)
+
+    @staticmethod
+    def _deal_position_id(deal: dict[str, Any]) -> int | None:
+        value = deal.get("position_id") or deal.get("position") or deal.get("order")
+        try:
+            position_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        return position_id if position_id > 0 else None
+
+    @staticmethod
+    def _deal_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _deal_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _is_entry_deal(cls, deal: dict[str, Any]) -> bool:
+        value = str(deal.get("entry", "")).upper()
+        return value in {"0", "IN", "DEAL_ENTRY_IN"}
+
+    @classmethod
+    def _is_exit_deal(cls, deal: dict[str, Any]) -> bool:
+        value = str(deal.get("entry", "")).upper()
+        return value in {"1", "OUT", "DEAL_ENTRY_OUT"}
+
+    @classmethod
+    def _deal_sort_key(cls, deal: dict[str, Any]) -> tuple[int, int]:
+        return (
+            cls._deal_int(deal.get("time")) or 0,
+            cls._deal_int(deal.get("ticket")) or 0,
+        )
+
+    @classmethod
+    def _deal_time_utc(cls, deal: dict[str, Any]) -> str | None:
+        normalized = deal.get("time_utc")
+        if normalized:
+            return str(normalized)
+        timestamp = cls._deal_int(deal.get("time"))
+        if timestamp is None:
+            return None
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+    @classmethod
+    def _deal_side(cls, deal: dict[str, Any]) -> str | None:
+        value = str(deal.get("type", "")).upper()
+        if value in {"0", "BUY", "DEAL_TYPE_BUY"}:
+            return "BUY"
+        if value in {"1", "SELL", "DEAL_TYPE_SELL"}:
+            return "SELL"
+        return None
+
+    def _trade_fill_summary(
+        self,
+        position_id: int,
+        entry_deal: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "position_id": position_id,
+            "entry_deal_ticket": self._deal_int(entry_deal.get("ticket")),
+            "entry_order": self._deal_int(entry_deal.get("order")),
+            "side": self._deal_side(entry_deal),
+            "volume": self._deal_float(entry_deal.get("volume")),
+            "entry_price": self._deal_float(entry_deal.get("price")),
+            "opened_at_utc": self._deal_time_utc(entry_deal),
+        }
+
+    def _closed_trade_summary(
+        self,
+        position_id: int,
+        entry_deal: dict[str, Any],
+        exit_deals: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        last_exit = sorted(exit_deals, key=self._deal_sort_key)[-1]
+        all_deals = [entry_deal, *exit_deals]
+        profit = round(
+            sum(
+                self._deal_float(deal.get("profit"))
+                + self._deal_float(deal.get("commission"))
+                + self._deal_float(deal.get("swap"))
+                for deal in all_deals
+            ),
+            2,
+        )
+        return {
+            **self._trade_fill_summary(position_id, entry_deal),
+            "exit_deal_ticket": self._deal_int(last_exit.get("ticket")),
+            "exit_order": self._deal_int(last_exit.get("order")),
+            "exit_price": self._deal_float(last_exit.get("price")),
+            "closed_at_utc": self._deal_time_utc(last_exit),
+            "profit": profit,
+            "outcome": self._deal_outcome(last_exit, profit),
+            "exit_comment": last_exit.get("comment"),
+        }
+
+    @staticmethod
+    def _deal_outcome(exit_deal: dict[str, Any], profit: float) -> str:
+        comment = str(exit_deal.get("comment") or "").lower()
+        if "[tp" in comment or "tp " in comment:
+            return "TP"
+        if "[sl" in comment or "sl " in comment:
+            return "SL"
+        if profit > 0:
+            return "PROFIT"
+        if profit < 0:
+            return "LOSS"
+        return "BREAK_EVEN"
 
     def snapshot_state(self) -> dict[str, Any]:
         """Read current broker orders and positions without placing orders."""

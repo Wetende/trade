@@ -10,6 +10,8 @@ class FakeExecutor:
         self.executed = []
         self.cancel_calls = 0
         self.manage_calls = 0
+        self.history_calls = 0
+        self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
 
     def snapshot_state(self):
         return {
@@ -28,6 +30,10 @@ class FakeExecutor:
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
         return {"status": "PLACED", "order": 123}
+
+    def reconcile_trade_history(self):
+        self.history_calls += 1
+        return dict(self.history_result)
 
 
 class MonotonicClock:
@@ -98,6 +104,46 @@ def test_runner_skips_new_analysis_when_active_trade_exists(tmp_path):
     assert called is False
     assert executor.cancel_calls == 1
     assert executor.manage_calls == 1
+    assert executor.history_calls == 1
+
+
+def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "filled_trade_count": 1,
+        "closed_trade_count": 1,
+        "net_profit": 6.67,
+        "wins": 1,
+        "losses": 0,
+        "closed_trades": [
+            {
+                "position_id": 111222,
+                "entry_deal_ticket": 1001,
+                "exit_deal_ticket": 1002,
+                "side": "BUY",
+                "entry_price": 2450.12,
+                "exit_price": 2456.79,
+                "volume": 0.01,
+                "profit": 6.67,
+                "outcome": "TP",
+                "closed_at_utc": "2026-05-24T10:00:00+00:00",
+            }
+        ],
+    }
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["history_reconciliation"]["closed_trade_count"] == 1
+    assert result["summary"]["trade_history"]["closed_trade_count"] == 1
+    assert result["summary"]["trade_history"]["net_profit"] == 6.67
 
 
 def test_runner_records_no_trade_without_execution(tmp_path):
