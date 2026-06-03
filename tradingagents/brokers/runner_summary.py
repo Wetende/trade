@@ -91,6 +91,7 @@ class RunnerSummaryStore:
             "updated_at_utc": now,
             "total_checks": 0,
             "status_counts": {},
+            "profile_status_counts": {},
             "hold_reason_counts": {},
             "orders_placed": 0,
             "orders_rejected": 0,
@@ -108,6 +109,11 @@ class RunnerSummaryStore:
             "latest_cycle": {},
         }
 
+    def _record_profile_status(self, summary: dict, profile: str, status: str) -> None:
+        profile_counts = summary.setdefault("profile_status_counts", {})
+        counts = profile_counts.setdefault(profile, {})
+        counts[status] = int(counts.get(status, 0)) + 1
+
     def record_cycle(self, result: dict[str, Any]) -> dict[str, Any]:
         summary = _read_json(self.summary_path, self._empty_summary())
         status = str(result.get("status") or "UNKNOWN")
@@ -123,6 +129,18 @@ class RunnerSummaryStore:
             status_counts[status] += 1
             summary["status_counts"] = dict(status_counts)
             summary["total_checks"] = int(summary.get("total_checks", 0)) + 1
+            if result.get("entry_profile"):
+                self._record_profile_status(
+                    summary,
+                    str(result["entry_profile"]),
+                    status,
+                )
+            for profile_row in result.get("profiles") or []:
+                self._record_profile_status(
+                    summary,
+                    str(profile_row.get("entry_profile", "normal")),
+                    str(profile_row.get("status", "UNKNOWN")),
+                )
         summary["updated_at_utc"] = _utc_now()
 
         candidate_counts = Counter(summary.get("candidate_strategy_counts", {}))

@@ -189,6 +189,53 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     assert summary["latest_execution"]["heartbeat_utc"] == "2026-06-01T14:15:00+00:00"
 
 
+def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    store.record_cycle(
+        {
+            "status": "ORDER_PLACED",
+            "entry_profile": "fast",
+            "as_of": "2026-06-03 08:16",
+            "execution": {"status": "PLACED", "order": 1},
+            "analysis": {"telemetry": {"decision_stage": "setup_found"}},
+        }
+    )
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "profiles": [
+                {
+                    "entry_profile": "normal",
+                    "as_of": "2026-06-03 08:15",
+                    "status": "NO_TRADE",
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "no_m15_setup",
+                            "primary_hold_reason": "No valid M15 setup.",
+                        }
+                    },
+                },
+                {
+                    "entry_profile": "fast",
+                    "as_of": "2026-06-03 08:16",
+                    "status": "NO_TRADE",
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "counter_bias_grade_filter",
+                            "primary_hold_reason": "Fast counter-bias setup requires A_PLUS.",
+                        }
+                    },
+                },
+            ],
+        }
+    )
+
+    assert summary["profile_status_counts"]["fast"]["ORDER_PLACED"] == 1
+    assert summary["profile_status_counts"]["fast"]["NO_TRADE"] == 1
+    assert summary["profile_status_counts"]["normal"]["NO_TRADE"] == 1
+
+
 def test_runner_summary_excludes_duplicate_processed_candles_from_check_counts(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 
