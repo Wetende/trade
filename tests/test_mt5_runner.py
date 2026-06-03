@@ -11,6 +11,7 @@ class FakeExecutor:
         self.cancel_calls = 0
         self.manage_calls = 0
         self.history_calls = 0
+        self.history_kwargs = []
         self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
 
     def snapshot_state(self):
@@ -31,8 +32,9 @@ class FakeExecutor:
         self.executed.append(proposal)
         return {"status": "PLACED", "order": 123}
 
-    def reconcile_trade_history(self):
+    def reconcile_trade_history(self, **kwargs):
         self.history_calls += 1
+        self.history_kwargs.append(kwargs)
         return dict(self.history_result)
 
 
@@ -144,6 +146,23 @@ def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
     assert result["history_reconciliation"]["closed_trade_count"] == 1
     assert result["summary"]["trade_history"]["closed_trade_count"] == 1
     assert result["summary"]["trade_history"]["net_profit"] == 6.67
+
+
+def test_runner_reconciles_history_from_session_start(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    runner.run_once()
+
+    assert executor.history_kwargs
+    assert "since_utc" in executor.history_kwargs[0]
+    assert executor.history_kwargs[0]["since_utc"] <= executor.history_kwargs[0]["now_utc"]
 
 
 def test_runner_records_no_trade_without_execution(tmp_path):

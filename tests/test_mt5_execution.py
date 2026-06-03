@@ -793,6 +793,19 @@ def test_executor_reconciles_closed_bot_trade_history(tmp_path):
     assert result["closed_trades"][0]["exit_deal_ticket"] == 1002
 
 
+def test_executor_reconcile_trade_history_accepts_explicit_start(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    start = datetime.fromtimestamp(1779610100, tz=timezone.utc)
+    now = datetime.fromtimestamp(1779610400, tz=timezone.utc)
+
+    result = executor.reconcile_trade_history(since_utc=start, now_utc=now)
+
+    assert result["status"] == "RECONCILED"
+    assert broker.history_deals_calls[0][1] == start
+    assert broker.history_deals_calls[0][2] == now
+
+
 def test_executor_leaves_non_stale_active_pending_order(tmp_path):
     broker = FakeBroker()
     broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]

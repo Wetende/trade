@@ -210,6 +210,7 @@ class MT5Executor:
         self,
         *,
         lookback_hours: int = 24,
+        since_utc: datetime | str | None = None,
         now_utc: datetime | None = None,
     ) -> dict[str, Any]:
         """Summarize recently filled and closed MT5 deals for this bot."""
@@ -218,7 +219,15 @@ class MT5Executor:
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
         current = current.astimezone(timezone.utc)
-        start = current - timedelta(hours=int(lookback_hours))
+        if since_utc is None:
+            start = current - timedelta(hours=int(lookback_hours))
+        elif isinstance(since_utc, str):
+            start = datetime.fromisoformat(since_utc)
+        else:
+            start = since_utc
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        start = start.astimezone(timezone.utc)
         deals = self.broker.history_deals(self.config.symbol, start, current)
         result = self._summarize_trade_history(deals, start, current)
         self.journal.append("TRADE_HISTORY_RECONCILED", result)

@@ -55,6 +55,7 @@ class MT5Runner:
         self.heartbeat_path = self.runner_dir / "heartbeat.json"
         self.state_path = self.runner_dir / "state.json"
         self.summary_store = RunnerSummaryStore(config.results_dir)
+        self.history_since_utc = self._load_history_since_utc()
 
     def run_once(self) -> dict:
         started_at = datetime.now(timezone.utc).isoformat()
@@ -193,13 +194,31 @@ class MT5Runner:
         if not callable(reconcile):
             return {"status": "UNAVAILABLE"}
         try:
-            return reconcile()
+            return reconcile(
+                since_utc=self.history_since_utc,
+                now_utc=datetime.now(timezone.utc),
+            )
         except Exception as exc:
             return {
                 "status": "RECONCILE_ERROR",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
+
+    def _load_history_since_utc(self) -> datetime:
+        if self.summary_store.summary_path.exists():
+            try:
+                summary = json.loads(
+                    self.summary_store.summary_path.read_text(encoding="utf-8")
+                )
+                started_at = datetime.fromisoformat(str(summary["started_at_utc"]))
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                started_at = datetime.now(timezone.utc)
+        else:
+            started_at = datetime.now(timezone.utc)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        return started_at.astimezone(timezone.utc)
 
     def run_forever(self) -> dict:
         cycles = 0
