@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -629,6 +630,58 @@ def test_mt5_broker_fetch_rates_supports_named_field_rows():
             "volume": 456.0,
         }
     ]
+
+
+def test_mt5_broker_fetch_rates_adjusts_broker_server_time_offset(monkeypatch):
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1780455600,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+        },
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+    monkeypatch.setattr(
+        broker,
+        "_server_time_offset_seconds",
+        lambda mt5: 3 * 60 * 60,
+    )
+
+    candles = broker.fetch_rates("15m", count=1)
+
+    assert candles[0]["timestamp"] == "2026-06-03T00:00:00+00:00"
+
+
+def test_mt5_broker_detects_broker_server_time_offset():
+    fake = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    now_utc = datetime.fromtimestamp(
+        fake.symbol_info_tick("XAUUSD").time - (3 * 60 * 60),
+        timezone.utc,
+    )
+
+    assert broker._server_time_offset_seconds(fake, now_utc=now_utc) == 3 * 60 * 60
 
 
 @pytest.mark.parametrize("count", (None, True, False, "2", 2.5, 0, -1))

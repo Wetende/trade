@@ -827,13 +827,15 @@ class MT5Broker:
         if rates is None:
             raise MT5BrokerError(f"MT5 copy_rates_from_pos failed: {mt5.last_error()}")
 
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
         candles: list[dict[str, Any]] = []
         for rate in rates:
             item = _asdict(rate)
+            raw_timestamp = int(self._rate_value(rate, item, "time"))
             candles.append(
                 {
                     "timestamp": datetime.fromtimestamp(
-                        int(self._rate_value(rate, item, "time")),
+                        raw_timestamp - server_time_offset_seconds,
                         tz=timezone.utc,
                     ).isoformat(),
                     "open": float(self._rate_value(rate, item, "open")),
@@ -851,6 +853,24 @@ class MT5Broker:
                 }
             )
         return candles
+
+    def _server_time_offset_seconds(
+        self,
+        mt5: Any,
+        *,
+        now_utc: datetime | None = None,
+    ) -> int:
+        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        raw_tick_time = tick.get("time")
+        if raw_tick_time in (None, ""):
+            return 0
+
+        current = now_utc or datetime.now(timezone.utc)
+        raw_offset = int(raw_tick_time) - int(current.timestamp())
+        rounded_offset = int(round(raw_offset / 3600)) * 3600
+        if abs(rounded_offset) > 14 * 3600:
+            return 0
+        return rounded_offset
 
     @staticmethod
     def _positive_count(value: Any) -> int:
