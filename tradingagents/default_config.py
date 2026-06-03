@@ -29,6 +29,11 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MIN_SETUP_GRADE":      "minimum_setup_grade",
     "TRADINGAGENTS_B_PLUS_MIN_RR":        "b_plus_min_rr",
     "TRADINGAGENTS_FAST_ENTRIES_ENABLED": "fast_entries_enabled",
+    "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
+    "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
+    "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
+    "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
+    "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
     "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
     "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
 }
@@ -95,6 +100,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "minimum_setup_grade": DEFAULT_SESSION_CONFIG["minimum_setup_grade"],
     "b_plus_min_rr": DEFAULT_SESSION_CONFIG["b_plus_min_rr"],
     "fast_entries_enabled": False,
+    "fast_timeframe": "1m",
+    "fast_confirmation_timeframe": "3m",
+    "normal_activation_window_minutes": 30,
+    "fast_activation_window_minutes": 6,
+    "fast_counter_bias_minimum_grade": "A_PLUS",
     "minimum_stop_distance_price": 2.5,
     "minimum_stop_spread_multiple": 4.0,
     "price_action": dict(DEFAULT_SESSION_CONFIG),
@@ -110,6 +120,22 @@ DEFAULT_CONFIG = _apply_env_overrides({
 DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
 DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] = DEFAULT_CONFIG["minimum_setup_grade"]
 DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] = DEFAULT_CONFIG["b_plus_min_rr"]
+DEFAULT_CONFIG["price_action"]["fast_entries_enabled"] = DEFAULT_CONFIG[
+    "fast_entries_enabled"
+]
+DEFAULT_CONFIG["price_action"]["fast_timeframe"] = DEFAULT_CONFIG["fast_timeframe"]
+DEFAULT_CONFIG["price_action"]["fast_confirmation_timeframe"] = DEFAULT_CONFIG[
+    "fast_confirmation_timeframe"
+]
+DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
+    "normal_activation_window_minutes"
+]
+DEFAULT_CONFIG["price_action"]["fast_activation_window_minutes"] = DEFAULT_CONFIG[
+    "fast_activation_window_minutes"
+]
+DEFAULT_CONFIG["price_action"]["fast_counter_bias_minimum_grade"] = DEFAULT_CONFIG[
+    "fast_counter_bias_minimum_grade"
+]
 DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] = DEFAULT_CONFIG[
     "minimum_stop_distance_price"
 ]

@@ -198,7 +198,13 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         else:
             reason = "No order proposed because the engine setup is missing entry, stop, or target."
 
-    activation_window_minutes = 10 if status == OrderStatus.PROPOSED else None
+    activation_window_minutes = None
+    if status == OrderStatus.PROPOSED:
+        activation_window_minutes = int(
+            payload.get("activation_window_minutes")
+            or state.get("activation_window_minutes")
+            or 10
+        )
     return OrderProposal(
         symbol=state["company_of_interest"],
         broker_symbol=state.get("broker_symbol") or state["company_of_interest"],
@@ -224,7 +230,7 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     )
 
 
-def build_order_proposal(state: dict) -> OrderProposal:
+def build_order_proposal(state: dict, config: dict | None = None) -> OrderProposal:
     engine_proposal = _proposal_from_engine_payload(state)
     if engine_proposal is not None:
         return engine_proposal
@@ -250,7 +256,12 @@ def build_order_proposal(state: dict) -> OrderProposal:
 
     as_of = state.get("as_of", "")
     market_timezone = state.get("market_timezone", "America/New_York")
-    activation_window_minutes = 10 if status == OrderStatus.PROPOSED else None
+    proposal_config = config or {}
+    activation_window_minutes = (
+        int(proposal_config.get("normal_activation_window_minutes", 10))
+        if status == OrderStatus.PROPOSED
+        else None
+    )
 
     return OrderProposal(
         symbol=state["company_of_interest"],
@@ -301,7 +312,7 @@ def create_order_proposal_executor(config: dict):
             if payload:
                 enriched_state["engine_payload"] = payload
                 enriched_state["engine_telemetry"] = payload.get("telemetry", {})
-        proposal = build_order_proposal(enriched_state)
+        proposal = build_order_proposal(enriched_state, config)
         rendered = render_order_proposal(proposal)
 
         safe_symbol = safe_ticker_component(state["company_of_interest"])
