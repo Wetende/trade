@@ -252,6 +252,19 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     assert config.max_entry_distance_points == 8.5
 
 
+def test_mt5_config_reads_min_stop_distance_guards(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE", "2.5")
+    monkeypatch.setenv("TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE", "4")
+
+    config = MT5ConnectionConfig.from_env()
+
+    assert config.min_stop_distance_price == 2.5
+    assert config.min_stop_spread_multiple == 4.0
+
+
 def test_mt5_config_accepts_direct_connection_without_mode_fields():
     config = MT5ConnectionConfig(
         login=123456789,
@@ -314,6 +327,43 @@ def test_mt5_request_builder_uses_configured_order_comment():
     )
 
     assert request["comment"] == "TradingAgents contest"
+
+
+def test_mt5_request_builder_rejects_stop_distance_below_gold_guard():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        min_stop_distance_price=2.5,
+        min_stop_spread_multiple=4.0,
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="AUTO",
+        entry_price=4460.87,
+        stop_loss=4460.35,
+        take_profit=4462.42,
+        valid_until="2026-06-03 06:30 EDT",
+        status=OrderStatus.PROPOSED,
+        reason="too tight stop",
+    )
+
+    with pytest.raises(ValueError, match="stop distance is below minimum"):
+        MT5OrderRequestBuilder(config).build_pending_order_request(
+            proposal,
+            {
+                "name": "XAUUSD",
+                "digits": 2,
+                "point": 0.01,
+                "trade_tick_size": 0.01,
+                "trade_stops_level": 1,
+                "bid": 4460.50,
+                "ask": 4460.83,
+            },
+        )
 
 
 def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):

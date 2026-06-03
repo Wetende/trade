@@ -45,6 +45,8 @@ class MT5ConnectionConfig:
     magic: int = 150015
     order_comment: str = "TradingAgents"
     max_entry_distance_points: float = 10.0
+    min_stop_distance_price: float = 0.0
+    min_stop_spread_multiple: float = 4.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.allow_real_orders, bool):
@@ -88,6 +90,17 @@ class MT5ConnectionConfig:
             "max_entry_distance_points",
             max_entry_distance_points,
         )
+        for attr, label in (
+            ("min_stop_distance_price", "MT5 minimum stop distance price"),
+            ("min_stop_spread_multiple", "MT5 minimum stop spread multiple"),
+        ):
+            try:
+                value = float(getattr(self, attr))
+            except (TypeError, ValueError) as exc:
+                raise MT5BrokerError(f"{label} must be numeric") from exc
+            if not math.isfinite(value) or value < 0:
+                raise MT5BrokerError(f"{label} must be non-negative")
+            object.__setattr__(self, attr, value)
 
     @classmethod
     def from_env(cls) -> "MT5ConnectionConfig":
@@ -132,6 +145,14 @@ class MT5ConnectionConfig:
             max_entry_distance_points=_float_env(
                 "TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS",
                 10.0,
+            ),
+            min_stop_distance_price=_float_env(
+                "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE",
+                2.5,
+            ),
+            min_stop_spread_multiple=_float_env(
+                "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE",
+                4.0,
             ),
         )
 
@@ -264,6 +285,29 @@ class MT5OrderRequestBuilder:
                 f"distance={distance:.2f}, max_distance={max_distance:.2f}"
             )
 
+    def _assert_stop_distance(
+        self,
+        entry: float,
+        stop: float,
+        symbol_info: dict[str, Any],
+    ) -> None:
+        minimum = float(self.config.min_stop_distance_price)
+        if symbol_info.get("bid") not in (None, "") and symbol_info.get("ask") not in (
+            None,
+            "",
+        ):
+            bid, ask = self._quote(symbol_info)
+            spread_distance = abs(ask - bid) * float(
+                self.config.min_stop_spread_multiple
+            )
+            minimum = max(minimum, spread_distance)
+        stop_distance = abs(entry - stop)
+        if stop_distance < minimum:
+            raise ValueError(
+                "stop distance is below minimum: "
+                f"distance={stop_distance:.2f}, minimum={minimum:.2f}"
+            )
+
     def build_pending_order_request(
         self,
         proposal: OrderProposal,
@@ -294,6 +338,7 @@ class MT5OrderRequestBuilder:
         entry = self._round_price(proposal.entry_price, symbol_info)
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
+        self._assert_stop_distance(entry, stop, symbol_info)
         self._assert_entry_near_quote(entry, symbol_info)
         request_type = self._resolve_order_type(proposal, entry, symbol_info)
         self._assert_stop_level_distance(request_type, entry, symbol_info)

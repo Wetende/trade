@@ -100,6 +100,21 @@ def test_setup_grade_env_updates_price_action_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.2
 
 
+def test_fast_risk_env_updates_price_action_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_FAST_ENTRIES_ENABLED="true",
+        TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE="2.5",
+        TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE="4",
+    )
+
+    assert dc.DEFAULT_CONFIG["fast_entries_enabled"] is True
+    assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 2.5
+    assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 4.0
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] == 2.5
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] == 4.0
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(
