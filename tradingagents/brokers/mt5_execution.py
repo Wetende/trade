@@ -45,6 +45,38 @@ class MT5Executor:
         positions = self.broker.open_positions(self.config.symbol)
         return bool(orders or positions)
 
+    def _sync_tracked_ticket(self, ticket: int) -> dict[str, Any] | None:
+        """Clear stale local state when MT5 no longer has the pending ticket."""
+        orders = self.broker.open_orders(self.config.symbol)
+        positions = self.broker.open_positions(self.config.symbol)
+        open_order_tickets = {
+            int(order["ticket"]) for order in orders if order.get("ticket")
+        }
+        open_position_tickets = {
+            int(position["ticket"]) for position in positions if position.get("ticket")
+        }
+
+        if ticket in open_order_tickets:
+            return None
+        if ticket in open_position_tickets:
+            self.state.clear_pending_order()
+            result = {
+                "status": "ORDER_ALREADY_FILLED",
+                "ticket": ticket,
+                "symbol": self.config.symbol,
+            }
+            self.journal.append("ORDER_STATE_SYNCED", result)
+            return result
+
+        self.state.clear_pending_order()
+        result = {
+            "status": "ORDER_NOT_OPEN",
+            "ticket": ticket,
+            "symbol": self.config.symbol,
+        }
+        self.journal.append("ORDER_STATE_SYNCED", result)
+        return result
+
     def execute_proposal(self, proposal: OrderProposal) -> dict[str, Any]:
         """Place a pending order when no active trade exists."""
         connection = self.broker.connect()
@@ -99,6 +131,10 @@ class MT5Executor:
             result = {"status": "NO_ACTIVE_ORDER", "symbol": self.config.symbol}
             self.journal.append("ORDER_CANCEL_SKIPPED", result)
             return result
+        ticket = int(ticket)
+        sync_result = self._sync_tracked_ticket(ticket)
+        if sync_result is not None:
+            return sync_result
 
         current = (
             datetime.fromisoformat(now_utc)

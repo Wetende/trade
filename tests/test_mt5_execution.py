@@ -655,6 +655,7 @@ def test_executor_does_not_record_state_when_order_rejected(tmp_path):
 
 def test_executor_cancels_stale_active_pending_order(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     executor = MT5Executor(_config(), tmp_path, broker=broker)
     executor.state.save(
         {
@@ -674,8 +675,52 @@ def test_executor_cancels_stale_active_pending_order(tmp_path):
     assert executor.state.load()["active_order_ticket"] is None
 
 
+def test_executor_clears_state_when_tracked_ticket_is_open_position(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [{"ticket": 111, "symbol": "XAUUSD"}]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "cancel_after_utc": "2026-05-27T14:00:00+00:00",
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:00+00:00"
+    )
+
+    assert result["status"] == "ORDER_ALREADY_FILLED"
+    assert result["ticket"] == 111
+    assert broker.cancelled == []
+    assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_clears_state_when_tracked_ticket_is_not_open_anymore(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "cancel_after_utc": "2026-05-27T14:00:00+00:00",
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:00+00:00"
+    )
+
+    assert result["status"] == "ORDER_NOT_OPEN"
+    assert result["ticket"] == 111
+    assert broker.cancelled == []
+    assert executor.state.load()["active_order_ticket"] is None
+
+
 def test_executor_leaves_non_stale_active_pending_order(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     executor = MT5Executor(_config(), tmp_path, broker=broker)
     executor.state.save(
         {
