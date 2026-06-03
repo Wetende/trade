@@ -28,12 +28,18 @@ class FakeMT5:
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
     ORDER_FILLING_RETURN = 2
+    TIMEFRAME_M15 = 15
+    TIMEFRAME_M30 = 30
+    TIMEFRAME_H1 = 60
+    TIMEFRAME_D1 = 1440
 
     def __init__(self):
         self.initialized_with = None
         self.selected_symbols = []
         self.shutdown_called = False
         self.sent_requests = []
+        self.rates = []
+        self.copy_rates_calls = []
         self.order_retcode = self.TRADE_RETCODE_DONE
         self.account = SimpleNamespace(
             login=123456789,
@@ -163,6 +169,10 @@ class FakeMT5:
             for position in self.positions
             if symbol is None or position.symbol == symbol
         ]
+
+    def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
+        self.copy_rates_calls.append((symbol, timeframe, start_pos, count))
+        return self.rates
 
 
 def _set_required_mt5_env(monkeypatch):
@@ -487,6 +497,167 @@ def test_mt5_broker_reads_open_orders_and_positions():
     assert positions[0]["current_price"] == 2453.12
     assert positions[0]["stop_loss"] == 2447.99
     assert positions[0]["take_profit"] == 2456.79
+
+
+def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1779613200,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+        },
+        {
+            "time": 1779614100,
+            "open": 4500.80,
+            "high": 4502.00,
+            "low": 4500.40,
+            "close": 4501.60,
+            "tick_volume": 140,
+        },
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    candles = broker.fetch_rates("15m", count=2)
+
+    assert fake.copy_rates_calls == [("XAUUSD", fake.TIMEFRAME_M15, 0, 2)]
+    assert candles == [
+        {
+            "timestamp": "2026-05-24T09:00:00+00:00",
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "volume": 123.0,
+        },
+        {
+            "timestamp": "2026-05-24T09:15:00+00:00",
+            "open": 4500.80,
+            "high": 4502.00,
+            "low": 4500.40,
+            "close": 4501.60,
+            "volume": 140.0,
+        },
+    ]
+
+
+def test_mt5_broker_fetch_rates_supports_named_field_rows():
+    class NamedFieldRow:
+        def __init__(self, values):
+            self.values = values
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    fake = FakeMT5()
+    fake.rates = [
+        NamedFieldRow(
+            {
+                "time": 1779613200,
+                "open": 4500.10,
+                "high": 4501.20,
+                "low": 4499.50,
+                "close": 4500.80,
+                "real_volume": 456,
+            }
+        )
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    candles = broker.fetch_rates("15m", count=1)
+
+    assert candles == [
+        {
+            "timestamp": "2026-05-24T09:00:00+00:00",
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "volume": 456.0,
+        }
+    ]
+
+
+@pytest.mark.parametrize("count", (None, True, False, "2", 2.5, 0, -1))
+def test_mt5_broker_fetch_rates_rejects_invalid_count(count):
+    fake = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    with pytest.raises(
+        MT5BrokerError, match="MT5 rate count must be a positive integer"
+    ):
+        broker.fetch_rates("15m", count=count)
+
+    assert fake.copy_rates_calls == []
+
+
+def test_mt5_broker_fetch_rates_rejects_unsupported_timeframe():
+    fake = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="unsupported MT5 timeframe: 5m"):
+        broker.fetch_rates("5m", count=1)
+
+    assert fake.copy_rates_calls == []
+
+
+def test_mt5_broker_fetch_rates_reports_mt5_copy_rates_failure():
+    fake = FakeMT5()
+    fake.rates = None
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 copy_rates_from_pos failed"):
+        broker.fetch_rates("15m", count=1)
+
+    assert fake.copy_rates_calls == [("XAUUSD", fake.TIMEFRAME_M15, 0, 1)]
 
 
 def test_mt5_broker_reads_sell_position_side():

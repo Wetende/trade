@@ -10,6 +10,8 @@ import importlib
 import math
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from numbers import Integral
 from typing import Any
 
 from tradingagents.agents.schemas import OrderProposal
@@ -25,6 +27,7 @@ _TRADE_MODE_LABEL_CONSTANTS = {
     "CONTEST": "ACCOUNT_TRADE_MODE_CONTEST",
 }
 _REAL_ORDER_ACK = "I_UNDERSTAND_REAL_MONEY_IS_AT_RISK"
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -754,6 +757,78 @@ class MT5Broker:
                 }
             )
         return normalized
+
+    def fetch_rates(self, timeframe: str, count: int) -> list[dict[str, Any]]:
+        """Fetch normalized OHLCV candles for the configured MT5 symbol."""
+        self._assert_active_session()
+        rate_count = self._positive_count(count)
+
+        mt5 = self._module()
+        timeframe_constants = {
+            "15m": getattr(mt5, "TIMEFRAME_M15", None),
+            "30m": getattr(mt5, "TIMEFRAME_M30", None),
+            "1h": getattr(mt5, "TIMEFRAME_H1", None),
+            "1d": getattr(mt5, "TIMEFRAME_D1", None),
+        }
+        mt5_timeframe = timeframe_constants.get(timeframe)
+        if mt5_timeframe is None:
+            raise MT5BrokerError(f"unsupported MT5 timeframe: {timeframe}")
+
+        rates = mt5.copy_rates_from_pos(
+            self.config.symbol,
+            mt5_timeframe,
+            0,
+            rate_count,
+        )
+        if rates is None:
+            raise MT5BrokerError(f"MT5 copy_rates_from_pos failed: {mt5.last_error()}")
+
+        candles: list[dict[str, Any]] = []
+        for rate in rates:
+            item = _asdict(rate)
+            candles.append(
+                {
+                    "timestamp": datetime.fromtimestamp(
+                        int(self._rate_value(rate, item, "time")),
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "open": float(self._rate_value(rate, item, "open")),
+                    "high": float(self._rate_value(rate, item, "high")),
+                    "low": float(self._rate_value(rate, item, "low")),
+                    "close": float(self._rate_value(rate, item, "close")),
+                    "volume": float(
+                        self._rate_value(
+                            rate,
+                            item,
+                            "tick_volume",
+                            self._rate_value(rate, item, "real_volume", 0),
+                        )
+                    ),
+                }
+            )
+        return candles
+
+    @staticmethod
+    def _positive_count(value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, Integral) or value <= 0:
+            raise MT5BrokerError("MT5 rate count must be a positive integer")
+        return int(value)
+
+    @staticmethod
+    def _rate_value(
+        rate: Any,
+        item: dict[str, Any],
+        field: str,
+        default: Any = _MISSING,
+    ) -> Any:
+        if field in item:
+            return item[field]
+        try:
+            return rate[field]
+        except (KeyError, IndexError, TypeError, ValueError):
+            if default is not _MISSING:
+                return default
+            raise MT5BrokerError(f"MT5 rate row missing field: {field}") from None
 
     def shutdown(self) -> None:
         self._connected = False
