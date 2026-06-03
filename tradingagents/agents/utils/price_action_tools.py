@@ -909,12 +909,20 @@ def _safe_as_of_component(as_of: str) -> str:
     return re.sub(r"[^0-9A-Za-z_-]+", "_", str(as_of)).strip("_") or "unknown"
 
 
+def _profile_suffix(payload: Dict[str, Any]) -> str:
+    raw = payload.get("entry_profile")
+    normalized = re.sub(r"[^0-9A-Za-z_-]+", "_", str(raw or "")).strip("_").lower()
+    if not normalized or normalized == "normal":
+        return ""
+    return f"_{normalized}"
+
+
 def write_engine_payload(payload: Dict[str, Any], results_dir: str | Path) -> Path:
     symbol = safe_ticker_component(str(payload["symbol"]))
     safe_as_of = _safe_as_of_component(str(payload.get("as_of", "unknown")))
     directory = Path(results_dir) / symbol / "engine_telemetry"
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"engine_payload_{safe_as_of}.json"
+    path = directory / f"engine_payload_{safe_as_of}{_profile_suffix(payload)}.json"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path
 

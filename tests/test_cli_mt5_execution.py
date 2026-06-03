@@ -421,6 +421,72 @@ def test_mt5_runner_engine_analysis_func_builds_proposal_from_engine(monkeypatch
     assert analysis["order_proposal_path"].endswith("order_proposal_2026-06-01_08_15.json")
 
 
+def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkeypatch, tmp_path):
+    from tradingagents.agents.price_action import decision
+
+    calls = []
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "3m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "normal_activation_window_minutes", 30)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_activation_window_minutes", 6)
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda as_of=None: {
+            "ticker": "XAUUSD.vx",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": as_of or "2026-06-03 08:15",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "market_timezone": "America/New_York",
+        },
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "last_closed_candle",
+        lambda timeframe, market_timezone: (
+            "2026-06-03 08:16" if timeframe == "1m" else "2026-06-03 08:15"
+        ),
+    )
+
+    def fake_run_engine_decision(**kwargs):
+        calls.append(kwargs)
+        return {
+            "company_of_interest": kwargs["symbol"],
+            "broker_symbol": kwargs["broker_symbol"],
+            "as_of": kwargs["as_of"],
+            "timeframe": kwargs["timeframe"],
+            "confirmation_timeframe": kwargs["confirmation_timeframe"],
+            "market_timezone": kwargs["market_timezone"],
+            "price_action_report": "Action: HOLD",
+            "trade_plan": "Action: HOLD",
+            "telemetry_path": str(tmp_path / f"{kwargs['timeframe']}.json"),
+            "engine_payload": {
+                "status": "NO_SETUP",
+                "recommendation": "HOLD",
+                "message": "No setup.",
+                "telemetry": {"decision_stage": "no_m15_setup"},
+                "data_status": {"healthy": True},
+            },
+        }
+
+    monkeypatch.setattr(decision, "run_engine_decision", fake_run_engine_decision)
+
+    results = cli_main._mt5_runner_engine_analysis_func()()
+
+    assert len(results) == 2
+    assert results[0][0] == "normal"
+    assert results[1][0] == "fast"
+    assert results[0][1] == "2026-06-03 08:15"
+    assert results[1][1] == "2026-06-03 08:16"
+    assert calls[0]["timeframe"] == "15m"
+    assert calls[1]["timeframe"] == "1m"
+    assert calls[0]["session_config"]["entry_profile"] == "normal"
+    assert calls[1]["session_config"]["entry_profile"] == "fast"
+
+
 def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path):
     from tradingagents.brokers import mt5
     from tradingagents.brokers.mt5 import MT5ConnectionConfig

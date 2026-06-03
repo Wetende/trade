@@ -43,7 +43,7 @@ class MT5Runner:
         config: MT5RunnerConfig,
         *,
         executor,
-        analysis_func: Callable[[], tuple[str, OrderProposal]],
+        analysis_func: Callable[[], tuple[str, OrderProposal] | list],
         current_as_of_func: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
@@ -83,7 +83,8 @@ class MT5Runner:
                 )
 
         try:
-            as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
+            analysis_result = self.analysis_func()
+            analysis_rows = self._parse_analysis_results(analysis_result)
         except Exception as exc:
             return self._write_heartbeat(
                 {
@@ -96,45 +97,88 @@ class MT5Runner:
                 }
             )
 
-        if state.get("last_processed_as_of") == as_of:
+        multi_profile_result = isinstance(analysis_result, list)
+        last_processed_by_profile = dict(state.get("last_processed_by_profile") or {})
+        processed_rows = []
+        selected = None
+        legacy_last_processed = state.get("last_processed_as_of")
+
+        for profile, as_of, proposal, analysis in analysis_rows:
+            if last_processed_by_profile.get(profile) == as_of or (
+                profile == "normal" and legacy_last_processed == as_of
+            ):
+                continue
+
+            status = str(getattr(proposal.status, "value", proposal.status)).upper()
+            processed_rows.append((profile, as_of, proposal, analysis, status))
+            last_processed_by_profile[profile] = as_of
+            if selected is None and status == "PROPOSED":
+                selected = (profile, as_of, proposal, analysis)
+
+        if not processed_rows:
             return self._write_heartbeat(
                 {
                     "status": "CANDLE_ALREADY_PROCESSED",
                     "started_at_utc": started_at,
-                    "as_of": as_of,
-                    "analysis": analysis,
+                    "profiles": [],
                 }
             )
 
-        status = str(getattr(proposal.status, "value", proposal.status)).upper()
-        if status != "PROPOSED":
-            self._save_state({"last_processed_as_of": as_of})
+        latest_as_of = processed_rows[-1][1]
+        self._save_state(
+            {
+                "last_processed_as_of": latest_as_of,
+                "last_processed_by_profile": last_processed_by_profile,
+            }
+        )
+
+        if selected is None:
+            if not multi_profile_result and len(processed_rows) == 1:
+                profile, as_of, proposal, analysis, _status = processed_rows[0]
+                return self._write_heartbeat(
+                    {
+                        "status": "NO_TRADE",
+                        "started_at_utc": started_at,
+                        "as_of": as_of,
+                        "proposal": proposal.model_dump(mode="json"),
+                        "analysis": analysis,
+                    }
+                )
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",
                     "started_at_utc": started_at,
-                    "as_of": as_of,
-                    "proposal": proposal.model_dump(mode="json"),
-                    "analysis": analysis,
+                    "profiles": [
+                        {
+                            "entry_profile": profile,
+                            "as_of": as_of,
+                            "proposal": proposal.model_dump(mode="json"),
+                            "analysis": analysis,
+                            "status": status,
+                        }
+                        for profile, as_of, proposal, analysis, status in processed_rows
+                    ],
                 }
             )
 
+        profile, as_of, proposal, analysis = selected
         execution = self.executor.execute_proposal(proposal)
-        self._save_state({"last_processed_as_of": as_of})
-        return self._write_heartbeat(
-            {
-                "status": (
-                    "ORDER_PLACED"
-                    if execution.get("status") == "PLACED"
-                    else "ORDER_NOT_PLACED"
-                ),
-                "started_at_utc": started_at,
-                "as_of": as_of,
-                "proposal": proposal.model_dump(mode="json"),
-                "execution": execution,
-                "analysis": analysis,
-            }
-        )
+        payload = {
+            "status": (
+                "ORDER_PLACED"
+                if execution.get("status") == "PLACED"
+                else "ORDER_NOT_PLACED"
+            ),
+            "started_at_utc": started_at,
+            "entry_profile": profile,
+            "as_of": as_of,
+            "proposal": proposal.model_dump(mode="json"),
+            "execution": execution,
+            "analysis": analysis,
+        }
+        if not multi_profile_result:
+            payload.pop("entry_profile", None)
+        return self._write_heartbeat(payload)
 
     def run_forever(self) -> dict:
         cycles = 0
@@ -197,10 +241,30 @@ class MT5Runner:
             "analysis_func must return (as_of, proposal) or (as_of, proposal, analysis)"
         )
 
+    def _parse_analysis_results(self, result) -> list[tuple[str, str, OrderProposal, dict]]:
+        if isinstance(result, list):
+            rows = []
+            for item in result:
+                if not isinstance(item, tuple):
+                    raise ValueError("analysis profile rows must be tuples")
+                if len(item) == 4:
+                    profile, as_of, proposal, analysis = item
+                    rows.append((str(profile), as_of, proposal, dict(analysis or {})))
+                else:
+                    as_of, proposal, analysis = self._parse_analysis_result(item)
+                    rows.append(("normal", as_of, proposal, analysis))
+            return rows
+
+        as_of, proposal, analysis = self._parse_analysis_result(result)
+        return [("normal", as_of, proposal, analysis)]
+
     def _load_state(self) -> dict:
         if not self.state_path.exists():
-            return {}
-        return json.loads(self.state_path.read_text(encoding="utf-8"))
+            return {"last_processed_by_profile": {}}
+        return {
+            "last_processed_by_profile": {},
+            **json.loads(self.state_path.read_text(encoding="utf-8")),
+        }
 
     def _save_state(self, state: dict) -> dict:
         self.state_path.write_text(

@@ -508,6 +508,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
             create_order_proposal_executor,
         )
         from tradingagents.agents.price_action.decision import run_engine_decision
+        from tradingagents.agents.price_action.profiles import fast_profile, normal_profile
         from tradingagents.brokers.mt5 import MT5Broker
         from tradingagents.brokers.mt5_execution import load_order_proposal
         from tradingagents.dataflows.mt5_price_action import (
@@ -531,37 +532,77 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 ),
             )
 
-        state = run_engine_decision(
-            symbol=engine_symbol,
-            broker_symbol=broker_symbol,
-            as_of=selections["as_of"],
-            results_dir=DEFAULT_CONFIG["results_dir"],
-            timeframe=selections.get("timeframe", DEFAULT_CONFIG["timeframe"]),
-            confirmation_timeframe=selections.get(
-                "confirmation_timeframe",
-                DEFAULT_CONFIG["confirmation_timeframe"],
-            ),
-            market_timezone=selections.get(
-                "market_timezone",
-                DEFAULT_CONFIG["market_timezone"],
-            ),
-            session_config=DEFAULT_CONFIG.get("price_action"),
-            snapshot=snapshot,
+        market_timezone = selections.get(
+            "market_timezone",
+            DEFAULT_CONFIG["market_timezone"],
         )
-        proposal_state = create_order_proposal_executor(DEFAULT_CONFIG)(state)
-        proposal_path = proposal_state["order_proposal_path"]
-        proposal = load_order_proposal(proposal_path)
-        engine_payload = state.get("engine_payload") or {}
-        analysis = {
-            "order_proposal_path": proposal_path,
-            "telemetry_path": state.get("telemetry_path"),
-            "telemetry": engine_payload.get("telemetry", {}),
-            "data_status": engine_payload.get("data_status", {}),
-            "price_action_report": state.get("price_action_report", ""),
-            "trade_plan": state.get("trade_plan", ""),
-            "engine_status": engine_payload.get("status"),
-        }
-        return selections["as_of"], proposal, analysis
+        profiles = [normal_profile(DEFAULT_CONFIG)]
+        if DEFAULT_CONFIG.get("fast_entries_enabled"):
+            profiles.append(fast_profile(DEFAULT_CONFIG))
+
+        proposal_executor = create_order_proposal_executor(DEFAULT_CONFIG)
+        rows = []
+        for profile in profiles:
+            profile_as_of = (
+                selections["as_of"]
+                if profile.name == "normal"
+                else last_closed_candle(profile.timeframe, market_timezone)
+            )
+            profile_config = {
+                **DEFAULT_CONFIG.get("price_action", {}),
+                "entry_profile": profile.name,
+                "timeframe": profile.timeframe,
+                "confirmation_timeframe": profile.confirmation_timeframe,
+                "zone_timeframes": profile.zone_timeframes,
+                "activation_window_minutes": profile.activation_window_minutes,
+                "independent_direction": profile.independent_direction,
+                "fast_counter_bias_minimum_grade": profile.counter_bias_minimum_grade,
+            }
+            state = run_engine_decision(
+                symbol=engine_symbol,
+                broker_symbol=broker_symbol,
+                as_of=profile_as_of,
+                results_dir=DEFAULT_CONFIG["results_dir"],
+                timeframe=profile.timeframe,
+                confirmation_timeframe=profile.confirmation_timeframe,
+                market_timezone=market_timezone,
+                session_config=profile_config,
+                snapshot=snapshot,
+            )
+            state["entry_profile"] = profile.name
+            state["activation_window_minutes"] = profile.activation_window_minutes
+            engine_payload = state.get("engine_payload") or {}
+            engine_payload.setdefault("entry_profile", profile.name)
+            engine_payload.setdefault(
+                "activation_window_minutes",
+                profile.activation_window_minutes,
+            )
+            engine_payload.setdefault("timeframe", profile.timeframe)
+            engine_payload.setdefault(
+                "confirmation_timeframe",
+                profile.confirmation_timeframe,
+            )
+            state["engine_payload"] = engine_payload
+
+            proposal_state = proposal_executor(state)
+            proposal_path = proposal_state["order_proposal_path"]
+            proposal = load_order_proposal(proposal_path)
+            analysis = {
+                "entry_profile": profile.name,
+                "order_proposal_path": proposal_path,
+                "telemetry_path": state.get("telemetry_path"),
+                "telemetry": engine_payload.get("telemetry", {}),
+                "data_status": engine_payload.get("data_status", {}),
+                "price_action_report": state.get("price_action_report", ""),
+                "trade_plan": state.get("trade_plan", ""),
+                "engine_status": engine_payload.get("status"),
+            }
+            rows.append((profile.name, profile_as_of, proposal, analysis))
+
+        if len(rows) == 1:
+            _profile, as_of, proposal, analysis = rows[0]
+            return as_of, proposal, analysis
+        return rows
 
     return analyze_once
 

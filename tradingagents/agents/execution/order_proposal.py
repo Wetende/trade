@@ -160,6 +160,15 @@ def _minutes_after(as_of: str, minutes: int, market_timezone: str) -> str:
         return as_of
 
 
+def _profile_suffix(state: dict) -> str:
+    payload = state.get("engine_payload") or {}
+    raw = state.get("entry_profile") or payload.get("entry_profile")
+    normalized = re.sub(r"[^0-9A-Za-z_-]+", "_", str(raw or "")).strip("_").lower()
+    if not normalized or normalized == "normal":
+        return ""
+    return f"_{normalized}"
+
+
 def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     payload = state.get("engine_payload") or {}
     if not payload:
@@ -295,15 +304,16 @@ def create_order_proposal_executor(config: dict):
     def load_engine_payload(state: dict) -> dict:
         safe_symbol = safe_ticker_component(state["company_of_interest"])
         safe_as_of = re.sub(r"[^0-9A-Za-z_-]+", "_", state.get("as_of", "unknown")).strip("_")
-        telemetry_path = (
-            Path(config["results_dir"])
-            / safe_symbol
-            / "engine_telemetry"
-            / f"engine_payload_{safe_as_of}.json"
-        )
-        if not telemetry_path.exists():
-            return {}
-        return json.loads(telemetry_path.read_text(encoding="utf-8"))
+        telemetry_dir = Path(config["results_dir"]) / safe_symbol / "engine_telemetry"
+        suffix = _profile_suffix(state)
+        candidates = []
+        if suffix:
+            candidates.append(telemetry_dir / f"engine_payload_{safe_as_of}{suffix}.json")
+        candidates.append(telemetry_dir / f"engine_payload_{safe_as_of}.json")
+        for telemetry_path in candidates:
+            if telemetry_path.exists():
+                return json.loads(telemetry_path.read_text(encoding="utf-8"))
+        return {}
 
     def order_proposal_node(state):
         enriched_state = dict(state)
@@ -319,7 +329,7 @@ def create_order_proposal_executor(config: dict):
         safe_as_of = re.sub(r"[^0-9A-Za-z_-]+", "_", state.get("as_of", "unknown")).strip("_")
         proposal_dir = Path(config["results_dir"]) / safe_symbol / "order_proposals"
         proposal_dir.mkdir(parents=True, exist_ok=True)
-        proposal_path = proposal_dir / f"order_proposal_{safe_as_of}.json"
+        proposal_path = proposal_dir / f"order_proposal_{safe_as_of}{_profile_suffix(enriched_state)}.json"
         proposal_path.write_text(
             json.dumps(proposal.model_dump(mode="json"), indent=2, sort_keys=True),
             encoding="utf-8",

@@ -201,8 +201,10 @@ def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
     }
 
     proposal_state = create_order_proposal_executor({"results_dir": tmp_path})(state)
-    proposal = json.loads(Path(proposal_state["order_proposal_path"]).read_text())
+    proposal_path = Path(proposal_state["order_proposal_path"])
+    proposal = json.loads(proposal_path.read_text())
 
+    assert proposal_path.name == "order_proposal_2026-06-03_08_15_fast.json"
     assert proposal["timeframe"] == "1m"
     assert proposal["confirmation_timeframe"] == "3m"
     assert proposal["activation_window_minutes"] == 6

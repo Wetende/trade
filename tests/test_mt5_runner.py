@@ -116,6 +116,42 @@ def test_runner_records_no_trade_without_execution(tmp_path):
     assert executor.executed == []
 
 
+def test_runner_executes_first_proposed_profile_and_marks_each_profile(tmp_path):
+    normal_no_trade = proposed_order()
+    normal_no_trade.status = OrderStatus.NO_TRADE
+    fast_order = proposed_order()
+    fast_order.timeframe = "1m"
+    fast_order.confirmation_timeframe = "3m"
+
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: [
+            (
+                "normal",
+                "2026-06-03 08:15",
+                normal_no_trade,
+                {"entry_profile": "normal"},
+            ),
+            (
+                "fast",
+                "2026-06-03 08:16",
+                fast_order,
+                {"entry_profile": "fast"},
+            ),
+        ],
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert result["entry_profile"] == "fast"
+    assert len(executor.executed) == 1
+    assert runner._load_state()["last_processed_by_profile"]["normal"] == "2026-06-03 08:15"
+    assert runner._load_state()["last_processed_by_profile"]["fast"] == "2026-06-03 08:16"
+
+
 def test_runner_marks_no_trade_candle_as_processed(tmp_path):
     no_trade = proposed_order()
     no_trade.status = OrderStatus.NO_TRADE
