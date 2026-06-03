@@ -81,7 +81,7 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli_main,
         "_mt5_runner_engine_analysis_func",
-        lambda: analysis_func,
+        lambda config=None: analysis_func,
         raising=False,
     )
 
@@ -131,7 +131,7 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli_main,
         "_mt5_runner_engine_analysis_func",
-        lambda: lambda: None,
+        lambda config=None: lambda: None,
         raising=False,
     )
 
@@ -177,7 +177,7 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
     monkeypatch.setattr(
         cli_main,
         "_mt5_runner_engine_analysis_func",
-        lambda: lambda: None,
+        lambda config=None: lambda: None,
         raising=False,
     )
 
@@ -223,7 +223,7 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
     monkeypatch.setattr(
         cli_main,
         "_mt5_runner_engine_analysis_func",
-        lambda: lambda: None,
+        lambda config=None: lambda: None,
         raising=False,
     )
 
@@ -279,7 +279,7 @@ def test_mt5_run_graph_decision_mode_uses_graph_analysis_func(monkeypatch, tmp_p
     monkeypatch.setattr(
         cli_main,
         "_mt5_runner_engine_analysis_func",
-        lambda: engine_analysis_func,
+        lambda config=None: engine_analysis_func,
         raising=False,
     )
 
@@ -419,6 +419,76 @@ def test_mt5_runner_engine_analysis_func_builds_proposal_from_engine(monkeypatch
     assert analysis["telemetry"]["decision_stage"] == "no_m15_setup"
     assert analysis["data_status"]["healthy"] is True
     assert analysis["order_proposal_path"].endswith("order_proposal_2026-06-01_08_15.json")
+
+
+def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path):
+    from tradingagents.brokers import mt5
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.dataflows.price_action import PriceActionSnapshot
+    from tradingagents.dataflows import mt5_price_action
+
+    seen = {}
+
+    class FakeMT5Broker:
+        def __init__(self, config):
+            self.config = config
+
+        def connect(self):
+            seen["connected_symbol"] = self.config.symbol
+            return {"connected": True}
+
+    def fake_snapshot(broker, *, as_of, market_timezone):
+        seen["snapshot_symbol"] = broker.config.symbol
+        seen["as_of"] = as_of
+        seen["market_timezone"] = market_timezone
+        return PriceActionSnapshot(
+            candles={timeframe: [] for timeframe in ("1d", "4h", "1h", "30m", "15m")},
+            data_status={
+                "healthy": False,
+                "blocking_timeframes": ["15m"],
+                "timeframes": {"15m": {"rows": 0}},
+            },
+        )
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda: {
+            "ticker": "GC=F",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": "2026-06-02T19:16:00-04:00",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "market_timezone": "America/New_York",
+        },
+    )
+    monkeypatch.setattr(mt5, "MT5Broker", FakeMT5Broker)
+    monkeypatch.setattr(
+        mt5_price_action,
+        "fetch_mt5_price_action_snapshot",
+        fake_snapshot,
+    )
+
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD.vx",
+    )
+
+    as_of, proposal, analysis = cli_main._mt5_runner_engine_analysis_func(config)()
+
+    assert as_of == "2026-06-02T19:16:00-04:00"
+    assert seen == {
+        "connected_symbol": "XAUUSD.vx",
+        "snapshot_symbol": "XAUUSD.vx",
+        "as_of": "2026-06-02T19:16:00-04:00",
+        "market_timezone": "America/New_York",
+    }
+    assert proposal.symbol == "XAUUSD.vx"
+    assert proposal.broker_symbol == "XAUUSD.vx"
+    assert analysis["engine_status"] == "NO_SETUP"
 
 
 def test_retired_account_specific_commands_are_not_registered():

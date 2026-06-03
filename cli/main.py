@@ -471,18 +471,39 @@ def _mt5_runner_analysis_func():
     return analyze_once
 
 
-def _mt5_runner_engine_analysis_func():
+def _mt5_runner_engine_analysis_func(mt5_config=None):
     def analyze_once():
         selections = build_env_selections()
         from tradingagents.agents.execution.order_proposal import (
             create_order_proposal_executor,
         )
         from tradingagents.agents.price_action.decision import run_engine_decision
+        from tradingagents.brokers.mt5 import MT5Broker
         from tradingagents.brokers.mt5_execution import load_order_proposal
+        from tradingagents.dataflows.mt5_price_action import (
+            fetch_mt5_price_action_snapshot,
+        )
+
+        engine_symbol = selections["ticker"]
+        broker_symbol = selections.get("broker_symbol")
+        snapshot = None
+        if mt5_config is not None:
+            engine_symbol = mt5_config.symbol
+            broker_symbol = mt5_config.symbol
+            analysis_broker = MT5Broker(mt5_config)
+            analysis_broker.connect()
+            snapshot = fetch_mt5_price_action_snapshot(
+                analysis_broker,
+                as_of=selections["as_of"],
+                market_timezone=selections.get(
+                    "market_timezone",
+                    DEFAULT_CONFIG["market_timezone"],
+                ),
+            )
 
         state = run_engine_decision(
-            symbol=selections["ticker"],
-            broker_symbol=selections.get("broker_symbol"),
+            symbol=engine_symbol,
+            broker_symbol=broker_symbol,
             as_of=selections["as_of"],
             results_dir=DEFAULT_CONFIG["results_dir"],
             timeframe=selections.get("timeframe", DEFAULT_CONFIG["timeframe"]),
@@ -495,6 +516,7 @@ def _mt5_runner_engine_analysis_func():
                 DEFAULT_CONFIG["market_timezone"],
             ),
             session_config=DEFAULT_CONFIG.get("price_action"),
+            snapshot=snapshot,
         )
         proposal_state = create_order_proposal_executor(DEFAULT_CONFIG)(state)
         proposal_path = proposal_state["order_proposal_path"]
@@ -597,7 +619,7 @@ def mt5_run(
         config = MT5ConnectionConfig.from_env()
         executor = MT5Executor(config, DEFAULT_CONFIG["results_dir"])
         analysis_func = (
-            _mt5_runner_engine_analysis_func()
+            _mt5_runner_engine_analysis_func(config)
             if normalized_decision_mode == "engine"
             else _mt5_runner_analysis_func()
         )
