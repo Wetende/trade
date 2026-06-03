@@ -236,6 +236,55 @@ def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):
     assert summary["profile_status_counts"]["normal"]["NO_TRADE"] == 1
 
 
+def test_runner_summary_counts_multi_profile_hold_reasons_and_data_health(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "profiles": [
+                {
+                    "entry_profile": "normal",
+                    "as_of": "2026-06-03 16:45",
+                    "status": "NO_TRADE",
+                    "proposal": {
+                        "status": "NO_TRADE",
+                        "reason": "Time filter failed. Default to HOLD.",
+                    },
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "time_filter",
+                            "primary_hold_reason": "Time filter failed. Default to HOLD.",
+                        },
+                        "data_status": {"healthy": True},
+                    },
+                },
+                {
+                    "entry_profile": "fast",
+                    "as_of": "2026-06-03 16:46",
+                    "status": "NO_TRADE",
+                    "proposal": {
+                        "status": "NO_TRADE",
+                        "reason": "Time filter failed. Default to HOLD.",
+                    },
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "time_filter",
+                            "primary_hold_reason": "Time filter failed. Default to HOLD.",
+                        },
+                        "data_status": {"healthy": True},
+                    },
+                },
+            ],
+        }
+    )
+
+    assert summary["hold_reason_counts"] == {"time_filter": 2}
+    assert summary["data_health"]["healthy_checks"] == 2
+    assert summary["data_health"]["unhealthy_checks"] == 0
+    assert summary["latest_cycle"]["hold_reason"] == "time_filter"
+
+
 def test_runner_summary_deduplicates_history_reconciliation(tmp_path):
     store = RunnerSummaryStore(tmp_path)
     result = {

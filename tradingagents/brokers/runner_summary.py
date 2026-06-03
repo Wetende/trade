@@ -140,6 +140,38 @@ class RunnerSummaryStore:
         data_status = analysis.get("data_status") or {}
         proposal = result.get("proposal") or {}
         reason = str(proposal.get("reason") or telemetry.get("primary_hold_reason") or status)
+        profile_rows = [
+            row for row in (result.get("profiles") or []) if isinstance(row, dict)
+        ]
+
+        hold_contexts: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        data_statuses: list[dict[str, Any]] = []
+        telemetry_sources: list[dict[str, Any]] = []
+        if profile_rows:
+            for profile_row in profile_rows:
+                profile_analysis = profile_row.get("analysis") or {}
+                profile_telemetry = profile_analysis.get("telemetry") or {}
+                profile_data_status = profile_analysis.get("data_status") or {}
+                profile_proposal = profile_row.get("proposal") or {}
+                telemetry_sources.append(profile_telemetry)
+                if profile_data_status:
+                    data_statuses.append(profile_data_status)
+                if str(profile_row.get("status") or "").upper() == "NO_TRADE":
+                    profile_reason = str(
+                        profile_proposal.get("reason")
+                        or profile_telemetry.get("primary_hold_reason")
+                        or profile_row.get("status")
+                        or status
+                    )
+                    hold_contexts.append(
+                        (profile_reason, profile_telemetry, profile_data_status)
+                    )
+        else:
+            telemetry_sources.append(telemetry)
+            if data_status:
+                data_statuses.append(data_status)
+            if status == "NO_TRADE":
+                hold_contexts.append((reason, telemetry, data_status))
 
         if countable_check:
             status_counts = Counter(summary.get("status_counts", {}))
@@ -164,19 +196,26 @@ class RunnerSummaryStore:
         approved_candidate_counts = Counter(
             summary.get("approved_candidate_strategy_counts", {})
         )
-        for item in telemetry.get("candidate_evaluations") or []:
-            setup = item.get("setup") or {}
-            setup_name = str(setup.get("name") or "unknown")
-            candidate_counts[setup_name] += 1
-            if item.get("approved") is True:
-                approved_candidate_counts[setup_name] += 1
+        for telemetry_source in telemetry_sources:
+            for item in telemetry_source.get("candidate_evaluations") or []:
+                setup = item.get("setup") or {}
+                setup_name = str(setup.get("name") or "unknown")
+                candidate_counts[setup_name] += 1
+                if item.get("approved") is True:
+                    approved_candidate_counts[setup_name] += 1
         summary["candidate_strategy_counts"] = dict(candidate_counts)
         summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
 
         if countable_check and status == "NO_TRADE":
-            hold_reason = categorize_hold_reason(reason, telemetry, data_status)
             hold_counts = Counter(summary.get("hold_reason_counts", {}))
-            hold_counts[hold_reason] += 1
+            for hold_reason, hold_telemetry, hold_data_status in hold_contexts:
+                hold_counts[
+                    categorize_hold_reason(
+                        hold_reason,
+                        hold_telemetry,
+                        hold_data_status,
+                    )
+                ] += 1
             summary["hold_reason_counts"] = dict(hold_counts)
 
         execution = result.get("execution") or {}
@@ -218,28 +257,41 @@ class RunnerSummaryStore:
                 "heartbeat_utc": result.get("heartbeat_utc"),
             }
 
-        if countable_check and data_status:
+        if countable_check and data_statuses:
             data_health = summary.setdefault("data_health", {})
-            data_health["latest_status"] = data_status
-            if data_status.get("healthy", True):
-                data_health["healthy_checks"] = int(data_health.get("healthy_checks", 0)) + 1
-            else:
-                data_health["unhealthy_checks"] = int(data_health.get("unhealthy_checks", 0)) + 1
+            for current_data_status in data_statuses:
+                data_health["latest_status"] = current_data_status
+                if current_data_status.get("healthy", True):
+                    data_health["healthy_checks"] = int(data_health.get("healthy_checks", 0)) + 1
+                else:
+                    data_health["unhealthy_checks"] = int(data_health.get("unhealthy_checks", 0)) + 1
 
         self._record_trade_history(
             summary,
             result.get("history_reconciliation") or {},
         )
 
+        latest_hold_reason = None
+        if status == "NO_TRADE":
+            categorized_reasons = [
+                categorize_hold_reason(
+                    hold_reason,
+                    hold_telemetry,
+                    hold_data_status,
+                )
+                for hold_reason, hold_telemetry, hold_data_status in hold_contexts
+            ]
+            unique_reasons = sorted(set(categorized_reasons))
+            if len(unique_reasons) == 1:
+                latest_hold_reason = unique_reasons[0]
+            elif len(unique_reasons) > 1:
+                latest_hold_reason = "mixed"
+
         summary["latest_cycle"] = {
             "status": status,
             "as_of": result.get("as_of"),
             "heartbeat_utc": result.get("heartbeat_utc"),
-            "hold_reason": (
-                categorize_hold_reason(reason, telemetry, data_status)
-                if status == "NO_TRADE"
-                else None
-            ),
+            "hold_reason": latest_hold_reason,
         }
         self._append_cycle(result)
         self._write_summary(summary)
