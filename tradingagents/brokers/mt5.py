@@ -854,6 +854,8 @@ class MT5Broker:
 
         mt5 = self._module()
         timeframe_constants = {
+            "1m": getattr(mt5, "TIMEFRAME_M1", None),
+            "3m": getattr(mt5, "TIMEFRAME_M3", None),
             "15m": getattr(mt5, "TIMEFRAME_M15", None),
             "30m": getattr(mt5, "TIMEFRAME_M30", None),
             "1h": getattr(mt5, "TIMEFRAME_H1", None),

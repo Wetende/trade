@@ -29,6 +29,8 @@ class FakeMT5:
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
     ORDER_FILLING_RETURN = 2
+    TIMEFRAME_M1 = 1
+    TIMEFRAME_M3 = 3
     TIMEFRAME_M15 = 15
     TIMEFRAME_M30 = 30
     TIMEFRAME_H1 = 60
@@ -633,6 +635,38 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "close": 4501.60,
             "volume": 140.0,
         },
+    ]
+
+
+def test_mt5_broker_fetch_rates_supports_one_and_three_minute_timeframes():
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1779613200,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+        }
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    broker.fetch_rates("1m", 1)
+    broker.fetch_rates("3m", 1)
+
+    assert fake.copy_rates_calls[-2:] == [
+        ("XAUUSD", fake.TIMEFRAME_M1, 0, 1),
+        ("XAUUSD", fake.TIMEFRAME_M3, 0, 1),
     ]
 
 

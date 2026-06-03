@@ -13,6 +13,8 @@ MAX_AGE_MINUTES = {
     "1h": 180,
     "30m": 90,
     "15m": 45,
+    "3m": 15,
+    "1m": 5,
 }
 
 MAX_FUTURE_DRIFT_MINUTES = {
@@ -21,6 +23,8 @@ MAX_FUTURE_DRIFT_MINUTES = {
     "1h": 60,
     "30m": 30,
     "15m": 30,
+    "3m": 6,
+    "1m": 3,
 }
 
 REQUIRED_TIMEFRAMES = ("1d", "4h", "1h", "30m", "15m")
@@ -51,12 +55,15 @@ def build_data_status(
     timeframe_data: dict[str, list[Any]],
     as_of: str,
     market_timezone: str,
+    required_timeframes: tuple[str, ...] = REQUIRED_TIMEFRAMES,
+    trading_timeframe: str = "15m",
+    confirmation_timeframe: str = "30m",
 ) -> dict[str, Any]:
     as_of_dt = _parse_timestamp(as_of, market_timezone)
     statuses: dict[str, dict[str, Any]] = {}
     blocking: list[str] = []
 
-    for timeframe in REQUIRED_TIMEFRAMES:
+    for timeframe in required_timeframes:
         candles = timeframe_data.get(timeframe, [])
         latest = _latest_timestamp(candles, market_timezone)
         available = bool(candles)
@@ -83,8 +90,8 @@ def build_data_status(
         "healthy": not blocking,
         "blocking_timeframes": blocking,
         "timeframes": statuses,
-        "trading_timeframe": statuses["15m"],
-        "confirmation_timeframe": statuses["30m"],
+        "trading_timeframe": statuses[trading_timeframe],
+        "confirmation_timeframe": statuses[confirmation_timeframe],
     }
 
 

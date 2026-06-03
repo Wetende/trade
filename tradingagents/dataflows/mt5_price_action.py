@@ -15,6 +15,8 @@ MT5_TIMEFRAME_COUNTS = {
     "1h": 1200,
     "30m": 500,
     "15m": 1000,
+    "3m": 1200,
+    "1m": 1500,
 }
 
 
@@ -47,8 +49,17 @@ def fetch_mt5_price_action_snapshot(
         "1h": candles_by_timeframe["1h"],
         "30m": candles_by_timeframe["30m"],
         "15m": candles_by_timeframe["15m"],
+        "3m": candles_by_timeframe["3m"],
+        "1m": candles_by_timeframe["1m"],
     }
     return PriceActionSnapshot(
         candles=candles,
-        data_status=build_data_status(candles, as_of, market_timezone),
+        data_status=build_data_status(
+            candles,
+            as_of,
+            market_timezone,
+            required_timeframes=tuple(candles),
+            trading_timeframe="15m",
+            confirmation_timeframe="30m",
+        ),
     )
