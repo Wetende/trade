@@ -333,6 +333,7 @@ def test_mt5_runner_analysis_func_attaches_engine_telemetry(monkeypatch, tmp_pat
     )
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,
         "build_env_selections",
@@ -364,6 +365,7 @@ def test_mt5_runner_engine_analysis_func_builds_proposal_from_engine(monkeypatch
     from tradingagents.agents.price_action import decision
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,
         "build_env_selections",
@@ -506,6 +508,105 @@ def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):
     assert seen == [("1m", "America/New_York")]
 
 
+def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
+    monkeypatch,
+    tmp_path,
+):
+    from tradingagents.agents.price_action import decision
+    from tradingagents.agents.price_action.models import Candle
+    from tradingagents.brokers import mt5
+    from tradingagents.dataflows import mt5_price_action
+    from tradingagents.dataflows.price_action import PriceActionSnapshot
+
+    calls = []
+
+    class Config:
+        symbol = "XAUUSD.vx"
+
+    class FakeMT5Broker:
+        def __init__(self, config):
+            self.config = config
+
+        def connect(self):
+            return {"connected": True}
+
+    rows = {
+        "1d": [Candle("2026-06-03 00:00:00", 100, 102, 99, 101, 1000)],
+        "4h": [Candle("2026-06-03 08:00:00", 100, 102, 99, 101, 1000)],
+        "1h": [Candle("2026-06-03 08:00:00", 100, 102, 99, 101, 1000)],
+        "30m": [Candle("2026-06-03 08:00:00", 100, 102, 99, 101, 1000)],
+        "15m": [Candle("2026-06-03 08:15:00", 100, 102, 99, 101, 1000)],
+        "3m": [Candle("2026-06-03 08:15:00", 100, 102, 99, 101, 1000)],
+        "1m": [Candle("2026-06-03 08:16:00", 100, 102, 99, 101, 1000)],
+    }
+
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "3m")
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda as_of=None: {
+            "ticker": "XAUUSD.vx",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": as_of or "2026-06-03 08:15",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "market_timezone": "America/New_York",
+        },
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "last_closed_candle",
+        lambda timeframe, market_timezone: (
+            "2026-06-03 08:16" if timeframe == "1m" else "2026-06-03 08:15"
+        ),
+    )
+    monkeypatch.setattr(mt5, "MT5Broker", FakeMT5Broker)
+    monkeypatch.setattr(
+        mt5_price_action,
+        "fetch_mt5_price_action_snapshot",
+        lambda broker, *, as_of, market_timezone: PriceActionSnapshot(
+            candles=rows,
+            data_status={"healthy": False, "blocking_timeframes": ["1m", "3m"]},
+        ),
+    )
+
+    def fake_run_engine_decision(**kwargs):
+        calls.append(kwargs)
+        return {
+            "company_of_interest": kwargs["symbol"],
+            "broker_symbol": kwargs["broker_symbol"],
+            "as_of": kwargs["as_of"],
+            "timeframe": kwargs["timeframe"],
+            "confirmation_timeframe": kwargs["confirmation_timeframe"],
+            "market_timezone": kwargs["market_timezone"],
+            "price_action_report": "Action: HOLD",
+            "trade_plan": "Action: HOLD",
+            "telemetry_path": str(tmp_path / f"{kwargs['timeframe']}.json"),
+            "engine_payload": {
+                "status": "NO_SETUP",
+                "recommendation": "HOLD",
+                "message": "No setup.",
+                "entry_profile": kwargs["session_config"]["entry_profile"],
+                "telemetry": {"decision_stage": "no_m15_setup"},
+                "data_status": kwargs["snapshot"].data_status,
+            },
+        }
+
+    monkeypatch.setattr(decision, "run_engine_decision", fake_run_engine_decision)
+
+    cli_main._mt5_runner_engine_analysis_func(Config())()
+
+    assert calls[0]["snapshot"].data_status["healthy"] is True
+    assert calls[0]["snapshot"].data_status["trading_timeframe"]["interval"] == "15m"
+    assert calls[0]["snapshot"].data_status["confirmation_timeframe"]["interval"] == "30m"
+    assert calls[1]["snapshot"].data_status["healthy"] is True
+    assert calls[1]["snapshot"].data_status["trading_timeframe"]["interval"] == "1m"
+    assert calls[1]["snapshot"].data_status["confirmation_timeframe"]["interval"] == "3m"
+
+
 def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path):
     from tradingagents.brokers import mt5
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
@@ -536,6 +637,7 @@ def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path
         )
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,
         "build_env_selections",

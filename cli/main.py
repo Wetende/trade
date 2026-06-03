@@ -511,9 +511,11 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
         from tradingagents.agents.price_action.profiles import fast_profile, normal_profile
         from tradingagents.brokers.mt5 import MT5Broker
         from tradingagents.brokers.mt5_execution import load_order_proposal
+        from tradingagents.dataflows.data_health import build_data_status
         from tradingagents.dataflows.mt5_price_action import (
             fetch_mt5_price_action_snapshot,
         )
+        from tradingagents.dataflows.price_action import PriceActionSnapshot
 
         engine_symbol = selections["ticker"]
         broker_symbol = selections.get("broker_symbol")
@@ -558,6 +560,28 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 "independent_direction": profile.independent_direction,
                 "fast_counter_bias_minimum_grade": profile.counter_bias_minimum_grade,
             }
+            profile_snapshot = snapshot
+            if snapshot is not None:
+                required_timeframes = tuple(
+                    dict.fromkeys(
+                        (
+                            *profile.zone_timeframes,
+                            profile.timeframe,
+                            profile.confirmation_timeframe,
+                        )
+                    )
+                )
+                profile_snapshot = PriceActionSnapshot(
+                    candles=snapshot.candles,
+                    data_status=build_data_status(
+                        snapshot.candles,
+                        profile_as_of,
+                        market_timezone,
+                        required_timeframes=required_timeframes,
+                        trading_timeframe=profile.timeframe,
+                        confirmation_timeframe=profile.confirmation_timeframe,
+                    ),
+                )
             state = run_engine_decision(
                 symbol=engine_symbol,
                 broker_symbol=broker_symbol,
@@ -567,7 +591,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 confirmation_timeframe=profile.confirmation_timeframe,
                 market_timezone=market_timezone,
                 session_config=profile_config,
-                snapshot=snapshot,
+                snapshot=profile_snapshot,
             )
             state["entry_profile"] = profile.name
             state["activation_window_minutes"] = profile.activation_window_minutes
