@@ -239,6 +239,7 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_MT5_VOLUME", "0.01")
     monkeypatch.setenv("TRADINGAGENTS_MT5_DEVIATION", "20")
     monkeypatch.setenv("TRADINGAGENTS_MT5_MAGIC", "150015")
+    monkeypatch.setenv("TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS", "8.5")
 
     config = MT5ConnectionConfig.from_env()
 
@@ -247,6 +248,7 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     assert config.volume == 0.01
     assert config.deviation == 20
     assert config.magic == 150015
+    assert config.max_entry_distance_points == 8.5
 
 
 def test_mt5_config_accepts_direct_connection_without_mode_fields():
@@ -351,6 +353,7 @@ def test_mt5_config_rejects_negative_integer_guard_env_values(
         ("TRADINGAGENTS_MT5_VOLUME", "not-a-number"),
         ("TRADINGAGENTS_MT5_DEVIATION", "not-a-number"),
         ("TRADINGAGENTS_MT5_MAGIC", "not-a-number"),
+        ("TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS", "not-a-number"),
     ),
 )
 def test_mt5_config_rejects_invalid_numeric_env_values(monkeypatch, name, value):
@@ -376,6 +379,23 @@ def test_mt5_config_rejects_non_positive_or_non_finite_volume_env(
         MT5ConnectionConfig.from_env()
 
 
+@pytest.mark.parametrize("value", ("nan", "inf", "-inf", "-0.01"))
+def test_mt5_config_rejects_negative_or_non_finite_entry_distance_env(
+    monkeypatch,
+    value,
+):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS", value)
+
+    with pytest.raises(
+        MT5BrokerError,
+        match="MT5 max entry distance points must be non-negative",
+    ):
+        MT5ConnectionConfig.from_env()
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     (
@@ -383,10 +403,22 @@ def test_mt5_config_rejects_non_positive_or_non_finite_volume_env(
         ({"magic": -1}, "MT5 magic must be non-negative"),
         ({"deviation": "-1"}, "MT5 deviation must be non-negative"),
         ({"magic": "-1"}, "MT5 magic must be non-negative"),
+        (
+            {"max_entry_distance_points": -1},
+            "MT5 max entry distance points must be non-negative",
+        ),
+        (
+            {"max_entry_distance_points": "-1"},
+            "MT5 max entry distance points must be non-negative",
+        ),
         ({"deviation": True}, "MT5 deviation must be numeric"),
         ({"magic": False}, "MT5 magic must be numeric"),
         ({"deviation": 1.0}, "MT5 deviation must be numeric"),
         ({"magic": 1.0}, "MT5 magic must be numeric"),
+        (
+            {"max_entry_distance_points": "not-a-number"},
+            "MT5 max entry distance points must be numeric",
+        ),
     ),
 )
 def test_mt5_config_rejects_direct_invalid_integer_guards(kwargs, match):

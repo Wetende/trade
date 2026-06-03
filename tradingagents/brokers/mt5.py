@@ -44,6 +44,7 @@ class MT5ConnectionConfig:
     deviation: int = 20
     magic: int = 150015
     order_comment: str = "TradingAgents"
+    max_entry_distance_points: float = 10.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.allow_real_orders, bool):
@@ -68,6 +69,24 @@ class MT5ConnectionConfig:
         )
         object.__setattr__(
             self, "magic", _coerce_nonnegative_int_guard(self.magic, "MT5 magic")
+        )
+        try:
+            max_entry_distance_points = float(self.max_entry_distance_points)
+        except (TypeError, ValueError) as exc:
+            raise MT5BrokerError(
+                "MT5 max entry distance points must be numeric"
+            ) from exc
+        if (
+            not math.isfinite(max_entry_distance_points)
+            or max_entry_distance_points < 0
+        ):
+            raise MT5BrokerError(
+                "MT5 max entry distance points must be non-negative"
+            )
+        object.__setattr__(
+            self,
+            "max_entry_distance_points",
+            max_entry_distance_points,
         )
 
     @classmethod
@@ -109,6 +128,10 @@ class MT5ConnectionConfig:
             magic=_nonnegative_int_env("TRADINGAGENTS_MT5_MAGIC", 150015),
             order_comment=os.environ.get(
                 "TRADINGAGENTS_MT5_ORDER_COMMENT", "TradingAgents"
+            ),
+            max_entry_distance_points=_float_env(
+                "TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS",
+                10.0,
             ),
         )
 
@@ -221,6 +244,26 @@ class MT5OrderRequestBuilder:
         if distance is not None and distance < min_distance:
             raise ValueError("entry price is inside broker stop level")
 
+    def _assert_entry_near_quote(
+        self,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> None:
+        max_distance = float(self.config.max_entry_distance_points)
+        if max_distance <= 0:
+            return
+        if symbol_info.get("bid") in (None, "") or symbol_info.get("ask") in (None, ""):
+            return
+
+        bid, ask = self._quote(symbol_info)
+        distance = min(abs(entry - bid), abs(entry - ask))
+        if distance > max_distance:
+            raise ValueError(
+                "entry price is too far from live MT5 quote: "
+                f"entry={entry}, bid={bid}, ask={ask}, "
+                f"distance={distance:.2f}, max_distance={max_distance:.2f}"
+            )
+
     def build_pending_order_request(
         self,
         proposal: OrderProposal,
@@ -251,6 +294,7 @@ class MT5OrderRequestBuilder:
         entry = self._round_price(proposal.entry_price, symbol_info)
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
+        self._assert_entry_near_quote(entry, symbol_info)
         request_type = self._resolve_order_type(proposal, entry, symbol_info)
         self._assert_stop_level_distance(request_type, entry, symbol_info)
         if request_type in {"BUY_LIMIT", "BUY_STOP"} and not (stop < entry < target):

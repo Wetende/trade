@@ -578,6 +578,38 @@ def test_executor_skips_stale_auto_entry_without_broker_send(tmp_path):
     assert broker.placed_requests == []
 
 
+def test_executor_skips_entry_far_from_live_quote(tmp_path):
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        max_entry_distance_points=10.0,
+    )
+    broker = FakeBroker()
+    broker.symbol_info = {
+        "name": "XAUUSD",
+        "bid": 4476.39,
+        "ask": 4476.72,
+        "digits": 2,
+        "point": 0.01,
+        "trade_tick_size": 0.01,
+        "trade_stops_level": 50,
+    }
+    proposal = _proposal(TradeAction.SELL)
+    proposal.entry_price = 4517.47
+    proposal.stop_loss = 4517.91
+    proposal.take_profit = 4516.15
+    proposal.broker_symbol = "XAUUSD"
+    executor = MT5Executor(config, tmp_path, broker=broker)
+
+    result = executor.execute_proposal(proposal)
+
+    assert result["status"] == "SKIPPED_INVALID_ENTRY"
+    assert "too far from live MT5 quote" in result["error"]
+    assert broker.placed_requests == []
+
+
 def test_executor_journals_connection_request_and_order_result(tmp_path):
     broker = FakeBroker()
     executor = MT5Executor(_config(), tmp_path, broker=broker)
