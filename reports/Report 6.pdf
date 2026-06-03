@@ -1,0 +1,213 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 2684 >>
+stream
+BT /F1 10 Tf 14 TL 44 802 Td
+(Report 6: Overnight MT5 Forward Test And Price Feed Mismatch) Tj T*
+() Tj T*
+(Report date: 2026-06-03) Tj T*
+(Market: Gold) Tj T*
+(Analysis symbol used during run: GC=F) Tj T*
+(Broker execution symbol: XAUUSD.vx) Tj T*
+(Run directory: C:\\Users\\Administrator\\.tradingagents\\sessions\\2026-06-02-overnight-b-plus) Tj T*
+(Run type: MT5 forward test with deterministic engine decisions and B+ enabled) Tj T*
+(Run window observed in logs: 2026-06-02 15:04 to 23:13 New York time) Tj T*
+() Tj T*
+(1. Executive Summary) Tj T*
+() Tj T*
+(The overnight forward test was successful as a systems test, but it was not a valid execution-) Tj T*
+(quality test because the analysis price feed and broker execution price feed were not the same) Tj T*
+(instrument.) Tj T*
+() Tj T*
+(The bot ran, generated fresh telemetry, detected tradeable A+ setups, built MT5 requests,) Tj T*
+(placed three pending orders, monitored them, and cancelled them after the activation window) Tj T*
+(expired. There were no broker rejections and the account ended flat with no open orders or) Tj T*
+(positions.) Tj T*
+() Tj T*
+(The reason the trades did not fill is now clear: the engine calculated Gold entries from Yahoo) Tj T*
+(GC=F, then sent those raw prices to MT5 for XAUUSD.vx. At the moments of order placement, the) Tj T*
+(proposed entries were about 24 to 41 points away from the live MT5 quote. With a 10-minute) Tj T*
+(activation window, those orders were very unlikely to trigger.) Tj T*
+() Tj T*
+(This means the main bug is not MT5 connectivity, not auto-trading permission, and not the) Tj T*
+(order type logic. The main bug is the live execution data basis.) Tj T*
+() Tj T*
+(2. Run Results) Tj T*
+() Tj T*
+(| Metric | Result |) Tj T*
+(| Real runner checks | 93 |) Tj T*
+(| NO_TRADE decisions | 30 |) Tj T*
+(| ORDER_PLACED events | 3 |) Tj T*
+(| ACTIVE_TRADE_MONITORED events | 60 |) Tj T*
+(| Broker rejections | 0 |) Tj T*
+(| Broker skipped executions | 0 |) Tj T*
+(| Open orders after stop | 0 |) Tj T*
+(| Open positions after stop | 0 |) Tj T*
+(| Healthy fresh checks | 31 |) Tj T*
+(| Unhealthy fresh checks | 2 |) Tj T*
+() Tj T*
+(The bot did more than idle. It made decisions, submitted orders, and monitored the broker. The) Tj T*
+(missing fill is explained by the distance between GC=F-based levels and the live XAUUSD.vx) Tj T*
+(market.) Tj T*
+() Tj T*
+(3. Orders Placed) Tj T*
+() Tj T*
+(| New York time | Side | Setup | Grade | Entry | Stop | Target | MT5 type | Order | Outcome |) Tj T*
+(| 2026-06-02 19:15 | SELL | Breakout | A_PLUS | 4517.4708 | 4517.9101 | 4516.1529 | SELL_LIMIT) Tj T*
+(| 77700611 | Accepted, then cancelled after activation window |) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 2662 >>
+stream
+BT /F1 10 Tf 14 TL 44 802 Td
+(| 2026-06-02 22:15 | SELL | Breakout | A_PLUS | 4503.7660 | 4504.4748 | 4501.6396 | SELL_LIMIT) Tj T*
+(| 77949137 | Accepted, then cancelled after activation window |) Tj T*
+(| 2026-06-02 22:45 | BUY | Support/Resistance Bounce | A_PLUS | 4503.2716 | 4502.4652 |) Tj T*
+(4505.6908 | BUY_STOP | 77987318 | Accepted, then cancelled after activation window |) Tj T*
+() Tj T*
+(All three orders were valid enough for MT5 to accept. None became live positions.) Tj T*
+() Tj T*
+(4. Why The Trades Did Not Fill) Tj T*
+() Tj T*
+(At placement time, the live MT5 quote for XAUUSD.vx was far below the engine's proposed entry) Tj T*
+(price. The gap was too large for a short activation window.) Tj T*
+() Tj T*
+(| New York time | Order type | Engine entry | MT5 quote at placement | Approximate distance |) Tj T*
+(| 2026-06-02 19:15 | SELL_LIMIT | 4517.47 | 4476.39 / 4476.72 | +41 points |) Tj T*
+(| 2026-06-02 22:15 | SELL_LIMIT | 4503.77 | 4479.57 / 4479.86 | +24 points |) Tj T*
+(| 2026-06-02 22:45 | BUY_STOP | 4503.27 | 4477.09 / 4477.38 | +26 points |) Tj T*
+() Tj T*
+(For a pending order to fill, market price must trade into the pending entry. These entries) Tj T*
+(were not sitting near the broker's live Gold price. They were levels from a different price) Tj T*
+(feed.) Tj T*
+() Tj T*
+(The 10-minute cancellation behavior worked as intended. It removed stale pending orders) Tj T*
+(instead of leaving old orders in the market overnight.) Tj T*
+() Tj T*
+(5. Root Cause) Tj T*
+() Tj T*
+(The live runner was configured with:) Tj T*
+() Tj T*
+(| Setting | Value |) Tj T*
+(| TRADINGAGENTS_ANALYSIS_SYMBOL | GC=F |) Tj T*
+(| TRADINGAGENTS_BROKER_SYMBOL | XAUUSD.vx |) Tj T*
+(| TRADINGAGENTS_MT5_SYMBOL | XAUUSD.vx |) Tj T*
+() Tj T*
+(The deterministic engine fetched candle data for GC=F, then built exact entry, stop, and) Tj T*
+(target prices from that feed. The MT5 execution path then used those exact levels on) Tj T*
+(XAUUSD.vx.) Tj T*
+() Tj T*
+(That is unsafe for live execution because futures-like Yahoo Gold pricing and the broker CFD) Tj T*
+(symbol are not guaranteed to match point-for-point. The test proved they were not matching) Tj T*
+(during this run.) Tj T*
+() Tj T*
+(6. B+ Review) Tj T*
+() Tj T*
+(B+ grading was enabled during the run, but it did not affect execution.) Tj T*
+() Tj T*
+(| Grade | Filled candidates | Placed orders |) Tj T*
+(| A_PLUS | 3 | 3 |) Tj T*
+(| B_PLUS | 0 | 0 |) Tj T*
+() Tj T*
+(This is useful evidence. The B+ code path did not create low-quality trades overnight. The) Tj T*
+(three orders came from A+ candidates, but they still failed to fill because the price basis) Tj T*
+(was wrong.) Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 2514 >>
+stream
+BT /F1 10 Tf 14 TL 44 802 Td
+() Tj T*
+(7. What Worked) Tj T*
+() Tj T*
+(The following parts of the system behaved correctly:) Tj T*
+() Tj T*
+(- Fresh telemetry session isolation worked.) Tj T*
+(- Duplicate processed-candle checks no longer inflated the summary.) Tj T*
+(- MT5 connection and account verification worked.) Tj T*
+(- The broker accepted pending orders.) Tj T*
+(- Active trade monitoring worked.) Tj T*
+(- Stale pending order cancellation worked.) Tj T*
+(- B+ grading did not accidentally overtrade.) Tj T*
+() Tj T*
+(This means the execution framework is close. The next blocker is feeding the engine with the) Tj T*
+(same price source used for execution.) Tj T*
+() Tj T*
+(8. What Must Change Before The Next Overnight Run) Tj T*
+() Tj T*
+(The live MT5 runner should stop using GC=F as the execution analysis feed.) Tj T*
+() Tj T*
+(The safer design is:) Tj T*
+() Tj T*
+(1. Fetch XAUUSD.vx candles directly from MT5.) Tj T*
+(2. Build the same 15m, 30m, 1h, 4h, and daily snapshot the deterministic engine already) Tj T*
+(expects.) Tj T*
+(3. Run the same engine against that MT5 snapshot.) Tj T*
+(4. Place orders only when the proposed entry is near the current MT5 bid/ask.) Tj T*
+(5. Keep GC=F only for non-execution reports or separate comparison research.) Tj T*
+() Tj T*
+(The order type logic does not need to be the first fix. It already selected stop or limit) Tj T*
+(pending orders based on the live quote. The bigger issue is that the entry price itself came) Tj T*
+(from the wrong market.) Tj T*
+() Tj T*
+(9. Recommended Next Test) Tj T*
+() Tj T*
+(After implementing the MT5-native data feed:) Tj T*
+() Tj T*
+(1. Run broker-probe and confirm the account, server, and XAUUSD.vx quote.) Tj T*
+(2. Run one engine cycle only.) Tj T*
+(3. Confirm the engine payload says the data source is MT5.) Tj T*
+(4. Confirm proposal symbol, broker_symbol, and MT5 symbol all point to XAUUSD.vx.) Tj T*
+(5. Confirm proposed entry is within the configured maximum distance from MT5 bid/ask.) Tj T*
+(6. Start a new fresh telemetry directory for the next overnight session.) Tj T*
+() Tj T*
+(10. Conclusion) Tj T*
+() Tj T*
+(The bot did not fail because it could not trade. It failed to fill because it traded levels) Tj T*
+(calculated from GC=F while executing on XAUUSD.vx.) Tj T*
+() Tj T*
+(The next serious overnight test should not begin until the engine is fed by MT5 candles for) Tj T*
+(XAUUSD.vx and the executor has a price-distance guard that blocks proposals too far from the) Tj T*
+(broker quote.) Tj T*
+ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000323 00000 n 
+0000003059 00000 n 
+0000003185 00000 n 
+0000005899 00000 n 
+0000006025 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+8591
+%%EOF
