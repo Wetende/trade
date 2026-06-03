@@ -598,8 +598,8 @@ def test_executor_skips_entry_far_from_live_quote(tmp_path):
     }
     proposal = _proposal(TradeAction.SELL)
     proposal.entry_price = 4517.47
-    proposal.stop_loss = 4517.91
-    proposal.take_profit = 4516.15
+    proposal.stop_loss = 4520.47
+    proposal.take_profit = 4510.47
     proposal.broker_symbol = "XAUUSD"
     executor = MT5Executor(config, tmp_path, broker=broker)
 
@@ -753,6 +753,7 @@ def test_executor_cancel_stale_handles_no_active_order(tmp_path):
 
 def test_executor_keeps_state_when_stale_cancel_fails(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     broker.cancel_result = {"ok": False, "retcode": 10030, "comment": "not found"}
 
     def cancel_order(ticket):
