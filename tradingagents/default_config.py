@@ -25,6 +25,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_RUNNER_MAX_CYCLES":    "runner_max_cycles",
     "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
     "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
+    "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
     "TRADINGAGENTS_TIME_FILTER_MODE":     "time_filter_mode",
     "TRADINGAGENTS_DECISION_MODE":        "decision_mode",
     "TRADINGAGENTS_MIN_SETUP_GRADE":      "minimum_setup_grade",
@@ -48,6 +49,8 @@ def _coerce(value: str, reference):
         return int(value)
     if isinstance(reference, float):
         return float(value)
+    if isinstance(reference, tuple):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
     return value
 
 
@@ -61,10 +64,23 @@ def _apply_env_overrides(config: dict) -> dict:
     return config
 
 
+def _env_or_default(name: str, default: str) -> str:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    return raw
+
+
 DEFAULT_CONFIG = _apply_env_overrides({
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
-    "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
-    "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
+    "results_dir": _env_or_default(
+        "TRADINGAGENTS_RESULTS_DIR",
+        os.path.join(_TRADINGAGENTS_HOME, "logs"),
+    ),
+    "data_cache_dir": _env_or_default(
+        "TRADINGAGENTS_CACHE_DIR",
+        os.path.join(_TRADINGAGENTS_HOME, "cache"),
+    ),
     # Symbol semantics: analysis_symbol is the market data/reporting symbol;
     # broker_symbol is the execution symbol used by broker integrations.
     "analysis_symbol": None,
@@ -97,6 +113,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "runner_max_cycles": 0,
     "runner_max_runtime_seconds": 0,
     "runner_max_session_loss": 0.0,
+    "runner_blocked_strategy_rules": (),
     "decision_mode": "engine",
     "time_filter_mode": DEFAULT_SESSION_CONFIG["time_filter_mode"],
     "minimum_setup_grade": DEFAULT_SESSION_CONFIG["minimum_setup_grade"],

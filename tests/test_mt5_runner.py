@@ -465,6 +465,36 @@ def test_runner_records_invalid_entry_skip_as_order_not_placed(tmp_path):
     )
 
 
+def test_runner_blocks_configured_strategy_rule_before_execution(tmp_path):
+    proposal = proposed_order()
+    proposal.side = TradeAction.SELL
+    proposal.setup_name = "Support/Resistance Bounce"
+    proposal.strategy_type = "SUPPORT_RESISTANCE_BOUNCE"
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            blocked_strategy_rules=("SUPPORT_RESISTANCE_BOUNCE:SELL",),
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_BLOCKED_STRATEGY"
+    assert result["execution"]["status"] == "SKIPPED_BLOCKED_STRATEGY"
+    assert result["execution"]["reason"] == "BLOCKED_STRATEGY_RULE"
+    assert result["execution"]["matched_rule"] == "SUPPORT_RESISTANCE_BOUNCE:SELL"
+    assert executor.executed == []
+    assert (
+        result["summary"]["execution_skip_counts"]["BLOCKED_STRATEGY_RULE"]
+        == 1
+    )
+
+
 def test_runner_records_summary_for_no_trade_with_analysis_metadata(tmp_path):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE

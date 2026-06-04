@@ -42,6 +42,15 @@ def test_mt5_run_command_exists():
     assert "--decision-mode" in result.output
 
 
+def test_mt5_straddle_run_command_exists():
+    result = runner.invoke(app, ["mt5-straddle-run", "--help"])
+
+    assert result.exit_code == 0
+    assert "Run isolated MT5 straddle breakout" in result.output
+    assert "--live" in result.output
+    assert "--watch" in result.output
+
+
 def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
     from tradingagents.brokers import mt5_execution, mt5_runner
@@ -75,6 +84,11 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
 
     _isolate_runtime_env(monkeypatch)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(
+        cli_main.DEFAULT_CONFIG,
+        "runner_blocked_strategy_rules",
+        ("SUPPORT_RESISTANCE_BOUNCE:SELL",),
+    )
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
@@ -95,8 +109,169 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     }
     assert calls["executor_config"] is config
     assert calls["executor_results_dir"] == tmp_path
+    assert calls["runner_config"].blocked_strategy_rules == (
+        "SUPPORT_RESISTANCE_BOUNCE:SELL",
+    )
     assert calls["runner_analysis_func"] is analysis_func
     assert calls["run_once"] is True
+
+
+def test_mt5_straddle_run_defaults_to_dry_run(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_straddle
+
+    config = MT5ConnectionConfig(
+        login=123,
+        password="secret",
+        server="Example",
+        symbol="XAUUSD.vx",
+    )
+    pair = object()
+    calls = {}
+
+    class Executor:
+        def __init__(self, received_config, results_dir):
+            calls["executor_config"] = received_config
+            calls["executor_results_dir"] = results_dir
+
+        def build_pair(self, straddle_config):
+            calls["straddle_config"] = straddle_config
+            return pair
+
+        def execute_pair(self, received_pair, live=False):
+            calls["execute_pair"] = (received_pair, live)
+            return {"status": "DRY_RUN_PAIR_READY", "live": live}
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
+
+    result = runner.invoke(
+        app,
+        [
+            "mt5-straddle-run",
+            "--lookback-candles",
+            "4",
+            "--max-spread-points",
+            "0.4",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "status": "DRY_RUN_PAIR_READY",
+        "live": False,
+    }
+    assert calls["executor_config"] is config
+    assert calls["executor_results_dir"] == tmp_path
+    assert calls["straddle_config"].symbol == "XAUUSD.vx"
+    assert calls["straddle_config"].broker_symbol == "XAUUSD.vx"
+    assert calls["straddle_config"].lookback_candles == 4
+    assert calls["straddle_config"].max_spread_points == 0.4
+    assert calls["execute_pair"] == (pair, False)
+
+
+def test_mt5_straddle_run_live_flag_places_pair(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_straddle
+
+    config = MT5ConnectionConfig(
+        login=123,
+        password="secret",
+        server="Example",
+        symbol="XAUUSD.vx",
+    )
+    pair = object()
+    calls = {}
+
+    class Executor:
+        def __init__(self, received_config, results_dir):
+            pass
+
+        def build_pair(self, straddle_config):
+            return pair
+
+        def execute_pair(self, received_pair, live=False):
+            calls["execute_pair"] = (received_pair, live)
+            return {"status": "PAIR_PLACED", "live": live}
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
+
+    result = runner.invoke(app, ["mt5-straddle-run", "--live"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"status": "PAIR_PLACED", "live": True}
+    assert calls["execute_pair"] == (pair, True)
+
+
+def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_straddle
+
+    config = MT5ConnectionConfig(
+        login=123,
+        password="secret",
+        server="Example",
+        symbol="XAUUSD.vx",
+    )
+    calls = {}
+
+    class Executor:
+        def __init__(self, received_config, results_dir):
+            calls["executor_config"] = received_config
+            calls["executor_results_dir"] = results_dir
+
+        def build_pair(self, straddle_config):
+            raise AssertionError("watch mode should not call build_pair directly")
+
+        def execute_pair(self, pair, live=False):
+            raise AssertionError("watch mode should not call execute_pair directly")
+
+        def watch_forever(
+            self,
+            straddle_config,
+            *,
+            live=False,
+            poll_seconds=30,
+            max_cycles=0,
+            max_runtime_seconds=0,
+        ):
+            calls["watch_forever"] = {
+                "straddle_config": straddle_config,
+                "live": live,
+                "poll_seconds": poll_seconds,
+                "max_cycles": max_cycles,
+                "max_runtime_seconds": max_runtime_seconds,
+            }
+            return {"status": "STOPPED_MAX_CYCLES"}
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
+
+    result = runner.invoke(
+        app,
+        [
+            "mt5-straddle-run",
+            "--watch",
+            "--live",
+            "--poll-seconds",
+            "7",
+            "--duration-hours",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"status": "STOPPED_MAX_CYCLES"}
+    assert calls["watch_forever"]["live"] is True
+    assert calls["watch_forever"]["poll_seconds"] == 7
+    assert calls["watch_forever"]["max_runtime_seconds"] == 2 * 3600
 
 
 def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):

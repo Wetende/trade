@@ -60,6 +60,7 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
         "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
+        "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
         "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
@@ -84,17 +85,19 @@ def _load_runtime_env() -> None:
             DEFAULT_CONFIG[key] = int(raw)
         elif isinstance(reference, float):
             DEFAULT_CONFIG[key] = float(raw)
+        elif isinstance(reference, tuple):
+            DEFAULT_CONFIG[key] = tuple(
+                item.strip() for item in raw.split(",") if item.strip()
+            )
         else:
             DEFAULT_CONFIG[key] = raw
 
-    DEFAULT_CONFIG["results_dir"] = os.getenv(
-        "TRADINGAGENTS_RESULTS_DIR",
-        DEFAULT_CONFIG["results_dir"],
-    )
-    DEFAULT_CONFIG["data_cache_dir"] = os.getenv(
-        "TRADINGAGENTS_CACHE_DIR",
-        DEFAULT_CONFIG["data_cache_dir"],
-    )
+    results_dir = os.environ.get("TRADINGAGENTS_RESULTS_DIR")
+    if results_dir not in (None, ""):
+        DEFAULT_CONFIG["results_dir"] = results_dir
+    data_cache_dir = os.environ.get("TRADINGAGENTS_CACHE_DIR")
+    if data_cache_dir not in (None, ""):
+        DEFAULT_CONFIG["data_cache_dir"] = data_cache_dir
     DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
     DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] = DEFAULT_CONFIG["minimum_setup_grade"]
     DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] = DEFAULT_CONFIG["b_plus_min_rr"]
@@ -746,12 +749,149 @@ def mt5_run(
                 max_session_loss=float(
                     DEFAULT_CONFIG.get("runner_max_session_loss", 0.0)
                 ),
+                blocked_strategy_rules=tuple(
+                    DEFAULT_CONFIG.get("runner_blocked_strategy_rules", ())
+                ),
             ),
             executor=executor,
             analysis_func=analysis_func,
             current_as_of_func=_mt5_runner_current_as_of_func(),
         )
         result = runner.run_once() if once else runner.run_forever()
+    except (MT5BrokerError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(json.dumps(result, indent=2, sort_keys=True))
+
+
+@app.command("mt5-straddle-run")
+def mt5_straddle_run(
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Place the straddle pair. Without this flag the command only validates and records a dry run.",
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help="Keep scanning continuously until stopped.",
+    ),
+    poll_seconds: int = typer.Option(
+        30,
+        "--poll-seconds",
+        min=5,
+        help="Seconds between watch cycles.",
+    ),
+    duration_hours: float = typer.Option(
+        0.0,
+        "--duration-hours",
+        min=0.0,
+        help="Stop the watch loop after this many wall-clock hours. Zero means no duration limit.",
+    ),
+    max_cycles: int = typer.Option(
+        0,
+        "--max-cycles",
+        min=0,
+        help="Stop the watch loop after this many cycles. Zero means no cycle limit.",
+    ),
+    timeframe: str = typer.Option(
+        "1m",
+        "--timeframe",
+        help="MT5 candle timeframe used to build the straddle box.",
+    ),
+    confirmation_timeframe: str = typer.Option(
+        "3m",
+        "--confirmation-timeframe",
+        help="Metadata timeframe recorded on the straddle proposals.",
+    ),
+    lookback_candles: int = typer.Option(
+        3,
+        "--lookback-candles",
+        min=2,
+        help="Number of recent candles used for the straddle box.",
+    ),
+    entry_buffer_points: float = typer.Option(
+        0.10,
+        "--entry-buffer-points",
+        min=0.0,
+        help="Price buffer added outside the box high/low.",
+    ),
+    stop_distance_points: float = typer.Option(
+        6.0,
+        "--stop-distance-points",
+        min=0.01,
+        help="Fixed stop distance from each pending entry.",
+    ),
+    target_distance_points: float = typer.Option(
+        9.0,
+        "--target-distance-points",
+        min=0.01,
+        help="Fixed target distance from each pending entry.",
+    ),
+    activation_window_minutes: int = typer.Option(
+        3,
+        "--activation-window-minutes",
+        min=1,
+        help="Minutes before the untriggered pair should expire.",
+    ),
+    max_spread_points: float = typer.Option(
+        0.50,
+        "--max-spread-points",
+        min=0.0,
+        help="Maximum live bid/ask spread allowed for pair creation.",
+    ),
+    min_box_points: float = typer.Option(
+        0.50,
+        "--min-box-points",
+        min=0.0,
+        help="Minimum candle-box height allowed for pair creation.",
+    ),
+    max_box_points: float = typer.Option(
+        8.0,
+        "--max-box-points",
+        min=0.0,
+        help="Maximum candle-box height allowed for pair creation.",
+    ),
+):
+    """Run isolated MT5 straddle breakout."""
+    _load_runtime_env()
+    from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
+    from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
+    from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
+
+    try:
+        config = MT5ConnectionConfig.from_env()
+        straddle_config = StraddleBreakoutConfig(
+            symbol=config.symbol,
+            broker_symbol=config.symbol,
+            timeframe=timeframe,
+            confirmation_timeframe=confirmation_timeframe,
+            lookback_candles=lookback_candles,
+            entry_buffer_points=entry_buffer_points,
+            stop_distance_points=stop_distance_points,
+            target_distance_points=target_distance_points,
+            activation_window_minutes=activation_window_minutes,
+            max_spread_points=max_spread_points,
+            min_box_points=min_box_points,
+            max_box_points=max_box_points,
+        )
+        executor = MT5StraddleExecutor(config, DEFAULT_CONFIG["results_dir"])
+        if watch:
+            result = executor.watch_forever(
+                straddle_config,
+                live=live,
+                poll_seconds=poll_seconds,
+                max_cycles=max_cycles,
+                max_runtime_seconds=(
+                    math.ceil(duration_hours * 3600)
+                    if duration_hours
+                    else 0
+                ),
+            )
+        else:
+            pair = executor.build_pair(straddle_config)
+            result = executor.execute_pair(pair, live=live)
     except (MT5BrokerError, ValueError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
