@@ -644,8 +644,17 @@ def test_mt5_broker_reads_history_deals_for_symbol():
     )
 
     assert fake_mt5.history_deals_calls
-    assert fake_mt5.history_deals_calls[0][0].tzinfo is None
-    assert fake_mt5.history_deals_calls[0][1].tzinfo is None
+    queried_start, queried_end, _group = fake_mt5.history_deals_calls[0]
+    assert queried_start.tzinfo is None
+    assert queried_end.tzinfo is None
+    assert queried_start == datetime.fromtimestamp(
+        1779609900 + 3 * 3600,
+        tz=timezone.utc,
+    ).replace(tzinfo=None)
+    assert queried_end == datetime.fromtimestamp(
+        1779610400 + 3 * 3600,
+        tz=timezone.utc,
+    ).replace(tzinfo=None)
     assert [deal["ticket"] for deal in deals] == [555, 556]
     assert deals[1]["position_id"] == 111222
     assert deals[1]["profit"] == 6.67

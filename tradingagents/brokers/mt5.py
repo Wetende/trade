@@ -10,7 +10,7 @@ import importlib
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from numbers import Integral
 from typing import Any
 
@@ -427,10 +427,17 @@ def _asdict(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _mt5_history_datetime(value: datetime) -> datetime:
+def _mt5_history_datetime(
+    value: datetime,
+    server_time_offset_seconds: int = 0,
+) -> datetime:
     if value.tzinfo is None:
-        return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+        current = value
+    else:
+        current = value.astimezone(timezone.utc).replace(tzinfo=None)
+    if server_time_offset_seconds:
+        current = current + timedelta(seconds=int(server_time_offset_seconds))
+    return current
 
 
 class MT5Broker:
@@ -862,14 +869,14 @@ class MT5Broker:
         """Read normalized MT5 deal history for one symbol."""
         self._assert_active_session()
         mt5 = self._module()
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
         deals = mt5.history_deals_get(
-            _mt5_history_datetime(start_utc),
-            _mt5_history_datetime(end_utc),
+            _mt5_history_datetime(start_utc, server_time_offset_seconds),
+            _mt5_history_datetime(end_utc, server_time_offset_seconds),
         )
         if deals is None:
             raise MT5BrokerError(f"MT5 history_deals_get failed: {mt5.last_error()}")
 
-        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
         normalized = []
         for deal in deals:
             item = _asdict(deal)
