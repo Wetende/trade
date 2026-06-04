@@ -144,6 +144,51 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     }
 
 
+def test_mt5_run_passes_configured_session_loss_limit(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_execution, mt5_runner
+
+    calls = {}
+
+    class Executor:
+        def __init__(self, config, results_dir):
+            calls["executor"] = (config, results_dir)
+
+    class Runner:
+        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
+            calls["runner_config"] = runner_config
+
+        def run_once(self):
+            raise AssertionError("mt5-run without --once should call run_forever")
+
+        def run_forever(self):
+            return {
+                "status": "STOPPED_RISK_LIMIT",
+                "max_session_loss": calls["runner_config"].max_session_loss,
+            }
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "runner_max_session_loss", 300.0)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
+    monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
+    monkeypatch.setattr(
+        cli_main,
+        "_mt5_runner_engine_analysis_func",
+        lambda config=None: lambda: None,
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--poll-seconds", "8"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "status": "STOPPED_RISK_LIMIT",
+        "max_session_loss": 300.0,
+    }
+
+
 def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path):
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
     from tradingagents.brokers import mt5_execution, mt5_runner

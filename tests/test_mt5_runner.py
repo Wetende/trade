@@ -148,6 +148,39 @@ def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
     assert result["summary"]["trade_history"]["net_profit"] == 6.67
 
 
+def test_runner_stops_before_analysis_when_session_loss_limit_is_reached(tmp_path):
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 4,
+        "net_profit": -350.0,
+        "wins": 1,
+        "losses": 3,
+    }
+
+    def analysis_func():
+        raise AssertionError("analysis should not run after risk limit is reached")
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_session_loss=300.0,
+        ),
+        executor=executor,
+        analysis_func=analysis_func,
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "RISK_LIMIT_REACHED"
+    assert result["risk_limit"]["max_session_loss"] == 300.0
+    assert result["risk_limit"]["net_profit"] == -350.0
+    assert executor.executed == []
+    assert result["summary"]["latest_cycle"]["status"] == "RISK_LIMIT_REACHED"
+
+
 def test_runner_reconciles_history_from_session_start(tmp_path):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE
@@ -288,6 +321,38 @@ def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
 
     assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
     assert result["last_result"]["status"] == "NO_TRADE"
+    assert sleeps == []
+
+
+def test_runner_forever_stops_when_session_loss_limit_is_reached(tmp_path, monkeypatch):
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 3,
+        "net_profit": -300.0,
+        "wins": 0,
+        "losses": 3,
+    }
+    sleeps = []
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_session_loss=300.0,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_RISK_LIMIT"
+    assert result["last_result"]["status"] == "RISK_LIMIT_REACHED"
     assert sleeps == []
 
 

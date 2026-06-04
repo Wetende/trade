@@ -75,10 +75,12 @@ def test_runner_int_overrides(monkeypatch):
         monkeypatch,
         TRADINGAGENTS_RUNNER_POLL_SECONDS="45",
         TRADINGAGENTS_RUNNER_MAX_CYCLES="5",
+        TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS="250.5",
     )
 
     assert dc.DEFAULT_CONFIG["runner_poll_seconds"] == 45
     assert dc.DEFAULT_CONFIG["runner_max_cycles"] == 5
+    assert dc.DEFAULT_CONFIG["runner_max_session_loss"] == 250.5
 
 
 def test_time_filter_mode_env_updates_price_action_config(monkeypatch):

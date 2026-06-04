@@ -59,6 +59,7 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_POLL_SECONDS": "runner_poll_seconds",
         "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
+        "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
         "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
@@ -741,6 +742,9 @@ def mt5_run(
                     math.ceil(duration_hours * 3600)
                     if duration_hours
                     else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
+                ),
+                max_session_loss=float(
+                    DEFAULT_CONFIG.get("runner_max_session_loss", 0.0)
                 ),
             ),
             executor=executor,

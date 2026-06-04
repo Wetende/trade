@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,20 +20,25 @@ class MT5RunnerConfig:
     poll_seconds: int = 30
     max_cycles: int = 0
     max_runtime_seconds: int = 0
+    max_session_loss: float = 0.0
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
         max_cycles = int(self.max_cycles)
         max_runtime_seconds = int(self.max_runtime_seconds)
+        max_session_loss = float(self.max_session_loss)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
         if max_cycles < 0:
             raise ValueError("max_cycles must be non-negative")
         if max_runtime_seconds < 0:
             raise ValueError("max_runtime_seconds must be non-negative")
+        if not math.isfinite(max_session_loss) or max_session_loss < 0:
+            raise ValueError("max_session_loss must be a finite non-negative number")
         object.__setattr__(self, "poll_seconds", poll_seconds)
         object.__setattr__(self, "max_cycles", max_cycles)
         object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
+        object.__setattr__(self, "max_session_loss", max_session_loss)
 
 
 class MT5Runner:
@@ -69,6 +75,17 @@ class MT5Runner:
                 {
                     "status": "ACTIVE_TRADE_MONITORED",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
+                }
+            )
+
+        risk_limit = self._session_loss_limit(history_reconciliation)
+        if risk_limit is not None:
+            return self._write_heartbeat(
+                {
+                    "status": "RISK_LIMIT_REACHED",
+                    "started_at_utc": started_at,
+                    "risk_limit": risk_limit,
                     "history_reconciliation": history_reconciliation,
                 }
             )
@@ -205,6 +222,26 @@ class MT5Runner:
                 "error": str(exc),
             }
 
+    def _session_loss_limit(self, history_reconciliation: dict) -> dict | None:
+        max_session_loss = self.config.max_session_loss
+        if max_session_loss <= 0:
+            return None
+        if history_reconciliation.get("status") != "RECONCILED":
+            return None
+        try:
+            net_profit = float(history_reconciliation.get("net_profit", 0.0))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(net_profit) or net_profit > -max_session_loss:
+            return None
+        return {
+            "max_session_loss": max_session_loss,
+            "net_profit": net_profit,
+            "closed_trade_count": history_reconciliation.get("closed_trade_count", 0),
+            "wins": history_reconciliation.get("wins", 0),
+            "losses": history_reconciliation.get("losses", 0),
+        }
+
     def _load_history_since_utc(self) -> datetime:
         if self.summary_store.summary_path.exists():
             try:
@@ -231,6 +268,8 @@ class MT5Runner:
         while True:
             last_result = self.run_once()
             cycles += 1
+            if last_result.get("status") == "RISK_LIMIT_REACHED":
+                return {"status": "STOPPED_RISK_LIMIT", "last_result": last_result}
             if (
                 deadline is None
                 and self.config.max_cycles
