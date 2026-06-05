@@ -15,12 +15,15 @@ from tradingagents.brokers.mt5 import (
 class FakeMT5:
     TRADE_RETCODE_DONE = 10009
     TRADE_RETCODE_PLACED = 10008
+    TRADE_ACTION_DEAL = 1
     TRADE_ACTION_PENDING = 5
     TRADE_ACTION_REMOVE = 8
     TRADE_ACTION_SLTP = 6
     ACCOUNT_TRADE_MODE_DEMO = 0
     ACCOUNT_TRADE_MODE_CONTEST = 1
     ACCOUNT_TRADE_MODE_REAL = 2
+    ORDER_TYPE_BUY = 0
+    ORDER_TYPE_SELL = 1
     ORDER_TYPE_BUY_LIMIT = 2
     ORDER_TYPE_SELL_LIMIT = 3
     ORDER_TYPE_BUY_STOP = 4
@@ -1068,6 +1071,7 @@ def test_mt5_broker_rejects_order_send_before_connect():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_rejects_management_order_send_before_connect(
@@ -1203,6 +1207,7 @@ def test_mt5_broker_allows_real_account_order_with_acknowledgement():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_management_actions_block_real_account_without_acknowledgement(
@@ -1248,6 +1253,7 @@ def test_mt5_broker_rejects_disconnected_terminal_before_order_send():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_management_actions_recheck_disconnected_terminal_before_send(
@@ -1924,6 +1930,93 @@ def test_mt5_broker_modify_stops_rejects_placed_retcode():
     assert result["ok"] is False
     assert result["retcode"] == FakeMT5.TRADE_RETCODE_PLACED
     assert result["last_error"] == (0, "ok")
+
+
+def test_mt5_broker_closes_buy_position_with_market_sell():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        },
+        comment="straddle early exit",
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_DEAL
+    assert fake_mt5.sent_requests[-1]["type"] == FakeMT5.ORDER_TYPE_SELL
+    assert fake_mt5.sent_requests[-1]["position"] == 333444
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.01
+    assert fake_mt5.sent_requests[-1]["price"] == 4506.99
+    assert fake_mt5.sent_requests[-1]["comment"] == "straddle early exit"
+
+
+def test_mt5_broker_closes_sell_position_with_market_buy():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333445,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": "0.01",
+        }
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_DEAL
+    assert fake_mt5.sent_requests[-1]["type"] == FakeMT5.ORDER_TYPE_BUY
+    assert fake_mt5.sent_requests[-1]["position"] == 333445
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.01
+    assert fake_mt5.sent_requests[-1]["price"] == 4507.32
+    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_RETURN
+
+
+@pytest.mark.parametrize(
+    ("position", "match"),
+    (
+        ({"ticket": 0, "side": "BUY", "volume": 0.01}, "position ticket"),
+        ({"ticket": 333444, "side": "HOLD", "volume": 0.01}, "position side"),
+        ({"ticket": 333444, "side": "BUY", "volume": 0}, "volume"),
+        (
+            {"ticket": 333444, "symbol": "EURUSD", "side": "BUY", "volume": 0.01},
+            "symbol must match configured MT5 symbol",
+        ),
+    ),
+)
+def test_mt5_broker_rejects_invalid_close_position(position, match):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+
+    with pytest.raises(MT5BrokerError, match=match):
+        broker.close_position(position)
+
+    assert fake_mt5.sent_requests == []
 
 
 @pytest.mark.parametrize("ticket", (0, -1, "abc", None, False, 2.25, 123.0, "2.25"))

@@ -853,12 +853,56 @@ def mt5_straddle_run(
         min=0.0,
         help="Maximum candle-box height allowed for pair creation.",
     ),
+    exit_management: bool = typer.Option(
+        True,
+        "--exit-management/--no-exit-management",
+        help="Manage active straddle positions with early exits, break-even, and trailing stops.",
+    ),
+    break_even_trigger_points: float = typer.Option(
+        3.0,
+        "--break-even-trigger-points",
+        min=0.0,
+        help="Favorable price points before moving the stop to break-even. Zero disables break-even.",
+    ),
+    break_even_lock_points: float = typer.Option(
+        0.30,
+        "--break-even-lock-points",
+        min=0.0,
+        help="Price points locked beyond entry when break-even is triggered.",
+    ),
+    trailing_trigger_points: float = typer.Option(
+        5.0,
+        "--trailing-trigger-points",
+        min=0.0,
+        help="Favorable price points before trailing stop management starts. Zero disables trailing.",
+    ),
+    trailing_distance_points: float = typer.Option(
+        2.0,
+        "--trailing-distance-points",
+        min=0.0,
+        help="Distance behind current price used for the trailing stop.",
+    ),
+    min_stop_update_points: float = typer.Option(
+        0.50,
+        "--min-stop-update-points",
+        min=0.0,
+        help="Minimum stop improvement required before sending another stop update.",
+    ),
+    early_loss_exit_points: float = typer.Option(
+        4.0,
+        "--early-loss-exit-points",
+        min=0.0,
+        help="Adverse price points before closing the active position early. Zero disables early loss exit.",
+    ),
 ):
     """Run isolated MT5 straddle breakout."""
     _load_runtime_env()
     from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
-    from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
+    from tradingagents.brokers.mt5_straddle import (
+        MT5StraddleExecutor,
+        StraddleExitManagementConfig,
+    )
 
     try:
         config = MT5ConnectionConfig.from_env()
@@ -877,6 +921,15 @@ def mt5_straddle_run(
             max_box_points=max_box_points,
         )
         executor = MT5StraddleExecutor(config, DEFAULT_CONFIG["results_dir"])
+        exit_management_config = StraddleExitManagementConfig(
+            enabled=exit_management,
+            break_even_trigger_points=break_even_trigger_points,
+            break_even_lock_points=break_even_lock_points,
+            trailing_trigger_points=trailing_trigger_points,
+            trailing_distance_points=trailing_distance_points,
+            min_stop_update_points=min_stop_update_points,
+            early_loss_exit_points=early_loss_exit_points,
+        )
         if watch:
             result = executor.watch_forever(
                 straddle_config,
@@ -888,6 +941,7 @@ def mt5_straddle_run(
                     if duration_hours
                     else 0
                 ),
+                exit_management=exit_management_config,
             )
         else:
             pair = executor.build_pair(straddle_config)

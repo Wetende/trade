@@ -559,9 +559,12 @@ class MT5Broker:
 
     def _constants(self) -> dict[str, Any]:
         return {
+            "TRADE_ACTION_DEAL": self._constant("TRADE_ACTION_DEAL"),
             "TRADE_ACTION_PENDING": self._constant("TRADE_ACTION_PENDING"),
             "TRADE_ACTION_REMOVE": self._constant("TRADE_ACTION_REMOVE"),
             "TRADE_ACTION_SLTP": self._constant("TRADE_ACTION_SLTP"),
+            "BUY": self._constant("ORDER_TYPE_BUY"),
+            "SELL": self._constant("ORDER_TYPE_SELL"),
             "BUY_LIMIT": self._constant("ORDER_TYPE_BUY_LIMIT"),
             "SELL_LIMIT": self._constant("ORDER_TYPE_SELL_LIMIT"),
             "BUY_STOP": self._constant("ORDER_TYPE_BUY_STOP"),
@@ -583,11 +586,14 @@ class MT5Broker:
         constants = self._constants()
         return {
             "action": {
+                "TRADE_ACTION_DEAL": constants["TRADE_ACTION_DEAL"],
                 "TRADE_ACTION_PENDING": constants["TRADE_ACTION_PENDING"],
                 "TRADE_ACTION_REMOVE": constants["TRADE_ACTION_REMOVE"],
                 "TRADE_ACTION_SLTP": constants["TRADE_ACTION_SLTP"],
             },
             "type": {
+                "BUY": constants["BUY"],
+                "SELL": constants["SELL"],
                 "BUY_LIMIT": constants["BUY_LIMIT"],
                 "SELL_LIMIT": constants["SELL_LIMIT"],
                 "BUY_STOP": constants["BUY_STOP"],
@@ -822,6 +828,52 @@ class MT5Broker:
                     "position": ticket,
                     "sl": stop,
                     "tp": target,
+                }
+            )
+        )
+
+    def close_position(
+        self,
+        position: dict[str, Any],
+        *,
+        comment: str = "TradingAgents close",
+    ) -> dict[str, Any]:
+        item = _asdict(position)
+        ticket = self._positive_ticket(item.get("ticket"), "position")
+        symbol = item.get("symbol")
+        if symbol not in (None, "") and symbol != self.config.symbol:
+            raise MT5BrokerError(
+                f"symbol must match configured MT5 symbol {self.config.symbol}"
+            )
+
+        side = str(item.get("side") or "").upper()
+        if side not in {"BUY", "SELL"}:
+            raise MT5BrokerError("position side must be BUY or SELL")
+        volume = self._positive_float(item.get("volume"), "volume")
+
+        self._assert_active_session()
+        mt5 = self._module()
+        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        if not tick:
+            raise MT5BrokerError(
+                f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
+            )
+        close_type = "SELL" if side == "BUY" else "BUY"
+        price_field = "bid" if close_type == "SELL" else "ask"
+        price = self._positive_float(tick.get(price_field), "price")
+        return self._send(
+            self._materialize_request(
+                {
+                    "action": "TRADE_ACTION_DEAL",
+                    "symbol": self.config.symbol,
+                    "volume": volume,
+                    "type": close_type,
+                    "position": ticket,
+                    "price": price,
+                    "deviation": self.config.deviation,
+                    "magic": self.config.magic,
+                    "comment": comment,
+                    "type_filling": "ORDER_FILLING_RETURN",
                 }
             )
         )

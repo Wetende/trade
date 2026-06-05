@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,31 @@ from tradingagents.agents.straddle_breakout import (
 from tradingagents.brokers.execution_journal import ExecutionJournal
 from tradingagents.brokers.mt5 import MT5Broker, MT5ConnectionConfig, MT5OrderRequestBuilder
 from tradingagents.brokers.straddle_state import StraddleStateStore
+
+
+@dataclass(frozen=True)
+class StraddleExitManagementConfig:
+    """Deterministic trade management for active straddle positions."""
+
+    enabled: bool = True
+    break_even_trigger_points: float = 3.0
+    break_even_lock_points: float = 0.30
+    trailing_trigger_points: float = 5.0
+    trailing_distance_points: float = 2.0
+    min_stop_update_points: float = 0.50
+    early_loss_exit_points: float = 4.0
+
+    def __post_init__(self) -> None:
+        for name in (
+            "break_even_trigger_points",
+            "break_even_lock_points",
+            "trailing_trigger_points",
+            "trailing_distance_points",
+            "min_stop_update_points",
+            "early_loss_exit_points",
+        ):
+            value = _nonnegative_float(getattr(self, name), name)
+            object.__setattr__(self, name, value)
 
 
 class MT5StraddleExecutor:
@@ -57,6 +84,7 @@ class MT5StraddleExecutor:
         *,
         live: bool = False,
         now_utc: datetime | str | None = None,
+        exit_management: StraddleExitManagementConfig | None = None,
     ) -> dict[str, Any]:
         """Advance the straddle watch state once.
 
@@ -65,8 +93,27 @@ class MT5StraddleExecutor:
         """
 
         monitor_result = self.monitor_pair(now_utc=now_utc)
-        if monitor_result.get("status") != "NO_ACTIVE_PAIR":
+        if (
+            monitor_result.get("status") != "NO_ACTIVE_PAIR"
+            and not monitor_result.get("open_positions")
+        ):
             return monitor_result
+
+        management = exit_management or StraddleExitManagementConfig()
+        if live and management.enabled:
+            management_result = self.manage_open_positions(management)
+            if management_result.get("status") != "NO_OPEN_POSITION":
+                if (
+                    monitor_result.get("status") != "NO_ACTIVE_PAIR"
+                    and management_result.get("status") == "POSITION_MONITORED"
+                ):
+                    return monitor_result
+                return management_result
+
+        if self._active_trade_exists():
+            result = {"status": "SKIPPED_ACTIVE_TRADE", "symbol": self.config.symbol}
+            self.journal.append("STRADDLE_SKIPPED_ACTIVE_TRADE", result)
+            return result
 
         pair = self.build_pair(straddle_config)
         return self.execute_pair(pair, live=live)
@@ -79,11 +126,13 @@ class MT5StraddleExecutor:
         poll_seconds: int = 30,
         max_cycles: int = 0,
         max_runtime_seconds: int = 0,
+        exit_management: StraddleExitManagementConfig | None = None,
     ) -> dict[str, Any]:
         """Continuously watch the market and place a straddle when ready."""
 
         cycles = 0
         last_result: dict[str, Any] = {"status": "NOT_STARTED"}
+        management = exit_management or StraddleExitManagementConfig()
         deadline = (
             time.monotonic() + int(max_runtime_seconds)
             if int(max_runtime_seconds) > 0
@@ -92,7 +141,11 @@ class MT5StraddleExecutor:
         while True:
             cycles += 1
             try:
-                cycle_result = self.watch_once(straddle_config, live=live)
+                cycle_result = self.watch_once(
+                    straddle_config,
+                    live=live,
+                    exit_management=management,
+                )
             except Exception as exc:
                 cycle_result = {
                     "status": "STRADDLE_WATCH_ERROR",
@@ -114,6 +167,189 @@ class MT5StraddleExecutor:
                 return {"status": "STOPPED_MAX_CYCLES", "last_result": last_result}
             if poll_seconds > 0:
                 time.sleep(int(poll_seconds))
+
+    def manage_open_positions(
+        self,
+        exit_management: StraddleExitManagementConfig | None = None,
+    ) -> dict[str, Any]:
+        """Move stops or close active straddle positions before placing new pairs."""
+
+        management = exit_management or StraddleExitManagementConfig()
+        connection = self.broker.connect()
+        self.journal.append("STRADDLE_CONNECTED", connection)
+        positions = self.broker.open_positions(self.config.symbol)
+        if not positions:
+            result = {"status": "NO_OPEN_POSITION", "symbol": self.config.symbol}
+            self.journal.append("STRADDLE_POSITION_MONITOR_SKIPPED", result)
+            return result
+
+        symbol_info = connection["symbol"]
+        actions = []
+        closed = False
+        moved = False
+        for position in positions:
+            action = self._manage_position(position, symbol_info, management)
+            if action:
+                actions.append(action)
+                closed = closed or action.get("action") == "CLOSE_POSITION"
+                moved = moved or action.get("action") == "MODIFY_STOP"
+
+        if closed:
+            status = "POSITION_CLOSED_EARLY"
+        elif moved:
+            status = "POSITION_STOP_MOVED"
+        else:
+            status = "POSITION_MONITORED"
+        result = {
+            "status": status,
+            "symbol": self.config.symbol,
+            "open_positions": positions,
+            "actions": actions,
+        }
+        self.journal.append("STRADDLE_POSITION_MANAGED", result)
+        return result
+
+    def _manage_position(
+        self,
+        position: dict[str, Any],
+        symbol_info: dict[str, Any],
+        management: StraddleExitManagementConfig,
+    ) -> dict[str, Any] | None:
+        side = str(position.get("side") or "").upper()
+        if side not in {"BUY", "SELL"}:
+            return {
+                "action": "SKIP_POSITION",
+                "reason": "UNKNOWN_SIDE",
+                "position": position,
+            }
+
+        entry = _first_float(position, "entry_price", "price_open")
+        current = _first_float(position, "current_price", "price_current")
+        if entry is None or current is None:
+            return {
+                "action": "SKIP_POSITION",
+                "reason": "MISSING_PRICE",
+                "position": position,
+            }
+
+        favorable_points = current - entry if side == "BUY" else entry - current
+        if (
+            management.early_loss_exit_points > 0
+            and favorable_points <= -management.early_loss_exit_points
+        ):
+            close_result = self.broker.close_position(
+                position,
+                comment="Straddle early loss exit",
+            )
+            return {
+                "action": "CLOSE_POSITION",
+                "reason": "EARLY_LOSS_EXIT",
+                "ticket": position.get("ticket"),
+                "favorable_points": round(favorable_points, 2),
+                "result": close_result,
+            }
+
+        target = _first_float(position, "take_profit", "tp")
+        if target is None:
+            return {
+                "action": "SKIP_POSITION",
+                "reason": "MISSING_TAKE_PROFIT",
+                "position": position,
+            }
+
+        candidate, reason = self._managed_stop_candidate(
+            side,
+            entry,
+            current,
+            favorable_points,
+            management,
+        )
+        if candidate is None or reason is None:
+            return {
+                "action": "HOLD_POSITION",
+                "reason": "NO_STOP_CHANGE",
+                "ticket": position.get("ticket"),
+                "favorable_points": round(favorable_points, 2),
+            }
+
+        stop = _first_float(position, "stop_loss", "sl")
+        rounded_stop = self.builder._round_price(candidate, symbol_info)
+        rounded_target = self.builder._round_price(target, symbol_info)
+        if not _is_valid_managed_stop(side, rounded_stop, current):
+            return {
+                "action": "HOLD_POSITION",
+                "reason": "STOP_TOO_CLOSE_TO_PRICE",
+                "ticket": position.get("ticket"),
+                "candidate_stop": rounded_stop,
+                "favorable_points": round(favorable_points, 2),
+            }
+        if stop is not None:
+            improvement = _stop_improvement_points(side, rounded_stop, stop)
+            if improvement < management.min_stop_update_points:
+                return {
+                    "action": "HOLD_POSITION",
+                    "reason": "STOP_ALREADY_MANAGED",
+                    "ticket": position.get("ticket"),
+                    "candidate_stop": rounded_stop,
+                    "current_stop": stop,
+                    "favorable_points": round(favorable_points, 2),
+                }
+
+        ticket = position.get("ticket")
+        if ticket in (None, ""):
+            return {
+                "action": "SKIP_POSITION",
+                "reason": "MISSING_TICKET",
+                "position": position,
+            }
+        result = self.broker.modify_position_stops(ticket, rounded_stop, rounded_target)
+        return {
+            "action": "MODIFY_STOP",
+            "reason": reason,
+            "ticket": position.get("ticket"),
+            "stop_loss": rounded_stop,
+            "take_profit": rounded_target,
+            "favorable_points": round(favorable_points, 2),
+            "result": result,
+        }
+
+    def _managed_stop_candidate(
+        self,
+        side: str,
+        entry: float,
+        current: float,
+        favorable_points: float,
+        management: StraddleExitManagementConfig,
+    ) -> tuple[float | None, str | None]:
+        candidate = None
+        reason = None
+        if (
+            management.break_even_trigger_points > 0
+            and favorable_points >= management.break_even_trigger_points
+        ):
+            candidate = (
+                entry + management.break_even_lock_points
+                if side == "BUY"
+                else entry - management.break_even_lock_points
+            )
+            reason = "BREAK_EVEN"
+        if (
+            management.trailing_trigger_points > 0
+            and favorable_points >= management.trailing_trigger_points
+        ):
+            trailing = (
+                current - management.trailing_distance_points
+                if side == "BUY"
+                else current + management.trailing_distance_points
+            )
+            if candidate is None or _stop_improvement_points(
+                side,
+                trailing,
+                candidate,
+            ) > 0:
+                candidate = trailing
+                reason = "TRAILING_STOP"
+        return candidate, reason
 
     def _write_heartbeat(
         self,
@@ -353,3 +589,47 @@ def _closed_candles(
     if len(ordered) > lookback_candles:
         ordered = ordered[:-1]
     return ordered[-lookback_candles:]
+
+
+def _nonnegative_float(value: Any, name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be non-negative")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be non-negative") from exc
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return number
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _first_float(item: dict[str, Any], *names: str) -> float | None:
+    for name in names:
+        number = _optional_float(item.get(name))
+        if number is not None:
+            return number
+    return None
+
+
+def _stop_improvement_points(side: str, candidate: float, current: float) -> float:
+    if side == "BUY":
+        return candidate - current
+    return current - candidate
+
+
+def _is_valid_managed_stop(side: str, stop: float, current: float) -> bool:
+    if side == "BUY":
+        return stop < current
+    return stop > current

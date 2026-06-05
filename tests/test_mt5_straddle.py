@@ -4,6 +4,7 @@ from tradingagents.agents.straddle_breakout import (
     StraddleBreakoutConfig,
     build_straddle_breakout_pair,
 )
+from tradingagents.brokers import mt5_straddle
 from tradingagents.brokers.mt5 import MT5ConnectionConfig
 from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
 
@@ -53,6 +54,8 @@ class FakeBroker:
         self.fetch_calls = []
         self.pending_orders = []
         self.positions = []
+        self.modified_stops = []
+        self.closed_positions = []
 
     def connect(self):
         return {
@@ -78,6 +81,28 @@ class FakeBroker:
     def cancel_order(self, ticket):
         self.cancelled.append(ticket)
         return {"ok": True, "order": ticket, "retcode": 10009}
+
+    def modify_position_stops(self, position_ticket, stop_loss, take_profit):
+        self.modified_stops.append((position_ticket, stop_loss, take_profit))
+        return {
+            "ok": True,
+            "position": position_ticket,
+            "retcode": 10009,
+            "request": {
+                "position": position_ticket,
+                "sl": stop_loss,
+                "tp": take_profit,
+            },
+        }
+
+    def close_position(self, position, *, comment="TradingAgents close"):
+        self.closed_positions.append((dict(position), comment))
+        return {
+            "ok": True,
+            "position": position["ticket"],
+            "retcode": 10009,
+            "request": {"position": position["ticket"], "comment": comment},
+        }
 
 
 def _config():
@@ -225,6 +250,123 @@ def test_straddle_watch_once_clears_triggered_live_pair_before_building_new_pair
     assert broker.placed_requests == []
 
 
+def test_straddle_position_manager_moves_buy_stop_to_break_even(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 333,
+            "symbol": "XAUUSD.vx",
+            "side": "BUY",
+            "entry_price": 4500.0,
+            "stop_loss": 4494.0,
+            "take_profit": 4509.0,
+            "current_price": 4503.2,
+        }
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.manage_open_positions(
+        mt5_straddle.StraddleExitManagementConfig(
+            break_even_trigger_points=3.0,
+            break_even_lock_points=0.3,
+            trailing_trigger_points=5.0,
+            trailing_distance_points=2.0,
+            early_loss_exit_points=4.0,
+        )
+    )
+
+    assert result["status"] == "POSITION_STOP_MOVED"
+    assert result["actions"][0]["reason"] == "BREAK_EVEN"
+    assert broker.modified_stops == [(333, 4500.3, 4509.0)]
+    assert broker.closed_positions == []
+
+
+def test_straddle_position_manager_trails_sell_stop_after_profit_expands(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 444,
+            "symbol": "XAUUSD.vx",
+            "side": "SELL",
+            "entry_price": 4500.0,
+            "stop_loss": 4506.0,
+            "take_profit": 4491.0,
+            "current_price": 4494.5,
+        }
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.manage_open_positions(
+        mt5_straddle.StraddleExitManagementConfig(
+            break_even_trigger_points=3.0,
+            break_even_lock_points=0.3,
+            trailing_trigger_points=5.0,
+            trailing_distance_points=2.0,
+            early_loss_exit_points=4.0,
+        )
+    )
+
+    assert result["status"] == "POSITION_STOP_MOVED"
+    assert result["actions"][0]["reason"] == "TRAILING_STOP"
+    assert broker.modified_stops == [(444, 4496.5, 4491.0)]
+    assert broker.closed_positions == []
+
+
+def test_straddle_position_manager_closes_early_adverse_position(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 555,
+            "symbol": "XAUUSD.vx",
+            "side": "BUY",
+            "entry_price": 4500.0,
+            "stop_loss": 4494.0,
+            "take_profit": 4509.0,
+            "current_price": 4495.8,
+        }
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.manage_open_positions(
+        mt5_straddle.StraddleExitManagementConfig(early_loss_exit_points=4.0)
+    )
+
+    assert result["status"] == "POSITION_CLOSED_EARLY"
+    assert result["actions"][0]["reason"] == "EARLY_LOSS_EXIT"
+    assert broker.closed_positions[0][0]["ticket"] == 555
+    assert broker.modified_stops == []
+
+
+def test_straddle_watch_once_manages_open_position_before_building_pair(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 333,
+            "symbol": "XAUUSD.vx",
+            "side": "BUY",
+            "entry_price": 4500.0,
+            "stop_loss": 4494.0,
+            "take_profit": 4509.0,
+            "current_price": 4503.2,
+        }
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        exit_management=mt5_straddle.StraddleExitManagementConfig(
+            break_even_trigger_points=3.0,
+            break_even_lock_points=0.3,
+        ),
+    )
+
+    assert result["status"] == "POSITION_STOP_MOVED"
+    assert broker.modified_stops == [(333, 4500.3, 4509.0)]
+    assert broker.fetch_calls == []
+    assert broker.placed_requests == []
+
+
 def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeypatch):
     broker = FakeBroker()
     executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
@@ -239,8 +381,8 @@ def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeyp
     monkeypatch.setattr(
         executor,
         "watch_once",
-        lambda straddle_config, live=False, now_utc=None: calls.append(
-            (straddle_config.symbol, live)
+        lambda straddle_config, live=False, now_utc=None, exit_management=None: calls.append(
+            (straddle_config.symbol, live, exit_management is not None)
         )
         or next(results),
     )
@@ -259,7 +401,7 @@ def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeyp
 
     assert result["status"] == "STOPPED_MAX_CYCLES"
     assert result["last_result"]["status"] == "PAIR_PLACED"
-    assert calls == [("XAUUSD.vx", True), ("XAUUSD.vx", True)]
+    assert calls == [("XAUUSD.vx", True, True), ("XAUUSD.vx", True, True)]
     assert sleeps == [5]
 
 
@@ -270,7 +412,9 @@ def test_straddle_watch_forever_writes_heartbeat_each_cycle(tmp_path, monkeypatc
     monkeypatch.setattr(
         executor,
         "watch_once",
-        lambda straddle_config, live=False, now_utc=None: {"status": "PAIR_PLACED"},
+        lambda straddle_config, live=False, now_utc=None, exit_management=None: {
+            "status": "PAIR_PLACED"
+        },
     )
 
     result = executor.watch_forever(
@@ -294,7 +438,7 @@ def test_straddle_watch_forever_records_error_and_keeps_polling(tmp_path, monkey
     results = iter([RuntimeError("mt5 unavailable"), {"status": "STRADDLE_NO_TRADE"}])
     sleeps = []
 
-    def watch_once(straddle_config, live=False, now_utc=None):
+    def watch_once(straddle_config, live=False, now_utc=None, exit_management=None):
         item = next(results)
         if isinstance(item, Exception):
             raise item

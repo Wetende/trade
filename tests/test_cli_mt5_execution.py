@@ -49,6 +49,9 @@ def test_mt5_straddle_run_command_exists():
     assert "Run isolated MT5 straddle breakout" in result.output
     assert "--live" in result.output
     assert "--watch" in result.output
+    assert "break-even" in result.output
+    assert "trailing" in result.output
+    assert "early" in result.output
 
 
 def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
@@ -239,6 +242,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             poll_seconds=30,
             max_cycles=0,
             max_runtime_seconds=0,
+            exit_management=None,
         ):
             calls["watch_forever"] = {
                 "straddle_config": straddle_config,
@@ -246,6 +250,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
                 "poll_seconds": poll_seconds,
                 "max_cycles": max_cycles,
                 "max_runtime_seconds": max_runtime_seconds,
+                "exit_management": exit_management,
             }
             return {"status": "STOPPED_MAX_CYCLES"}
 
@@ -264,6 +269,18 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             "7",
             "--duration-hours",
             "2",
+            "--break-even-trigger-points",
+            "2.5",
+            "--break-even-lock-points",
+            "0.4",
+            "--trailing-trigger-points",
+            "4.5",
+            "--trailing-distance-points",
+            "1.8",
+            "--min-stop-update-points",
+            "0.2",
+            "--early-loss-exit-points",
+            "3.5",
         ],
     )
 
@@ -272,6 +289,13 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
     assert calls["watch_forever"]["live"] is True
     assert calls["watch_forever"]["poll_seconds"] == 7
     assert calls["watch_forever"]["max_runtime_seconds"] == 2 * 3600
+    exit_management = calls["watch_forever"]["exit_management"]
+    assert exit_management.break_even_trigger_points == 2.5
+    assert exit_management.break_even_lock_points == 0.4
+    assert exit_management.trailing_trigger_points == 4.5
+    assert exit_management.trailing_distance_points == 1.8
+    assert exit_management.min_stop_update_points == 0.2
+    assert exit_management.early_loss_exit_points == 3.5
 
 
 def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
