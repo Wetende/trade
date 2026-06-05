@@ -56,6 +56,8 @@ class FakeBroker:
         self.positions = []
         self.modified_stops = []
         self.closed_positions = []
+        self.history_deals_result = []
+        self.history_deals_calls = []
 
     def connect(self):
         return {
@@ -103,6 +105,10 @@ class FakeBroker:
             "retcode": 10009,
             "request": {"position": position["ticket"], "comment": comment},
         }
+
+    def history_deals(self, symbol, start_utc, end_utc):
+        self.history_deals_calls.append((symbol, start_utc, end_utc))
+        return list(self.history_deals_result)
 
 
 def _config():
@@ -399,6 +405,232 @@ def test_straddle_watch_once_manages_open_position_before_building_pair(tmp_path
     assert broker.placed_requests == []
 
 
+def _closed_trade(position_id, profit, *, ticket=None, exit_ticket=None):
+    entry_ticket = ticket or position_id
+    close_ticket = exit_ticket or (entry_ticket + 1)
+    return [
+        {
+            "ticket": entry_ticket,
+            "order": entry_ticket,
+            "position_id": position_id,
+            "symbol": "XAUUSD.vx",
+            "entry": 0,
+            "magic": 150015,
+            "type": 0,
+            "volume": 1.0,
+            "price": 4500.0,
+            "profit": 0.0,
+            "commission": 0.0,
+            "swap": 0.0,
+            "fee": 0.0,
+            "time_utc": "2026-06-05T12:00:00+00:00",
+            "comment": "BuyStop Straddle",
+        },
+        {
+            "ticket": close_ticket,
+            "order": close_ticket,
+            "position_id": position_id,
+            "symbol": "XAUUSD.vx",
+            "entry": 1,
+            "magic": 150015,
+            "type": 1,
+            "volume": 1.0,
+            "price": 4498.0,
+            "profit": profit,
+            "commission": 0.0,
+            "swap": 0.0,
+            "fee": 0.0,
+            "time_utc": "2026-06-05T12:01:00+00:00",
+            "comment": "Straddle early loss exit" if profit < 0 else "Straddle scalp profit exit",
+        },
+    ]
+
+
+def test_straddle_watch_once_cools_down_after_two_closed_losses(tmp_path):
+    broker = FakeBroker()
+    broker.history_deals_result = [
+        *_closed_trade(701, -156.0, ticket=1001),
+        *_closed_trade(702, -200.0, ticket=2001),
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        now_utc="2026-06-05T12:10:00+00:00",
+        entry_regime=mt5_straddle.StraddleEntryRegimeConfig(
+            loss_streak_limit=2,
+            loss_cooldown_minutes=10,
+        ),
+    )
+
+    assert result["status"] == "STRADDLE_ENTRY_COOLDOWN"
+    assert result["reason"] == "loss streak 2 reached limit 2"
+    assert result["cooldown_until_utc"] == "2026-06-05T12:20:00+00:00"
+    assert broker.history_deals_calls
+    assert broker.fetch_calls == []
+    assert broker.placed_requests == []
+
+
+def test_straddle_watch_once_requires_momentum_after_loss_cooldown(tmp_path):
+    broker = FakeBroker()
+    broker.history_deals_result = [
+        *_closed_trade(701, -156.0, ticket=1001),
+        *_closed_trade(702, -200.0, ticket=2001),
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+    regime = mt5_straddle.StraddleEntryRegimeConfig(
+        loss_streak_limit=2,
+        loss_cooldown_minutes=10,
+        post_cooldown_momentum_body_points=0.8,
+        post_cooldown_momentum_breakout_points=0.2,
+    )
+
+    first = executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        now_utc="2026-06-05T12:10:00+00:00",
+        entry_regime=regime,
+    )
+    second = executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        now_utc="2026-06-05T12:21:00+00:00",
+        entry_regime=regime,
+    )
+
+    assert first["status"] == "STRADDLE_ENTRY_COOLDOWN"
+    assert second["status"] == "STRADDLE_ENTRY_WAIT_MOMENTUM"
+    assert second["reason"] == "post-cooldown momentum confirmation not met"
+    assert broker.fetch_calls == [("1m", 4)]
+    assert broker.placed_requests == []
+
+
+def test_straddle_watch_once_places_pair_after_cooldown_when_momentum_confirms(
+    tmp_path,
+):
+    broker = FakeBroker()
+    broker.rates = [
+        {
+            "timestamp": "2026-06-04T12:00:00+00:00",
+            "open": 4499.0,
+            "high": 4500.0,
+            "low": 4498.0,
+            "close": 4499.0,
+            "volume": 100,
+        },
+        {
+            "timestamp": "2026-06-04T12:01:00+00:00",
+            "open": 4499.0,
+            "high": 4501.0,
+            "low": 4498.8,
+            "close": 4500.0,
+            "volume": 100,
+        },
+        {
+            "timestamp": "2026-06-04T12:02:00+00:00",
+            "open": 4500.0,
+            "high": 4502.0,
+            "low": 4499.7,
+            "close": 4501.5,
+            "volume": 100,
+        },
+    ]
+    broker.history_deals_result = [
+        *_closed_trade(701, -156.0, ticket=1001),
+        *_closed_trade(702, -200.0, ticket=2001),
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+    regime = mt5_straddle.StraddleEntryRegimeConfig(
+        loss_streak_limit=2,
+        loss_cooldown_minutes=10,
+        post_cooldown_momentum_body_points=0.8,
+        post_cooldown_momentum_breakout_points=0.2,
+    )
+
+    executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        now_utc="2026-06-05T12:10:00+00:00",
+        entry_regime=regime,
+    )
+    result = executor.watch_once(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        now_utc="2026-06-05T12:21:00+00:00",
+        entry_regime=regime,
+    )
+
+    assert result["status"] == "PAIR_PLACED"
+    assert [request["type"] for request in broker.placed_requests] == [
+        "BUY_STOP",
+        "SELL_STOP",
+    ]
+
+
+def test_straddle_watch_once_cools_down_after_repeated_wide_boxes(tmp_path):
+    broker = FakeBroker()
+    broker.rates = [
+        {
+            "timestamp": "2026-06-04T12:00:00+00:00",
+            "open": 4500.0,
+            "high": 4505.0,
+            "low": 4498.0,
+            "close": 4502.0,
+            "volume": 100,
+        },
+        {
+            "timestamp": "2026-06-04T12:01:00+00:00",
+            "open": 4502.0,
+            "high": 4506.0,
+            "low": 4499.0,
+            "close": 4501.0,
+            "volume": 100,
+        },
+        {
+            "timestamp": "2026-06-04T12:02:00+00:00",
+            "open": 4501.0,
+            "high": 4507.0,
+            "low": 4497.0,
+            "close": 4500.0,
+            "volume": 100,
+        },
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+    regime = mt5_straddle.StraddleEntryRegimeConfig(
+        wide_box_streak_limit=2,
+        wide_box_cooldown_minutes=5,
+    )
+    config = StraddleBreakoutConfig(symbol="XAUUSD.vx", max_box_points=3.0)
+
+    first = executor.watch_once(
+        config,
+        live=True,
+        now_utc="2026-06-05T12:10:00+00:00",
+        entry_regime=regime,
+    )
+    broker.rates[2] = {
+        "timestamp": "2026-06-04T12:03:00+00:00",
+        "open": 4500.0,
+        "high": 4508.0,
+        "low": 4496.0,
+        "close": 4501.0,
+        "volume": 100,
+    }
+    second = executor.watch_once(
+        config,
+        live=True,
+        now_utc="2026-06-05T12:11:00+00:00",
+        entry_regime=regime,
+    )
+
+    assert first["status"] == "STRADDLE_NO_TRADE"
+    assert second["status"] == "STRADDLE_ENTRY_COOLDOWN"
+    assert second["reason"] == "wide box streak 2 reached limit 2"
+    assert second["cooldown_until_utc"] == "2026-06-05T12:16:00+00:00"
+    assert broker.placed_requests == []
+
+
 def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeypatch):
     broker = FakeBroker()
     executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
@@ -413,8 +645,17 @@ def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeyp
     monkeypatch.setattr(
         executor,
         "watch_once",
-        lambda straddle_config, live=False, now_utc=None, exit_management=None: calls.append(
-            (straddle_config.symbol, live, exit_management is not None)
+        lambda straddle_config,
+        live=False,
+        now_utc=None,
+        exit_management=None,
+        entry_regime=None: calls.append(
+            (
+                straddle_config.symbol,
+                live,
+                exit_management is not None,
+                entry_regime is not None,
+            )
         )
         or next(results),
     )
@@ -433,7 +674,10 @@ def test_straddle_watch_forever_keeps_polling_until_max_cycles(tmp_path, monkeyp
 
     assert result["status"] == "STOPPED_MAX_CYCLES"
     assert result["last_result"]["status"] == "PAIR_PLACED"
-    assert calls == [("XAUUSD.vx", True, True), ("XAUUSD.vx", True, True)]
+    assert calls == [
+        ("XAUUSD.vx", True, True, True),
+        ("XAUUSD.vx", True, True, True),
+    ]
     assert sleeps == [5]
 
 
@@ -444,7 +688,11 @@ def test_straddle_watch_forever_writes_heartbeat_each_cycle(tmp_path, monkeypatc
     monkeypatch.setattr(
         executor,
         "watch_once",
-        lambda straddle_config, live=False, now_utc=None, exit_management=None: {
+        lambda straddle_config,
+        live=False,
+        now_utc=None,
+        exit_management=None,
+        entry_regime=None: {
             "status": "PAIR_PLACED"
         },
     )
@@ -470,7 +718,13 @@ def test_straddle_watch_forever_records_error_and_keeps_polling(tmp_path, monkey
     results = iter([RuntimeError("mt5 unavailable"), {"status": "STRADDLE_NO_TRADE"}])
     sleeps = []
 
-    def watch_once(straddle_config, live=False, now_utc=None, exit_management=None):
+    def watch_once(
+        straddle_config,
+        live=False,
+        now_utc=None,
+        exit_management=None,
+        entry_regime=None,
+    ):
         item = next(results)
         if isinstance(item, Exception):
             raise item

@@ -248,6 +248,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             max_cycles=0,
             max_runtime_seconds=0,
             exit_management=None,
+            entry_regime=None,
         ):
             calls["watch_forever"] = {
                 "straddle_config": straddle_config,
@@ -256,6 +257,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
                 "max_cycles": max_cycles,
                 "max_runtime_seconds": max_runtime_seconds,
                 "exit_management": exit_management,
+                "entry_regime": entry_regime,
             }
             return {"status": "STOPPED_MAX_CYCLES"}
 
@@ -288,6 +290,18 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             "3.5",
             "--scalp-profit-points",
             "1.4",
+            "--loss-streak-cooldown-trades",
+            "3",
+            "--loss-cooldown-minutes",
+            "12",
+            "--wide-box-cooldown-count",
+            "4",
+            "--wide-box-cooldown-minutes",
+            "6",
+            "--post-cooldown-momentum-body-points",
+            "1.2",
+            "--post-cooldown-momentum-breakout-points",
+            "0.3",
         ],
     )
 
@@ -304,6 +318,14 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
     assert exit_management.min_stop_update_points == 0.2
     assert exit_management.early_loss_exit_points == 3.5
     assert exit_management.scalp_profit_points == 1.4
+    entry_regime = calls["watch_forever"]["entry_regime"]
+    assert entry_regime.enabled is True
+    assert entry_regime.loss_streak_limit == 3
+    assert entry_regime.loss_cooldown_minutes == 12
+    assert entry_regime.wide_box_streak_limit == 4
+    assert entry_regime.wide_box_cooldown_minutes == 6
+    assert entry_regime.post_cooldown_momentum_body_points == 1.2
+    assert entry_regime.post_cooldown_momentum_breakout_points == 0.3
 
 
 def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path):
@@ -338,6 +360,7 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
             max_cycles=0,
             max_runtime_seconds=0,
             exit_management=None,
+            entry_regime=None,
         ):
             calls["watch_forever"] = {
                 "straddle_config": straddle_config,
@@ -346,6 +369,7 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
                 "max_cycles": max_cycles,
                 "max_runtime_seconds": max_runtime_seconds,
                 "exit_management": exit_management,
+                "entry_regime": entry_regime,
             }
             return {"status": "STOPPED_MAX_CYCLES"}
 
@@ -375,6 +399,14 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
     assert exit_management.min_stop_update_points == 0.3
     assert exit_management.early_loss_exit_points == 1.5
     assert exit_management.scalp_profit_points == 1.5
+    entry_regime = calls["watch_forever"]["entry_regime"]
+    assert entry_regime.enabled is True
+    assert entry_regime.loss_streak_limit == 2
+    assert entry_regime.loss_cooldown_minutes == 10.0
+    assert entry_regime.wide_box_streak_limit == 3
+    assert entry_regime.wide_box_cooldown_minutes == 5.0
+    assert entry_regime.post_cooldown_momentum_body_points == 0.8
+    assert entry_regime.post_cooldown_momentum_breakout_points == 0.2
 
 
 def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):

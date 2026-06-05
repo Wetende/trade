@@ -962,8 +962,8 @@ class MT5Broker:
         mt5 = self._module()
         server_time_offset_seconds = self._server_time_offset_seconds(mt5)
         deals = mt5.history_deals_get(
-            _mt5_history_datetime(start_utc, server_time_offset_seconds),
-            _mt5_history_datetime(end_utc, server_time_offset_seconds),
+            _mt5_history_datetime(start_utc),
+            _mt5_history_datetime(end_utc),
         )
         if deals is None:
             raise MT5BrokerError(f"MT5 history_deals_get failed: {mt5.last_error()}")

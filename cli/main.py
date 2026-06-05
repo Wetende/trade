@@ -853,6 +853,47 @@ def mt5_straddle_run(
         min=0.0,
         help="Maximum candle-box height allowed for pair creation.",
     ),
+    entry_regime_filter: bool = typer.Option(
+        True,
+        "--entry-regime-filter/--no-entry-regime-filter",
+        help="Pause new straddle entries after loss streaks or repeated wide boxes.",
+    ),
+    loss_streak_cooldown_trades: int = typer.Option(
+        2,
+        "--loss-streak-cooldown-trades",
+        min=0,
+        help="Consecutive closed losing straddle trades before pausing entries. Zero disables loss-streak cooldown.",
+    ),
+    loss_cooldown_minutes: float = typer.Option(
+        10.0,
+        "--loss-cooldown-minutes",
+        min=0.0,
+        help="Minutes to pause entries after the loss-streak limit is reached.",
+    ),
+    wide_box_cooldown_count: int = typer.Option(
+        3,
+        "--wide-box-cooldown-count",
+        min=0,
+        help="Distinct too-wide straddle boxes before pausing entries. Zero disables wide-box cooldown.",
+    ),
+    wide_box_cooldown_minutes: float = typer.Option(
+        5.0,
+        "--wide-box-cooldown-minutes",
+        min=0.0,
+        help="Minutes to pause entries after repeated too-wide boxes.",
+    ),
+    post_cooldown_momentum_body_points: float = typer.Option(
+        0.80,
+        "--post-cooldown-momentum-body-points",
+        min=0.0,
+        help="Minimum latest-candle body required before entries resume after cooldown.",
+    ),
+    post_cooldown_momentum_breakout_points: float = typer.Option(
+        0.20,
+        "--post-cooldown-momentum-breakout-points",
+        min=0.0,
+        help="Minimum latest-candle close beyond the prior high/low before entries resume after cooldown.",
+    ),
     exit_management: bool = typer.Option(
         True,
         "--exit-management/--no-exit-management",
@@ -906,6 +947,7 @@ def mt5_straddle_run(
     from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_straddle import (
+        StraddleEntryRegimeConfig,
         MT5StraddleExecutor,
         StraddleExitManagementConfig,
     )
@@ -937,6 +979,15 @@ def mt5_straddle_run(
             early_loss_exit_points=early_loss_exit_points,
             scalp_profit_points=scalp_profit_points,
         )
+        entry_regime_config = StraddleEntryRegimeConfig(
+            enabled=entry_regime_filter,
+            loss_streak_limit=loss_streak_cooldown_trades,
+            loss_cooldown_minutes=loss_cooldown_minutes,
+            wide_box_streak_limit=wide_box_cooldown_count,
+            wide_box_cooldown_minutes=wide_box_cooldown_minutes,
+            post_cooldown_momentum_body_points=post_cooldown_momentum_body_points,
+            post_cooldown_momentum_breakout_points=post_cooldown_momentum_breakout_points,
+        )
         if watch:
             result = executor.watch_forever(
                 straddle_config,
@@ -949,6 +1000,7 @@ def mt5_straddle_run(
                     else 0
                 ),
                 exit_management=exit_management_config,
+                entry_regime=entry_regime_config,
             )
         else:
             pair = executor.build_pair(straddle_config)
