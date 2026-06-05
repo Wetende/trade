@@ -61,12 +61,21 @@ def _payload(
     risk: dict[str, Any] | None = None,
     message: str = "",
     telemetry: dict[str, Any] | None = None,
+    entry_profile: str | None = None,
+    timeframe: str | None = None,
+    confirmation_timeframe: str | None = None,
+    activation_window_minutes: int | None = None,
 ) -> dict[str, Any]:
     return {
         "symbol": symbol.upper(),
         "as_of": as_of,
-        "timeframe": "15m",
-        "confirmation_timeframe": "30m",
+        "entry_profile": entry_profile or market_context.get("entry_profile", "normal"),
+        "timeframe": timeframe or market_context.get("timeframe", "15m"),
+        "confirmation_timeframe": confirmation_timeframe
+        or market_context.get("confirmation_timeframe", "30m"),
+        "activation_window_minutes": activation_window_minutes
+        if activation_window_minutes is not None
+        else market_context.get("activation_window_minutes"),
         "status": status,
         "recommendation": recommendation,
         "setups": setups or [],
@@ -79,12 +88,22 @@ def _payload(
     }
 
 
+_TIMEFRAME_ORDER = ("1d", "4h", "1h", "30m", "15m", "3m", "1m")
+
+
+def _ordered_timeframes(keys) -> list[str]:
+    available = {str(key) for key in keys}
+    ordered = [tf for tf in _TIMEFRAME_ORDER if tf in available]
+    ordered.extend(sorted(available - set(ordered)))
+    return ordered
+
+
 def _rows_by_timeframe(candles_by_tf: dict[str, list[Candle]]) -> dict[str, int]:
-    return {tf: len(candles_by_tf.get(tf, [])) for tf in ("1d", "4h", "1h", "30m", "15m")}
+    return {tf: len(candles_by_tf.get(tf, [])) for tf in _ordered_timeframes(candles_by_tf)}
 
 
 def _zone_counts(zones_by_tf: dict[str, list[Zone]]) -> dict[str, int]:
-    return {tf: len(zones_by_tf.get(tf, [])) for tf in ("1d", "4h", "1h", "30m")}
+    return {tf: len(zones_by_tf.get(tf, [])) for tf in _ordered_timeframes(zones_by_tf)}
 
 
 def _telemetry(
@@ -99,6 +118,9 @@ def _telemetry(
 ) -> dict[str, Any]:
     evaluations = candidate_evaluations or []
     return {
+        "entry_profile": market_context.get("entry_profile", "normal"),
+        "timeframe": market_context.get("timeframe", "15m"),
+        "confirmation_timeframe": market_context.get("confirmation_timeframe", "30m"),
         "decision_stage": decision_stage,
         "primary_hold_reason": primary_hold_reason,
         "timeframe_rows": _rows_by_timeframe(candles_by_tf),
@@ -220,6 +242,10 @@ def _risk_reward_value(risk: dict[str, Any]) -> float:
 def _timeframe_priority(timeframe: str | None) -> int:
     normalized = str(timeframe or "").strip().lower()
     return {
+        "1m": 7,
+        "m1": 7,
+        "3m": 6,
+        "m3": 6,
         "15m": 5,
         "m15": 5,
         "30m": 4,
@@ -247,6 +273,24 @@ def _setup_grade_rank(value: Any) -> int:
     }.get(str(value or "").strip().upper(), 0)
 
 
+def _display_timeframe(timeframe: str) -> str:
+    normalized = str(timeframe or "").strip().lower()
+    if normalized.endswith("m") and normalized[:-1].isdigit():
+        return f"M{normalized[:-1]}"
+    if normalized.endswith("h") and normalized[:-1].isdigit():
+        return f"H{normalized[:-1]}"
+    return str(timeframe or "").upper()
+
+
+def _direction_from_bias(value: Any) -> str | None:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"BUY", "BULLISH"}:
+        return "BUY"
+    if normalized in {"SELL", "BEARISH"}:
+        return "SELL"
+    return None
+
+
 def _candidate_quality(candidate: dict[str, Any]) -> tuple[float, int, float]:
     setup = candidate["setup"]
     zone = setup.get("zone", {})
@@ -266,15 +310,43 @@ def analyze_playbook(
     session_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze all available timeframes and return a structured decision payload."""
+    profile_config = session_config or {}
+    profile_name = str(profile_config.get("entry_profile", "normal"))
+    entry_timeframe = str(profile_config.get("timeframe", "15m"))
+    confirmation_timeframe = str(
+        profile_config.get("confirmation_timeframe", "30m")
+    )
+    zone_timeframes = tuple(
+        str(tf)
+        for tf in profile_config.get(
+            "zone_timeframes",
+            ("1d", "4h", "1h", confirmation_timeframe),
+        )
+    )
+    independent_direction = bool(
+        profile_config.get("independent_direction", profile_name == "fast")
+    )
+    if "activation_window_minutes" in profile_config:
+        activation_window_minutes = int(profile_config["activation_window_minutes"])
+    elif profile_name == "fast":
+        activation_window_minutes = int(
+            profile_config.get("fast_activation_window_minutes", 6)
+        )
+    else:
+        activation_window_minutes = int(
+            profile_config.get("normal_activation_window_minutes", 30)
+        )
+    entry_label = _display_timeframe(entry_timeframe)
+    confirmation_label = _display_timeframe(confirmation_timeframe)
     candles_by_tf = {
         timeframe: normalize_candles(candles)
         for timeframe, candles in timeframe_data.items()
     }
-    m15 = candles_by_tf.get("15m", [])
-    m30 = candles_by_tf.get("30m", [])
+    entry_candles = candles_by_tf.get(entry_timeframe, [])
+    confirmation_candles = candles_by_tf.get(confirmation_timeframe, [])
     time_checks = evaluate_time_filters(as_of, market_timezone, config=session_config)
     checklist = _base_checklist(time_checks)
-    checklist["candle_closed"] = PASS if m15 and m30 else FAIL
+    checklist["candle_closed"] = PASS if entry_candles and confirmation_candles else FAIL
     time_filter_mode = str(
         (session_config or {}).get("time_filter_mode", "block")
     ).strip().lower()
@@ -290,16 +362,18 @@ def analyze_playbook(
 
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
-    for tf in ("1d", "4h", "1h", "30m"):
+    for tf in zone_timeframes:
         tf_zones = calculate_support_resistance(candles_by_tf.get(tf, []), timeframe=tf)
         zones_by_tf[tf] = tf_zones
         zones.extend(tf_zones)
     zones = sorted(zones, key=lambda zone: zone.score, reverse=True)
 
-    m30_zones = zones_by_tf.get("30m", [])
-    m30_breakouts = detect_breakouts(m30, m30_zones)
-    m30_breakout_dicts = [_setup_to_dict(setup) for setup in m30_breakouts]
-    m30_context = determine_m30_bias(m30_breakout_dicts)
+    confirmation_zones = zones_by_tf.get(confirmation_timeframe, [])
+    confirmation_breakouts = detect_breakouts(confirmation_candles, confirmation_zones)
+    confirmation_breakout_dicts = [
+        _setup_to_dict(setup) for setup in confirmation_breakouts
+    ]
+    confirmation_context = determine_m30_bias(confirmation_breakout_dicts)
     daily_structure = classify_timeframe_structure(
         candles_by_tf.get("1d", []),
         zones_by_tf.get("1d", []),
@@ -316,28 +390,37 @@ def analyze_playbook(
         "1H",
     )
     market_context = {
-        **m30_context,
+        **confirmation_context,
+        "entry_profile": profile_name,
+        "timeframe": entry_timeframe,
+        "confirmation_timeframe": confirmation_timeframe,
+        "activation_window_minutes": activation_window_minutes,
+        "independent_direction": independent_direction,
+        "confirmation_bias": confirmation_context.get("m30_bias"),
+        "confirmation_context": confirmation_context.get("m30_context"),
         "daily_structure": daily_structure,
         "h4_structure": h4_structure,
         "h1_structure": h1_structure,
         "daily_permission": daily_structure["permission"],
         "h4_permission": h4_structure["permission"],
         "h1_permission": h1_structure["permission"],
-        "range": classify_range(m30, m30_zones),
+        "range": classify_range(confirmation_candles, confirmation_zones),
         "time_filter_mode": time_filter_mode,
         "minimum_setup_grade": minimum_setup_grade,
         "b_plus_min_rr": b_plus_min_rr,
     }
-    m30_rejections: list[Setup] = []
-    if not m30_breakouts:
-        m30_rejections = detect_sr_bounce(m30, m30_zones)
-        if m30_rejections:
-            rejected = m30_rejections[0]
+    confirmation_rejections: list[Setup] = []
+    if not confirmation_breakouts:
+        confirmation_rejections = detect_sr_bounce(confirmation_candles, confirmation_zones)
+        if confirmation_rejections:
+            rejected = confirmation_rejections[0]
             market_context["m30_bias"] = (
                 "BULLISH" if rejected.direction == "BUY" else "BEARISH"
             )
             market_context["m30_context"] = "REJECTION"
             market_context["m30_rejection"] = _setup_to_dict(rejected)
+            market_context["confirmation_bias"] = market_context["m30_bias"]
+            market_context["confirmation_context"] = market_context["m30_context"]
 
     def make_telemetry(
         decision_stage: str,
@@ -389,29 +472,39 @@ def analyze_playbook(
             checklist,
             zones,
             market_context,
-            message="Insufficient closed M15/M30 candles. Default to HOLD.",
+            message=(
+                f"Insufficient closed {entry_label}/{confirmation_label} candles. "
+                "Default to HOLD."
+            ),
             telemetry=make_telemetry(
                 "data_insufficient",
-                "Insufficient closed M15/M30 candles. Default to HOLD.",
+                (
+                    f"Insufficient closed {entry_label}/{confirmation_label} candles. "
+                    "Default to HOLD."
+                ),
             ),
         )
 
-    m30_direction = None
+    confirmation_direction = None
     if market_context["m30_bias"] == "BULLISH":
-        m30_direction = "BUY"
+        confirmation_direction = "BUY"
     elif market_context["m30_bias"] == "BEARISH":
-        m30_direction = "SELL"
+        confirmation_direction = "SELL"
 
     candidate_setups = _unique_setups(
         [
-            *detect_breakouts(m15, m30_zones),
-            *detect_break_and_retest(m15, m30_zones, direction=m30_direction),
-            *detect_sr_bounce(m15, zones),
+            *detect_breakouts(entry_candles, confirmation_zones),
+            *detect_break_and_retest(
+                entry_candles,
+                confirmation_zones,
+                direction=confirmation_direction,
+            ),
+            *detect_sr_bounce(entry_candles, zones),
         ]
     )
 
     if not candidate_setups:
-        checklist["not_overextended"] = FAIL if _is_overextended(m15) else PASS
+        checklist["not_overextended"] = FAIL if _is_overextended(entry_candles) else PASS
         return _payload(
             symbol,
             as_of,
@@ -420,10 +513,10 @@ def analyze_playbook(
             checklist,
             zones,
             market_context,
-            message="No valid M15 setup. Default to HOLD.",
+            message=f"No valid {entry_label} setup. Default to HOLD.",
             telemetry=make_telemetry(
                 "no_m15_setup",
-                "No valid M15 setup. Default to HOLD.",
+                f"No valid {entry_label} setup. Default to HOLD.",
                 candidate_setups,
             ),
         )
@@ -447,8 +540,15 @@ def analyze_playbook(
     for index, setup in enumerate(candidate_setups):
         candidate_checklist = dict(checklist)
         candidate_checklist["playbook_setup"] = PASS
-        candidate_checklist["timeframe_correlation"] = PASS if m30_direction == setup.direction else FAIL
-        candidate_checklist["not_overextended"] = FAIL if _is_overextended(m15) else PASS
+        if confirmation_direction == setup.direction or (
+            independent_direction and confirmation_direction is None
+        ):
+            candidate_checklist["timeframe_correlation"] = PASS
+        else:
+            candidate_checklist["timeframe_correlation"] = FAIL
+        candidate_checklist["not_overextended"] = (
+            FAIL if _is_overextended(entry_candles) else PASS
+        )
         candidate_checklist["confirmation_candle_wicks"] = (
             PASS if _has_top_and_bottom_wick(setup.confirmation_candle) else FAIL
         )
@@ -463,6 +563,22 @@ def analyze_playbook(
             minimum_rr=b_plus_min_rr,
             preferred_rr=3.0,
         )
+        try:
+            minimum_stop_distance = float(
+                profile_config.get("minimum_stop_distance_price", 0.0)
+            )
+        except (TypeError, ValueError):
+            minimum_stop_distance = 0.0
+        stop_distance = abs(float(setup.entry_price) - float(setup.stop_loss))
+        if minimum_stop_distance and stop_distance < minimum_stop_distance:
+            b_plus_risk = {
+                **b_plus_risk,
+                "approved": False,
+                "reason": (
+                    "Stop distance is below minimum: "
+                    f"distance={stop_distance:.2f}, minimum={minimum_stop_distance:.2f}"
+                ),
+            }
         candidate_checklist["clean_range_to_fill"] = PASS if b_plus_risk.get("approved") else FAIL
         failed_rules = [key for key in required if candidate_checklist[key] != PASS]
         risk = b_plus_risk
@@ -474,18 +590,42 @@ def analyze_playbook(
                 setup_grade = "A_PLUS"
             elif b_plus_risk.get("approved"):
                 setup_grade = "B_PLUS"
-        approved = _setup_grade_rank(setup_grade) >= _setup_grade_rank(minimum_setup_grade)
+        meets_minimum_setup_grade = _setup_grade_rank(setup_grade) >= _setup_grade_rank(
+            minimum_setup_grade
+        )
+        approved = meets_minimum_setup_grade
         permission = evaluate_higher_timeframe_permission(
             market_context["daily_structure"],
             market_context["h4_structure"],
             market_context["h1_structure"],
             setup.direction,
         )
+        higher_timeframe_bias = _direction_from_bias(
+            profile_config.get("higher_timeframe_bias")
+        )
+        counter_bias_minimum_grade = profile_config.get(
+            "fast_counter_bias_minimum_grade",
+            "A_PLUS",
+        )
+        counter_bias_rejected = (
+            profile_name == "fast"
+            and higher_timeframe_bias is not None
+            and setup.direction != higher_timeframe_bias
+            and _setup_grade_rank(setup_grade)
+            < _setup_grade_rank(counter_bias_minimum_grade)
+        )
+        if counter_bias_rejected:
+            approved = False
         if setup_grade == "REJECTED":
             rejection_reason = _candidate_rejection_reason(
                 candidate_checklist,
                 risk,
                 failed_rules,
+            )
+        elif counter_bias_rejected:
+            rejection_reason = (
+                "Fast counter-bias setup requires "
+                f"{str(counter_bias_minimum_grade).strip().upper()} grade."
             )
         elif not approved:
             rejection_reason = (
@@ -498,7 +638,8 @@ def analyze_playbook(
                 "index": index,
                 "approved": approved,
                 "setup_grade": setup_grade,
-                "meets_minimum_setup_grade": approved,
+                "meets_minimum_setup_grade": meets_minimum_setup_grade,
+                "counter_bias_rejected": counter_bias_rejected,
                 "rejection_reason": rejection_reason,
                 "failed_rules": failed_rules,
                 "setup": _setup_to_dict(setup, risk, setup_grade if setup_grade != "REJECTED" else None),
@@ -552,6 +693,28 @@ def analyze_playbook(
         {key: value for key, value in item.items() if key != "_setup"}
         for item in candidate_evaluations
     ]
+    if selected.get("counter_bias_rejected"):
+        minimum_grade = str(
+            profile_config.get("fast_counter_bias_minimum_grade", "A_PLUS")
+        ).strip().upper()
+        return _payload(
+            symbol,
+            as_of,
+            "NO_SETUP",
+            "HOLD",
+            checklist,
+            zones,
+            market_context,
+            setups=[_setup_to_dict(setup, risk, setup_grade)],
+            risk=risk,
+            message=f"Fast counter-bias setup requires {minimum_grade} grade.",
+            telemetry=make_telemetry(
+                "counter_bias_grade_filter",
+                f"Fast counter-bias setup requires {minimum_grade} grade.",
+                candidate_setups,
+                telemetry_candidates,
+            ),
+        )
     if setup_grade == "B_PLUS":
         return _payload(
             symbol,

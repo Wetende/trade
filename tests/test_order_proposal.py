@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -168,6 +169,46 @@ def test_engine_proposal_records_strategy_metadata_and_auto_order_type(tmp_path)
     assert "**Setup Name**: Breakout" in rendered
     assert "**Setup Grade**: B_PLUS" in rendered
     assert "**Strategy Type**: BREAKOUT" in rendered
+
+
+@pytest.mark.unit
+def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
+    state = {
+        "company_of_interest": "XAUUSD.vx",
+        "broker_symbol": "XAUUSD.vx",
+        "as_of": "2026-06-03 08:15",
+        "timeframe": "1m",
+        "confirmation_timeframe": "3m",
+        "market_timezone": "America/New_York",
+        "engine_payload": {
+            "status": "SETUP_FOUND",
+            "recommendation": "BUY",
+            "entry_profile": "fast",
+            "activation_window_minutes": 6,
+            "message": "Fast A+ setup passed.",
+            "setups": [
+                {
+                    "name": "Breakout",
+                    "direction": "BUY",
+                    "entry_price": 4460.87,
+                    "stop_loss": 4458.37,
+                    "take_profit": 4465.87,
+                    "setup_grade": "A_PLUS",
+                }
+            ],
+            "risk": {"take_profit": 4465.87},
+        },
+    }
+
+    proposal_state = create_order_proposal_executor({"results_dir": tmp_path})(state)
+    proposal_path = Path(proposal_state["order_proposal_path"])
+    proposal = json.loads(proposal_path.read_text())
+
+    assert proposal_path.name == "order_proposal_2026-06-03_08_15_fast.json"
+    assert proposal["timeframe"] == "1m"
+    assert proposal["confirmation_timeframe"] == "3m"
+    assert proposal["activation_window_minutes"] == 6
+    assert proposal["cancel_if_not_triggered_after"] == "2026-06-03 08:21 EDT"
 
 
 @pytest.mark.unit

@@ -189,6 +189,173 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     assert summary["latest_execution"]["heartbeat_utc"] == "2026-06-01T14:15:00+00:00"
 
 
+def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    store.record_cycle(
+        {
+            "status": "ORDER_PLACED",
+            "entry_profile": "fast",
+            "as_of": "2026-06-03 08:16",
+            "execution": {"status": "PLACED", "order": 1},
+            "analysis": {"telemetry": {"decision_stage": "setup_found"}},
+        }
+    )
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "profiles": [
+                {
+                    "entry_profile": "normal",
+                    "as_of": "2026-06-03 08:15",
+                    "status": "NO_TRADE",
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "no_m15_setup",
+                            "primary_hold_reason": "No valid M15 setup.",
+                        }
+                    },
+                },
+                {
+                    "entry_profile": "fast",
+                    "as_of": "2026-06-03 08:16",
+                    "status": "NO_TRADE",
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "counter_bias_grade_filter",
+                            "primary_hold_reason": "Fast counter-bias setup requires A_PLUS.",
+                        }
+                    },
+                },
+            ],
+        }
+    )
+
+    assert summary["profile_status_counts"]["fast"]["ORDER_PLACED"] == 1
+    assert summary["profile_status_counts"]["fast"]["NO_TRADE"] == 1
+    assert summary["profile_status_counts"]["normal"]["NO_TRADE"] == 1
+
+
+def test_runner_summary_counts_multi_profile_hold_reasons_and_data_health(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "profiles": [
+                {
+                    "entry_profile": "normal",
+                    "as_of": "2026-06-03 16:45",
+                    "status": "NO_TRADE",
+                    "proposal": {
+                        "status": "NO_TRADE",
+                        "reason": "Time filter failed. Default to HOLD.",
+                    },
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "time_filter",
+                            "primary_hold_reason": "Time filter failed. Default to HOLD.",
+                        },
+                        "data_status": {"healthy": True},
+                    },
+                },
+                {
+                    "entry_profile": "fast",
+                    "as_of": "2026-06-03 16:46",
+                    "status": "NO_TRADE",
+                    "proposal": {
+                        "status": "NO_TRADE",
+                        "reason": "Time filter failed. Default to HOLD.",
+                    },
+                    "analysis": {
+                        "telemetry": {
+                            "decision_stage": "time_filter",
+                            "primary_hold_reason": "Time filter failed. Default to HOLD.",
+                        },
+                        "data_status": {"healthy": True},
+                    },
+                },
+            ],
+        }
+    )
+
+    assert summary["hold_reason_counts"] == {"time_filter": 2}
+    assert summary["data_health"]["healthy_checks"] == 2
+    assert summary["data_health"]["unhealthy_checks"] == 0
+    assert summary["latest_cycle"]["hold_reason"] == "time_filter"
+
+
+def test_runner_summary_deduplicates_history_reconciliation(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+    result = {
+        "status": "NO_TRADE",
+        "history_reconciliation": {
+            "status": "RECONCILED",
+            "filled_trade_count": 1,
+            "closed_trade_count": 1,
+            "net_profit": 6.67,
+            "wins": 1,
+            "losses": 0,
+            "closed_trades": [
+                {
+                    "position_id": 111222,
+                    "entry_deal_ticket": 1001,
+                    "exit_deal_ticket": 1002,
+                    "side": "BUY",
+                    "entry_price": 2450.12,
+                    "exit_price": 2456.79,
+                    "volume": 0.01,
+                    "profit": 6.67,
+                    "outcome": "TP",
+                    "closed_at_utc": "2026-05-24T10:00:00+00:00",
+                }
+            ],
+        },
+    }
+
+    first = store.record_cycle(result)
+    second = store.record_cycle(result)
+
+    assert first["trade_history"]["closed_trade_count"] == 1
+    assert second["trade_history"]["closed_trade_count"] == 1
+    assert second["trade_history"]["filled_trade_count"] == 1
+    assert second["trade_history"]["wins"] == 1
+    assert second["trade_history"]["losses"] == 0
+    assert second["trade_history"]["net_profit"] == 6.67
+    assert second["trade_history"]["latest_closed_trade"]["position_id"] == 111222
+
+
+def test_runner_summary_counts_filled_trade_before_close(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+    result = {
+        "status": "ACTIVE_TRADE_MONITORED",
+        "history_reconciliation": {
+            "status": "RECONCILED",
+            "filled_trade_count": 1,
+            "closed_trade_count": 0,
+            "filled_trades": [
+                {
+                    "position_id": 111222,
+                    "entry_deal_ticket": 1001,
+                    "side": "BUY",
+                    "entry_price": 2450.12,
+                    "volume": 0.01,
+                    "opened_at_utc": "2026-05-24T09:55:00+00:00",
+                }
+            ],
+            "closed_trades": [],
+        },
+    }
+
+    first = store.record_cycle(result)
+    second = store.record_cycle(result)
+
+    assert first["trade_history"]["filled_trade_count"] == 1
+    assert second["trade_history"]["filled_trade_count"] == 1
+    assert second["trade_history"]["closed_trade_count"] == 0
+    assert second["trade_history"]["latest_filled_trade"]["position_id"] == 111222
+
+
 def test_runner_summary_excludes_duplicate_processed_candles_from_check_counts(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 

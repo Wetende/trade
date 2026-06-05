@@ -153,6 +153,7 @@ def run_engine_decision(
     snapshot: PriceActionSnapshot | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic price-action engine and return proposal-ready state."""
+    profile_config = session_config or {}
     if snapshot is None:
         snapshot = fetch_price_action_snapshot(
             symbol,
@@ -180,6 +181,13 @@ def run_engine_decision(
         payload["timeframe"] = timeframe
         payload["confirmation_timeframe"] = confirmation_timeframe
         payload["data_status"] = data_status
+
+    if profile_config.get("entry_profile"):
+        payload["entry_profile"] = str(profile_config["entry_profile"])
+    if profile_config.get("activation_window_minutes") is not None:
+        payload["activation_window_minutes"] = int(
+            profile_config["activation_window_minutes"]
+        )
 
     telemetry_path = write_engine_payload(payload, results_dir)
     payload["telemetry_path"] = str(telemetry_path)

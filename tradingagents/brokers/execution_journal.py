@@ -28,6 +28,10 @@ _EVENT_TYPE_RE = re.compile(r"^[A-Za-z0-9_]+$")
 _WRITE_LOCK = threading.Lock()
 
 
+class UnsafeExecutionJournalPath(ValueError):
+    """Raised when a journal path escapes the configured results directory."""
+
+
 def _normalize_payload_value(
     value: Any,
     seen: set[int] | None = None,
@@ -132,6 +136,8 @@ class ExecutionJournal:
         )
         try:
             self._append_line_descriptor_relative(safe_symbol, line)
+        except UnsafeExecutionJournalPath:
+            raise
         except (PermissionError, OSError, ValueError):
             self._append_line_symbol_root_fallback(safe_symbol, line)
             return fallback_path
@@ -304,11 +310,13 @@ class ExecutionJournal:
         try:
             common_path = os.path.commonpath([results_key, journal_key])
         except ValueError as exc:
-            raise ValueError(
-                f"execution journal path is outside results_dir: {resolved_journal_path}"
+            raise UnsafeExecutionJournalPath(
+                "unsafe execution journal directory component: "
+                f"{resolved_journal_path}"
             ) from exc
 
         if common_path != results_key:
-            raise ValueError(
-                f"execution journal path is outside results_dir: {resolved_journal_path}"
+            raise UnsafeExecutionJournalPath(
+                "unsafe execution journal directory component: "
+                f"{resolved_journal_path}"
             )

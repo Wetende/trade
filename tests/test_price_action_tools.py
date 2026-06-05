@@ -354,3 +354,17 @@ def test_engine_payload_writer_persists_raw_json(tmp_path):
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["telemetry"]["decision_stage"] == "time_filter"
     assert "GC=F" not in path.name
+
+
+def test_engine_payload_writer_suffixes_fast_profile_payloads(tmp_path):
+    payload = {
+        "symbol": "XAUUSD.vx",
+        "as_of": "2026-06-03 08:15",
+        "entry_profile": "fast",
+        "status": "NO_SETUP",
+        "recommendation": "HOLD",
+    }
+
+    path = price_action_tools.write_engine_payload(payload, tmp_path)
+
+    assert path.name == "engine_payload_2026-06-03_08_15_fast.json"

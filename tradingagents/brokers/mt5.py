@@ -10,7 +10,7 @@ import importlib
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from numbers import Integral
 from typing import Any
 
@@ -45,6 +45,8 @@ class MT5ConnectionConfig:
     magic: int = 150015
     order_comment: str = "TradingAgents"
     max_entry_distance_points: float = 10.0
+    min_stop_distance_price: float = 0.0
+    min_stop_spread_multiple: float = 4.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.allow_real_orders, bool):
@@ -88,6 +90,17 @@ class MT5ConnectionConfig:
             "max_entry_distance_points",
             max_entry_distance_points,
         )
+        for attr, label in (
+            ("min_stop_distance_price", "MT5 minimum stop distance price"),
+            ("min_stop_spread_multiple", "MT5 minimum stop spread multiple"),
+        ):
+            try:
+                value = float(getattr(self, attr))
+            except (TypeError, ValueError) as exc:
+                raise MT5BrokerError(f"{label} must be numeric") from exc
+            if not math.isfinite(value) or value < 0:
+                raise MT5BrokerError(f"{label} must be non-negative")
+            object.__setattr__(self, attr, value)
 
     @classmethod
     def from_env(cls) -> "MT5ConnectionConfig":
@@ -132,6 +145,14 @@ class MT5ConnectionConfig:
             max_entry_distance_points=_float_env(
                 "TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS",
                 10.0,
+            ),
+            min_stop_distance_price=_float_env(
+                "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE",
+                2.5,
+            ),
+            min_stop_spread_multiple=_float_env(
+                "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE",
+                4.0,
             ),
         )
 
@@ -264,6 +285,29 @@ class MT5OrderRequestBuilder:
                 f"distance={distance:.2f}, max_distance={max_distance:.2f}"
             )
 
+    def _assert_stop_distance(
+        self,
+        entry: float,
+        stop: float,
+        symbol_info: dict[str, Any],
+    ) -> None:
+        minimum = float(self.config.min_stop_distance_price)
+        if symbol_info.get("bid") not in (None, "") and symbol_info.get("ask") not in (
+            None,
+            "",
+        ):
+            bid, ask = self._quote(symbol_info)
+            spread_distance = abs(ask - bid) * float(
+                self.config.min_stop_spread_multiple
+            )
+            minimum = max(minimum, spread_distance)
+        stop_distance = abs(entry - stop)
+        if stop_distance < minimum:
+            raise ValueError(
+                "stop distance is below minimum: "
+                f"distance={stop_distance:.2f}, minimum={minimum:.2f}"
+            )
+
     def build_pending_order_request(
         self,
         proposal: OrderProposal,
@@ -294,6 +338,7 @@ class MT5OrderRequestBuilder:
         entry = self._round_price(proposal.entry_price, symbol_info)
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
+        self._assert_stop_distance(entry, stop, symbol_info)
         self._assert_entry_near_quote(entry, symbol_info)
         request_type = self._resolve_order_type(proposal, entry, symbol_info)
         self._assert_stop_level_distance(request_type, entry, symbol_info)
@@ -380,6 +425,19 @@ def _asdict(value: Any) -> dict[str, Any]:
     if hasattr(value, "__dict__"):
         return dict(value.__dict__)
     return {}
+
+
+def _mt5_history_datetime(
+    value: datetime,
+    server_time_offset_seconds: int = 0,
+) -> datetime:
+    if value.tzinfo is None:
+        current = value
+    else:
+        current = value.astimezone(timezone.utc).replace(tzinfo=None)
+    if server_time_offset_seconds:
+        current = current + timedelta(seconds=int(server_time_offset_seconds))
+    return current
 
 
 class MT5Broker:
@@ -501,14 +559,19 @@ class MT5Broker:
 
     def _constants(self) -> dict[str, Any]:
         return {
+            "TRADE_ACTION_DEAL": self._constant("TRADE_ACTION_DEAL"),
             "TRADE_ACTION_PENDING": self._constant("TRADE_ACTION_PENDING"),
             "TRADE_ACTION_REMOVE": self._constant("TRADE_ACTION_REMOVE"),
             "TRADE_ACTION_SLTP": self._constant("TRADE_ACTION_SLTP"),
+            "BUY": self._constant("ORDER_TYPE_BUY"),
+            "SELL": self._constant("ORDER_TYPE_SELL"),
             "BUY_LIMIT": self._constant("ORDER_TYPE_BUY_LIMIT"),
             "SELL_LIMIT": self._constant("ORDER_TYPE_SELL_LIMIT"),
             "BUY_STOP": self._constant("ORDER_TYPE_BUY_STOP"),
             "SELL_STOP": self._constant("ORDER_TYPE_SELL_STOP"),
             "ORDER_TIME_GTC": self._constant("ORDER_TIME_GTC"),
+            "ORDER_FILLING_FOK": self._constant("ORDER_FILLING_FOK"),
+            "ORDER_FILLING_IOC": self._constant("ORDER_FILLING_IOC"),
             "ORDER_FILLING_RETURN": self._constant("ORDER_FILLING_RETURN"),
             "TRADE_RETCODE_DONE": self._constant("TRADE_RETCODE_DONE"),
             "TRADE_RETCODE_PLACED": self._constant("TRADE_RETCODE_PLACED"),
@@ -525,11 +588,14 @@ class MT5Broker:
         constants = self._constants()
         return {
             "action": {
+                "TRADE_ACTION_DEAL": constants["TRADE_ACTION_DEAL"],
                 "TRADE_ACTION_PENDING": constants["TRADE_ACTION_PENDING"],
                 "TRADE_ACTION_REMOVE": constants["TRADE_ACTION_REMOVE"],
                 "TRADE_ACTION_SLTP": constants["TRADE_ACTION_SLTP"],
             },
             "type": {
+                "BUY": constants["BUY"],
+                "SELL": constants["SELL"],
                 "BUY_LIMIT": constants["BUY_LIMIT"],
                 "SELL_LIMIT": constants["SELL_LIMIT"],
                 "BUY_STOP": constants["BUY_STOP"],
@@ -537,6 +603,8 @@ class MT5Broker:
             },
             "type_time": {"ORDER_TIME_GTC": constants["ORDER_TIME_GTC"]},
             "type_filling": {
+                "ORDER_FILLING_FOK": constants["ORDER_FILLING_FOK"],
+                "ORDER_FILLING_IOC": constants["ORDER_FILLING_IOC"],
                 "ORDER_FILLING_RETURN": constants["ORDER_FILLING_RETURN"]
             },
         }
@@ -768,6 +836,87 @@ class MT5Broker:
             )
         )
 
+    def close_position(
+        self,
+        position: dict[str, Any],
+        *,
+        comment: str = "TradingAgents close",
+    ) -> dict[str, Any]:
+        item = _asdict(position)
+        ticket = self._positive_ticket(item.get("ticket"), "position")
+        symbol = item.get("symbol")
+        if symbol not in (None, "") and symbol != self.config.symbol:
+            raise MT5BrokerError(
+                f"symbol must match configured MT5 symbol {self.config.symbol}"
+            )
+
+        side = str(item.get("side") or "").upper()
+        if side not in {"BUY", "SELL"}:
+            raise MT5BrokerError("position side must be BUY or SELL")
+        volume = self._positive_float(item.get("volume"), "volume")
+
+        self._assert_active_session()
+        mt5 = self._module()
+        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        if not tick:
+            raise MT5BrokerError(
+                f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
+            )
+        close_type = "SELL" if side == "BUY" else "BUY"
+        price_field = "bid" if close_type == "SELL" else "ask"
+        price = self._positive_float(tick.get(price_field), "price")
+        base_request = {
+            "action": "TRADE_ACTION_DEAL",
+            "symbol": self.config.symbol,
+            "volume": volume,
+            "type": close_type,
+            "position": ticket,
+            "price": price,
+            "deviation": self.config.deviation,
+            "magic": self.config.magic,
+            "comment": comment,
+        }
+        attempts = []
+        last_response = None
+        for filling_name in (
+            "ORDER_FILLING_FOK",
+            "ORDER_FILLING_IOC",
+            "ORDER_FILLING_RETURN",
+        ):
+            response = self._send(
+                self._materialize_request(
+                    {**base_request, "type_filling": filling_name}
+                )
+            )
+            attempts.append(
+                {
+                    "type_filling": filling_name,
+                    "retcode": response.get("retcode"),
+                    "comment": response.get("comment"),
+                    "ok": response.get("ok"),
+                }
+            )
+            response["filling_attempts"] = attempts
+            last_response = response
+            if response.get("ok"):
+                return response
+            if not self._is_unsupported_filling_response(response):
+                return response
+        return last_response or {
+            "ok": False,
+            "retcode": None,
+            "order": None,
+            "deal": None,
+            "comment": "no close filling mode attempted",
+            "request": {},
+            "filling_attempts": attempts,
+        }
+
+    @staticmethod
+    def _is_unsupported_filling_response(response: dict[str, Any]) -> bool:
+        comment = str(response.get("comment") or "").lower()
+        return "filling" in comment and "unsupported" in comment
+
     def open_orders(self, symbol: str) -> list[dict[str, Any]]:
         self._assert_active_session()
         mt5 = self._module()
@@ -802,6 +951,40 @@ class MT5Broker:
             )
         return normalized
 
+    def history_deals(
+        self,
+        symbol: str,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[dict[str, Any]]:
+        """Read normalized MT5 deal history for one symbol."""
+        self._assert_active_session()
+        mt5 = self._module()
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        deals = mt5.history_deals_get(
+            _mt5_history_datetime(start_utc),
+            _mt5_history_datetime(end_utc),
+        )
+        if deals is None:
+            raise MT5BrokerError(f"MT5 history_deals_get failed: {mt5.last_error()}")
+
+        normalized = []
+        for deal in deals:
+            item = _asdict(deal)
+            if item.get("symbol") != symbol:
+                continue
+            raw_time = item.get("time")
+            if raw_time not in (None, ""):
+                try:
+                    item["time_utc"] = datetime.fromtimestamp(
+                        int(raw_time) - server_time_offset_seconds,
+                        tz=timezone.utc,
+                    ).isoformat()
+                except (TypeError, ValueError, OSError):
+                    pass
+            normalized.append(item)
+        return normalized
+
     def fetch_rates(self, timeframe: str, count: int) -> list[dict[str, Any]]:
         """Fetch normalized OHLCV candles for the configured MT5 symbol."""
         self._assert_active_session()
@@ -809,6 +992,8 @@ class MT5Broker:
 
         mt5 = self._module()
         timeframe_constants = {
+            "1m": getattr(mt5, "TIMEFRAME_M1", None),
+            "3m": getattr(mt5, "TIMEFRAME_M3", None),
             "15m": getattr(mt5, "TIMEFRAME_M15", None),
             "30m": getattr(mt5, "TIMEFRAME_M30", None),
             "1h": getattr(mt5, "TIMEFRAME_H1", None),

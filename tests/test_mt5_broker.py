@@ -15,12 +15,15 @@ from tradingagents.brokers.mt5 import (
 class FakeMT5:
     TRADE_RETCODE_DONE = 10009
     TRADE_RETCODE_PLACED = 10008
+    TRADE_ACTION_DEAL = 1
     TRADE_ACTION_PENDING = 5
     TRADE_ACTION_REMOVE = 8
     TRADE_ACTION_SLTP = 6
     ACCOUNT_TRADE_MODE_DEMO = 0
     ACCOUNT_TRADE_MODE_CONTEST = 1
     ACCOUNT_TRADE_MODE_REAL = 2
+    ORDER_TYPE_BUY = 0
+    ORDER_TYPE_SELL = 1
     ORDER_TYPE_BUY_LIMIT = 2
     ORDER_TYPE_SELL_LIMIT = 3
     ORDER_TYPE_BUY_STOP = 4
@@ -28,7 +31,11 @@ class FakeMT5:
     POSITION_TYPE_BUY = 0
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
+    ORDER_FILLING_FOK = 0
+    ORDER_FILLING_IOC = 1
     ORDER_FILLING_RETURN = 2
+    TIMEFRAME_M1 = 1
+    TIMEFRAME_M3 = 3
     TIMEFRAME_M15 = 15
     TIMEFRAME_M30 = 30
     TIMEFRAME_H1 = 60
@@ -50,6 +57,9 @@ class FakeMT5:
         self.terminal_connected = True
         self.result_request = None
         self.order_send_returns_none = False
+        self.deal_results_by_filling = {}
+        self.history_deals = []
+        self.history_deals_calls = []
         self.orders = [
             SimpleNamespace(ticket=111222, symbol="XAUUSD", price_open=2450.12)
         ]
@@ -138,6 +148,7 @@ class FakeMT5:
             volume_min=0.01,
             volume_max=100.0,
             volume_step=0.01,
+            filling_mode=self.ORDER_FILLING_IOC,
         )
 
     def symbol_info_tick(self, symbol):
@@ -147,14 +158,23 @@ class FakeMT5:
         self.sent_requests.append(request)
         if self.order_send_returns_none:
             return None
+        retcode = self.order_retcode
+        comment = "ok"
+        if (
+            request.get("action") == self.TRADE_ACTION_DEAL
+            and self.deal_results_by_filling
+        ):
+            fill_result = self.deal_results_by_filling.get(request.get("type_filling"))
+            if fill_result is not None:
+                retcode, comment = fill_result
         result_request = self.result_request
         if result_request == "echo":
             result_request = SimpleNamespace(**request)
         return SimpleNamespace(
-            retcode=self.order_retcode,
+            retcode=retcode,
             order=111222,
             deal=0,
-            comment="ok",
+            comment=comment,
             request=result_request,
         )
 
@@ -170,6 +190,10 @@ class FakeMT5:
             for position in self.positions
             if symbol is None or position.symbol == symbol
         ]
+
+    def history_deals_get(self, date_from, date_to, group=None):
+        self.history_deals_calls.append((date_from, date_to, group))
+        return self.history_deals
 
     def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
         self.copy_rates_calls.append((symbol, timeframe, start_pos, count))
@@ -252,6 +276,19 @@ def test_mt5_config_reads_demo_execution_guards(monkeypatch):
     assert config.max_entry_distance_points == 8.5
 
 
+def test_mt5_config_reads_min_stop_distance_guards(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_MT5_LOGIN", "123456789")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_PASSWORD", "secret")
+    monkeypatch.setenv("TRADINGAGENTS_MT5_SERVER", "ExampleBroker-Demo")
+    monkeypatch.setenv("TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE", "2.5")
+    monkeypatch.setenv("TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE", "4")
+
+    config = MT5ConnectionConfig.from_env()
+
+    assert config.min_stop_distance_price == 2.5
+    assert config.min_stop_spread_multiple == 4.0
+
+
 def test_mt5_config_accepts_direct_connection_without_mode_fields():
     config = MT5ConnectionConfig(
         login=123456789,
@@ -314,6 +351,43 @@ def test_mt5_request_builder_uses_configured_order_comment():
     )
 
     assert request["comment"] == "TradingAgents contest"
+
+
+def test_mt5_request_builder_rejects_stop_distance_below_gold_guard():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        min_stop_distance_price=2.5,
+        min_stop_spread_multiple=4.0,
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="AUTO",
+        entry_price=4460.87,
+        stop_loss=4460.35,
+        take_profit=4462.42,
+        valid_until="2026-06-03 06:30 EDT",
+        status=OrderStatus.PROPOSED,
+        reason="too tight stop",
+    )
+
+    with pytest.raises(ValueError, match="stop distance is below minimum"):
+        MT5OrderRequestBuilder(config).build_pending_order_request(
+            proposal,
+            {
+                "name": "XAUUSD",
+                "digits": 2,
+                "point": 0.01,
+                "trade_tick_size": 0.01,
+                "trade_stops_level": 1,
+                "bid": 4460.50,
+                "ask": 4460.83,
+            },
+        )
 
 
 def test_mt5_config_preserves_zero_execution_guard_values(monkeypatch):
@@ -532,6 +606,77 @@ def test_mt5_broker_reads_open_orders_and_positions():
     assert positions[0]["take_profit"] == 2456.79
 
 
+def test_mt5_broker_reads_history_deals_for_symbol():
+    fake_mt5 = FakeMT5()
+    fake_mt5.history_deals = [
+        SimpleNamespace(
+            ticket=555,
+            order=111222,
+            position_id=111222,
+            symbol="XAUUSD",
+            time=1779610000,
+            type=fake_mt5.POSITION_TYPE_BUY,
+            entry=0,
+            volume=0.01,
+            price=2450.12,
+            profit=0.0,
+            commission=0.0,
+            swap=0.0,
+            magic=150015,
+            comment="TradingAgents",
+        ),
+        SimpleNamespace(
+            ticket=556,
+            order=111333,
+            position_id=111222,
+            symbol="XAUUSD",
+            time=1779610300,
+            type=fake_mt5.POSITION_TYPE_SELL,
+            entry=1,
+            volume=0.01,
+            price=2456.79,
+            profit=6.67,
+            commission=0.0,
+            swap=0.0,
+            magic=150015,
+            comment="[tp 2456.79]",
+        ),
+        SimpleNamespace(ticket=777, symbol="EURUSD", position_id=777),
+    ]
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker._server_time_offset_seconds = lambda mt5: 3 * 3600
+    broker.connect()
+
+    deals = broker.history_deals(
+        "XAUUSD",
+        datetime.fromtimestamp(1779609900, tz=timezone.utc),
+        datetime.fromtimestamp(1779610400, tz=timezone.utc),
+    )
+
+    assert fake_mt5.history_deals_calls
+    queried_start, queried_end, _group = fake_mt5.history_deals_calls[0]
+    assert queried_start.tzinfo is None
+    assert queried_end.tzinfo is None
+    assert queried_start == datetime.fromtimestamp(
+        1779609900,
+        tz=timezone.utc,
+    ).replace(tzinfo=None)
+    assert queried_end == datetime.fromtimestamp(
+        1779610400,
+        tz=timezone.utc,
+    ).replace(tzinfo=None)
+    assert [deal["ticket"] for deal in deals] == [555, 556]
+    assert deals[1]["position_id"] == 111222
+    assert deals[1]["profit"] == 6.67
+    assert deals[1]["time_utc"] == "2026-05-24T05:11:40+00:00"
+
+
 def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
     fake = FakeMT5()
     fake.rates = [
@@ -583,6 +728,38 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "close": 4501.60,
             "volume": 140.0,
         },
+    ]
+
+
+def test_mt5_broker_fetch_rates_supports_one_and_three_minute_timeframes():
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1779613200,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+        }
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    broker.fetch_rates("1m", 1)
+    broker.fetch_rates("3m", 1)
+
+    assert fake.copy_rates_calls[-2:] == [
+        ("XAUUSD", fake.TIMEFRAME_M1, 0, 1),
+        ("XAUUSD", fake.TIMEFRAME_M3, 0, 1),
     ]
 
 
@@ -907,6 +1084,7 @@ def test_mt5_broker_rejects_order_send_before_connect():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_rejects_management_order_send_before_connect(
@@ -1042,6 +1220,7 @@ def test_mt5_broker_allows_real_account_order_with_acknowledgement():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_management_actions_block_real_account_without_acknowledgement(
@@ -1087,6 +1266,7 @@ def test_mt5_broker_rejects_disconnected_terminal_before_order_send():
     (
         ("cancel_order", (111222,)),
         ("modify_position_stops", (222333, 2447.99, 2456.79)),
+        ("close_position", ({"ticket": 333444, "side": "BUY", "volume": 0.01},)),
     ),
 )
 def test_mt5_broker_management_actions_recheck_disconnected_terminal_before_send(
@@ -1763,6 +1943,127 @@ def test_mt5_broker_modify_stops_rejects_placed_retcode():
     assert result["ok"] is False
     assert result["retcode"] == FakeMT5.TRADE_RETCODE_PLACED
     assert result["last_error"] == (0, "ok")
+
+
+def test_mt5_broker_closes_buy_position_with_market_sell():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        },
+        comment="straddle early exit",
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_DEAL
+    assert fake_mt5.sent_requests[-1]["type"] == FakeMT5.ORDER_TYPE_SELL
+    assert fake_mt5.sent_requests[-1]["position"] == 333444
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.01
+    assert fake_mt5.sent_requests[-1]["price"] == 4506.99
+    assert fake_mt5.sent_requests[-1]["comment"] == "straddle early exit"
+    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_FOK
+
+
+def test_mt5_broker_closes_sell_position_with_market_buy():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333445,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": "0.01",
+        }
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["action"] == FakeMT5.TRADE_ACTION_DEAL
+    assert fake_mt5.sent_requests[-1]["type"] == FakeMT5.ORDER_TYPE_BUY
+    assert fake_mt5.sent_requests[-1]["position"] == 333445
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.01
+    assert fake_mt5.sent_requests[-1]["price"] == 4507.32
+    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_FOK
+
+
+def test_mt5_broker_close_position_retries_next_filling_mode_when_fok_is_rejected():
+    fake_mt5 = FakeMT5()
+    fake_mt5.deal_results_by_filling = {
+        fake_mt5.ORDER_FILLING_FOK: (10030, "Unsupported filling mode"),
+        fake_mt5.ORDER_FILLING_IOC: (fake_mt5.TRADE_RETCODE_DONE, "Request executed"),
+    }
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        }
+    )
+
+    assert result["ok"] is True
+    assert [request["type_filling"] for request in fake_mt5.sent_requests[-2:]] == [
+        fake_mt5.ORDER_FILLING_FOK,
+        fake_mt5.ORDER_FILLING_IOC,
+    ]
+    assert result["filling_attempts"][0]["comment"] == "Unsupported filling mode"
+    assert result["request"]["type_filling"] == fake_mt5.ORDER_FILLING_IOC
+
+
+@pytest.mark.parametrize(
+    ("position", "match"),
+    (
+        ({"ticket": 0, "side": "BUY", "volume": 0.01}, "position ticket"),
+        ({"ticket": 333444, "side": "HOLD", "volume": 0.01}, "position side"),
+        ({"ticket": 333444, "side": "BUY", "volume": 0}, "volume"),
+        (
+            {"ticket": 333444, "symbol": "EURUSD", "side": "BUY", "volume": 0.01},
+            "symbol must match configured MT5 symbol",
+        ),
+    ),
+)
+def test_mt5_broker_rejects_invalid_close_position(position, match):
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+
+    with pytest.raises(MT5BrokerError, match=match):
+        broker.close_position(position)
+
+    assert fake_mt5.sent_requests == []
 
 
 @pytest.mark.parametrize("ticket", (0, -1, "abc", None, False, 2.25, 123.0, "2.25"))

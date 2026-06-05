@@ -1,5 +1,6 @@
 import json
 import math
+from datetime import datetime, timezone
 
 import pytest
 
@@ -435,6 +436,8 @@ class FakeBroker:
         self.placed_requests = []
         self.cancelled = []
         self.modified_stops = []
+        self.history_deals_result = []
+        self.history_deals_calls = []
         self.place_result = {
             "ok": True,
             "order": 111222,
@@ -474,6 +477,10 @@ class FakeBroker:
             }
         )
         return {"ok": True, "position": position_ticket, "retcode": 10009}
+
+    def history_deals(self, symbol, start_utc, end_utc):
+        self.history_deals_calls.append((symbol, start_utc, end_utc))
+        return list(self.history_deals_result)
 
 
 def _config() -> MT5ConnectionConfig:
@@ -598,8 +605,8 @@ def test_executor_skips_entry_far_from_live_quote(tmp_path):
     }
     proposal = _proposal(TradeAction.SELL)
     proposal.entry_price = 4517.47
-    proposal.stop_loss = 4517.91
-    proposal.take_profit = 4516.15
+    proposal.stop_loss = 4520.47
+    proposal.take_profit = 4510.47
     proposal.broker_symbol = "XAUUSD"
     executor = MT5Executor(config, tmp_path, broker=broker)
 
@@ -655,6 +662,7 @@ def test_executor_does_not_record_state_when_order_rejected(tmp_path):
 
 def test_executor_cancels_stale_active_pending_order(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     executor = MT5Executor(_config(), tmp_path, broker=broker)
     executor.state.save(
         {
@@ -674,8 +682,133 @@ def test_executor_cancels_stale_active_pending_order(tmp_path):
     assert executor.state.load()["active_order_ticket"] is None
 
 
+def test_executor_clears_state_when_tracked_ticket_is_open_position(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [{"ticket": 111, "symbol": "XAUUSD"}]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "cancel_after_utc": "2026-05-27T14:00:00+00:00",
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:00+00:00"
+    )
+
+    assert result["status"] == "ORDER_ALREADY_FILLED"
+    assert result["ticket"] == 111
+    assert broker.cancelled == []
+    assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_clears_state_when_tracked_ticket_is_not_open_anymore(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "cancel_after_utc": "2026-05-27T14:00:00+00:00",
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:00+00:00"
+    )
+
+    assert result["status"] == "ORDER_NOT_OPEN"
+    assert result["ticket"] == 111
+    assert broker.cancelled == []
+    assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_reconciles_closed_bot_trade_history(tmp_path):
+    broker = FakeBroker()
+    broker.history_deals_result = [
+        {
+            "ticket": 1001,
+            "order": 111222,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 1779610000,
+            "type": 0,
+            "entry": 0,
+            "volume": 0.01,
+            "price": 2450.12,
+            "profit": 0.0,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "TradingAgents",
+        },
+        {
+            "ticket": 1002,
+            "order": 111333,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 1779610300,
+            "type": 1,
+            "entry": 1,
+            "volume": 0.01,
+            "price": 2456.79,
+            "profit": 6.67,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "[tp 2456.79]",
+        },
+        {
+            "ticket": 2001,
+            "order": 222222,
+            "position_id": 222222,
+            "symbol": "XAUUSD",
+            "time": 1779610300,
+            "type": 0,
+            "entry": 0,
+            "volume": 0.01,
+            "price": 2451.00,
+            "profit": 0.0,
+            "magic": 0,
+            "comment": "manual trade",
+        },
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.reconcile_trade_history(
+        now_utc=datetime.fromtimestamp(1779610400, tz=timezone.utc),
+    )
+
+    assert broker.history_deals_calls
+    assert result["status"] == "RECONCILED"
+    assert result["filled_trade_count"] == 1
+    assert result["closed_trade_count"] == 1
+    assert result["net_profit"] == 6.67
+    assert result["wins"] == 1
+    assert result["losses"] == 0
+    assert result["closed_trades"][0]["position_id"] == 111222
+    assert result["closed_trades"][0]["outcome"] == "TP"
+    assert result["closed_trades"][0]["exit_deal_ticket"] == 1002
+
+
+def test_executor_reconcile_trade_history_accepts_explicit_start(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    start = datetime.fromtimestamp(1779610100, tz=timezone.utc)
+    now = datetime.fromtimestamp(1779610400, tz=timezone.utc)
+
+    result = executor.reconcile_trade_history(since_utc=start, now_utc=now)
+
+    assert result["status"] == "RECONCILED"
+    assert broker.history_deals_calls[0][1] == start
+    assert broker.history_deals_calls[0][2] == now
+
+
 def test_executor_leaves_non_stale_active_pending_order(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     executor = MT5Executor(_config(), tmp_path, broker=broker)
     executor.state.save(
         {
@@ -708,6 +841,7 @@ def test_executor_cancel_stale_handles_no_active_order(tmp_path):
 
 def test_executor_keeps_state_when_stale_cancel_fails(tmp_path):
     broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
     broker.cancel_result = {"ok": False, "retcode": 10030, "comment": "not found"}
 
     def cancel_order(ticket):

@@ -42,7 +42,11 @@ def test_fetch_mt5_price_action_snapshot_uses_existing_shape():
         ("1h", 1200),
         ("30m", 500),
         ("15m", 1000),
+        ("3m", 1200),
+        ("1m", 1500),
     ]
-    assert set(snapshot.candles) == {"1d", "4h", "1h", "30m", "15m"}
+    assert set(snapshot.candles) == {"1d", "4h", "1h", "30m", "15m", "3m", "1m"}
     assert isinstance(snapshot.candles["15m"][0], Candle)
     assert snapshot.data_status["timeframes"]["15m"]["rows"] == 2
+    assert snapshot.data_status["timeframes"]["1m"]["available"] is True
+    assert snapshot.data_status["timeframes"]["3m"]["available"] is True

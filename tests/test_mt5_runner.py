@@ -10,6 +10,9 @@ class FakeExecutor:
         self.executed = []
         self.cancel_calls = 0
         self.manage_calls = 0
+        self.history_calls = 0
+        self.history_kwargs = []
+        self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
 
     def snapshot_state(self):
         return {
@@ -28,6 +31,11 @@ class FakeExecutor:
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
         return {"status": "PLACED", "order": 123}
+
+    def reconcile_trade_history(self, **kwargs):
+        self.history_calls += 1
+        self.history_kwargs.append(kwargs)
+        return dict(self.history_result)
 
 
 class MonotonicClock:
@@ -98,6 +106,96 @@ def test_runner_skips_new_analysis_when_active_trade_exists(tmp_path):
     assert called is False
     assert executor.cancel_calls == 1
     assert executor.manage_calls == 1
+    assert executor.history_calls == 1
+
+
+def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "filled_trade_count": 1,
+        "closed_trade_count": 1,
+        "net_profit": 6.67,
+        "wins": 1,
+        "losses": 0,
+        "closed_trades": [
+            {
+                "position_id": 111222,
+                "entry_deal_ticket": 1001,
+                "exit_deal_ticket": 1002,
+                "side": "BUY",
+                "entry_price": 2450.12,
+                "exit_price": 2456.79,
+                "volume": 0.01,
+                "profit": 6.67,
+                "outcome": "TP",
+                "closed_at_utc": "2026-05-24T10:00:00+00:00",
+            }
+        ],
+    }
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["history_reconciliation"]["closed_trade_count"] == 1
+    assert result["summary"]["trade_history"]["closed_trade_count"] == 1
+    assert result["summary"]["trade_history"]["net_profit"] == 6.67
+
+
+def test_runner_stops_before_analysis_when_session_loss_limit_is_reached(tmp_path):
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 4,
+        "net_profit": -350.0,
+        "wins": 1,
+        "losses": 3,
+    }
+
+    def analysis_func():
+        raise AssertionError("analysis should not run after risk limit is reached")
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_session_loss=300.0,
+        ),
+        executor=executor,
+        analysis_func=analysis_func,
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "RISK_LIMIT_REACHED"
+    assert result["risk_limit"]["max_session_loss"] == 300.0
+    assert result["risk_limit"]["net_profit"] == -350.0
+    assert executor.executed == []
+    assert result["summary"]["latest_cycle"]["status"] == "RISK_LIMIT_REACHED"
+
+
+def test_runner_reconciles_history_from_session_start(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    runner.run_once()
+
+    assert executor.history_kwargs
+    assert "since_utc" in executor.history_kwargs[0]
+    assert executor.history_kwargs[0]["since_utc"] <= executor.history_kwargs[0]["now_utc"]
 
 
 def test_runner_records_no_trade_without_execution(tmp_path):
@@ -114,6 +212,42 @@ def test_runner_records_no_trade_without_execution(tmp_path):
 
     assert result["status"] == "NO_TRADE"
     assert executor.executed == []
+
+
+def test_runner_executes_first_proposed_profile_and_marks_each_profile(tmp_path):
+    normal_no_trade = proposed_order()
+    normal_no_trade.status = OrderStatus.NO_TRADE
+    fast_order = proposed_order()
+    fast_order.timeframe = "1m"
+    fast_order.confirmation_timeframe = "3m"
+
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: [
+            (
+                "normal",
+                "2026-06-03 08:15",
+                normal_no_trade,
+                {"entry_profile": "normal"},
+            ),
+            (
+                "fast",
+                "2026-06-03 08:16",
+                fast_order,
+                {"entry_profile": "fast"},
+            ),
+        ],
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert result["entry_profile"] == "fast"
+    assert len(executor.executed) == 1
+    assert runner._load_state()["last_processed_by_profile"]["normal"] == "2026-06-03 08:15"
+    assert runner._load_state()["last_processed_by_profile"]["fast"] == "2026-06-03 08:16"
 
 
 def test_runner_marks_no_trade_candle_as_processed(tmp_path):
@@ -187,6 +321,38 @@ def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
 
     assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS"
     assert result["last_result"]["status"] == "NO_TRADE"
+    assert sleeps == []
+
+
+def test_runner_forever_stops_when_session_loss_limit_is_reached(tmp_path, monkeypatch):
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 3,
+        "net_profit": -300.0,
+        "wins": 0,
+        "losses": 3,
+    }
+    sleeps = []
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_session_loss=300.0,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_RISK_LIMIT"
+    assert result["last_result"]["status"] == "RISK_LIMIT_REACHED"
     assert sleeps == []
 
 
@@ -295,6 +461,36 @@ def test_runner_records_invalid_entry_skip_as_order_not_placed(tmp_path):
     assert result["execution"]["status"] == "SKIPPED_INVALID_ENTRY"
     assert (
         result["summary"]["execution_skip_counts"]["ENTRY_PRICE_STALE_OR_INVALID"]
+        == 1
+    )
+
+
+def test_runner_blocks_configured_strategy_rule_before_execution(tmp_path):
+    proposal = proposed_order()
+    proposal.side = TradeAction.SELL
+    proposal.setup_name = "Support/Resistance Bounce"
+    proposal.strategy_type = "SUPPORT_RESISTANCE_BOUNCE"
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            blocked_strategy_rules=("SUPPORT_RESISTANCE_BOUNCE:SELL",),
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_BLOCKED_STRATEGY"
+    assert result["execution"]["status"] == "SKIPPED_BLOCKED_STRATEGY"
+    assert result["execution"]["reason"] == "BLOCKED_STRATEGY_RULE"
+    assert result["execution"]["matched_rule"] == "SUPPORT_RESISTANCE_BOUNCE:SELL"
+    assert executor.executed == []
+    assert (
+        result["summary"]["execution_skip_counts"]["BLOCKED_STRATEGY_RULE"]
         == 1
     )
 

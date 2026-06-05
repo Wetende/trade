@@ -134,6 +134,38 @@ def test_engine_decision_returns_data_health_hold_when_data_is_unhealthy(
     assert "15m" in state["price_action_report"]
 
 
+def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
+    unhealthy = _healthy_status()
+    unhealthy["healthy"] = False
+    unhealthy["blocking_timeframes"] = ["1m"]
+    snapshot = PriceActionSnapshot(candles=_candles(), data_status=unhealthy)
+
+    state = decision.run_engine_decision(
+        "GC=F",
+        broker_symbol="XAUUSD.vx",
+        as_of="2026-06-03 08:15",
+        results_dir=tmp_path,
+        timeframe="1m",
+        confirmation_timeframe="3m",
+        session_config={
+            "entry_profile": "fast",
+            "activation_window_minutes": 6,
+        },
+        snapshot=snapshot,
+    )
+
+    telemetry_path = (
+        tmp_path
+        / "GC=F"
+        / "engine_telemetry"
+        / "engine_payload_2026-06-03_08_15_fast.json"
+    )
+    assert state["telemetry_path"] == str(telemetry_path)
+    assert state["engine_payload"]["entry_profile"] == "fast"
+    assert state["engine_payload"]["activation_window_minutes"] == 6
+    assert telemetry_path.exists()
+
+
 def test_run_engine_decision_accepts_prebuilt_snapshot(monkeypatch, tmp_path):
     unhealthy = _healthy_status()
     unhealthy["healthy"] = False

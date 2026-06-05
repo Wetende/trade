@@ -11,7 +11,10 @@ import tradingagents.default_config as default_config_module
 
 def _reload_with_env(monkeypatch, **overrides):
     """Set/clear env vars then reload default_config to re-evaluate DEFAULT_CONFIG."""
-    for key in list(default_config_module._ENV_OVERRIDES):
+    for key in list(default_config_module._ENV_OVERRIDES) + [
+        "TRADINGAGENTS_RESULTS_DIR",
+        "TRADINGAGENTS_CACHE_DIR",
+    ]:
         monkeypatch.delenv(key, raising=False)
     for key, val in overrides.items():
         monkeypatch.setenv(key, val)
@@ -75,10 +78,26 @@ def test_runner_int_overrides(monkeypatch):
         monkeypatch,
         TRADINGAGENTS_RUNNER_POLL_SECONDS="45",
         TRADINGAGENTS_RUNNER_MAX_CYCLES="5",
+        TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS="250.5",
     )
 
     assert dc.DEFAULT_CONFIG["runner_poll_seconds"] == 45
     assert dc.DEFAULT_CONFIG["runner_max_cycles"] == 5
+    assert dc.DEFAULT_CONFIG["runner_max_session_loss"] == 250.5
+
+
+def test_runner_blocked_strategy_rules_env_override(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES=(
+            "SUPPORT_RESISTANCE_BOUNCE:SELL, BREAKOUT:*"
+        ),
+    )
+
+    assert dc.DEFAULT_CONFIG["runner_blocked_strategy_rules"] == (
+        "SUPPORT_RESISTANCE_BOUNCE:SELL",
+        "BREAKOUT:*",
+    )
 
 
 def test_time_filter_mode_env_updates_price_action_config(monkeypatch):
@@ -100,15 +119,36 @@ def test_setup_grade_env_updates_price_action_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.2
 
 
+def test_fast_risk_env_updates_price_action_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_FAST_ENTRIES_ENABLED="true",
+        TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE="2.5",
+        TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE="4",
+    )
+
+    assert dc.DEFAULT_CONFIG["fast_entries_enabled"] is True
+    assert dc.DEFAULT_CONFIG["normal_activation_window_minutes"] == 30
+    assert dc.DEFAULT_CONFIG["fast_activation_window_minutes"] == 6
+    assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 2.5
+    assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 4.0
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] == 2.5
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] == 4.0
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(
         monkeypatch,
         TRADINGAGENTS_LLM_PROVIDER="",
         TRADINGAGENTS_TIMEFRAME="",
+        TRADINGAGENTS_RESULTS_DIR="",
+        TRADINGAGENTS_CACHE_DIR="",
     )
     assert dc.DEFAULT_CONFIG["llm_provider"] == "openai"
     assert dc.DEFAULT_CONFIG["timeframe"] == "15m"
+    assert dc.DEFAULT_CONFIG["results_dir"] != ""
+    assert dc.DEFAULT_CONFIG["data_cache_dir"] != ""
 
 
 def test_unknown_env_var_is_ignored(monkeypatch):

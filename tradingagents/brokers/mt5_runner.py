@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,20 +21,31 @@ class MT5RunnerConfig:
     poll_seconds: int = 30
     max_cycles: int = 0
     max_runtime_seconds: int = 0
+    max_session_loss: float = 0.0
+    blocked_strategy_rules: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
         max_cycles = int(self.max_cycles)
         max_runtime_seconds = int(self.max_runtime_seconds)
+        max_session_loss = float(self.max_session_loss)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
         if max_cycles < 0:
             raise ValueError("max_cycles must be non-negative")
         if max_runtime_seconds < 0:
             raise ValueError("max_runtime_seconds must be non-negative")
+        if not math.isfinite(max_session_loss) or max_session_loss < 0:
+            raise ValueError("max_session_loss must be a finite non-negative number")
         object.__setattr__(self, "poll_seconds", poll_seconds)
         object.__setattr__(self, "max_cycles", max_cycles)
         object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
+        object.__setattr__(self, "max_session_loss", max_session_loss)
+        object.__setattr__(
+            self,
+            "blocked_strategy_rules",
+            _normalize_rule_list(self.blocked_strategy_rules),
+        )
 
 
 class MT5Runner:
@@ -43,7 +56,7 @@ class MT5Runner:
         config: MT5RunnerConfig,
         *,
         executor,
-        analysis_func: Callable[[], tuple[str, OrderProposal]],
+        analysis_func: Callable[[], tuple[str, OrderProposal] | list],
         current_as_of_func: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
@@ -55,18 +68,32 @@ class MT5Runner:
         self.heartbeat_path = self.runner_dir / "heartbeat.json"
         self.state_path = self.runner_dir / "state.json"
         self.summary_store = RunnerSummaryStore(config.results_dir)
+        self.history_since_utc = self._load_history_since_utc()
 
     def run_once(self) -> dict:
         started_at = datetime.now(timezone.utc).isoformat()
         snapshot = self.executor.snapshot_state()
         self.executor.cancel_stale_pending_orders()
         self.executor.manage_open_positions()
+        history_reconciliation = self._reconcile_trade_history()
 
         if snapshot.get("orders") or snapshot.get("positions"):
             return self._write_heartbeat(
                 {
                     "status": "ACTIVE_TRADE_MONITORED",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
+                }
+            )
+
+        risk_limit = self._session_loss_limit(history_reconciliation)
+        if risk_limit is not None:
+            return self._write_heartbeat(
+                {
+                    "status": "RISK_LIMIT_REACHED",
+                    "started_at_utc": started_at,
+                    "risk_limit": risk_limit,
+                    "history_reconciliation": history_reconciliation,
                 }
             )
 
@@ -79,16 +106,19 @@ class MT5Runner:
                         "status": "CANDLE_ALREADY_PROCESSED",
                         "started_at_utc": started_at,
                         "as_of": current_as_of,
+                        "history_reconciliation": history_reconciliation,
                     }
                 )
 
         try:
-            as_of, proposal, analysis = self._parse_analysis_result(self.analysis_func())
+            analysis_result = self.analysis_func()
+            analysis_rows = self._parse_analysis_results(analysis_result)
         except Exception as exc:
             return self._write_heartbeat(
                 {
                     "status": "RUNNER_ERROR",
                     "started_at_utc": started_at,
+                    "history_reconciliation": history_reconciliation,
                     "analysis": {
                         "error_type": type(exc).__name__,
                         "error": str(exc),
@@ -96,45 +126,165 @@ class MT5Runner:
                 }
             )
 
-        if state.get("last_processed_as_of") == as_of:
+        multi_profile_result = isinstance(analysis_result, list)
+        last_processed_by_profile = dict(state.get("last_processed_by_profile") or {})
+        processed_rows = []
+        selected = None
+        legacy_last_processed = state.get("last_processed_as_of")
+
+        for profile, as_of, proposal, analysis in analysis_rows:
+            if last_processed_by_profile.get(profile) == as_of or (
+                profile == "normal" and legacy_last_processed == as_of
+            ):
+                continue
+
+            status = str(getattr(proposal.status, "value", proposal.status)).upper()
+            processed_rows.append((profile, as_of, proposal, analysis, status))
+            last_processed_by_profile[profile] = as_of
+            if selected is None and status == "PROPOSED":
+                selected = (profile, as_of, proposal, analysis)
+
+        if not processed_rows:
             return self._write_heartbeat(
                 {
                     "status": "CANDLE_ALREADY_PROCESSED",
                     "started_at_utc": started_at,
-                    "as_of": as_of,
-                    "analysis": analysis,
+                    "profiles": [],
+                    "history_reconciliation": history_reconciliation,
                 }
             )
 
-        status = str(getattr(proposal.status, "value", proposal.status)).upper()
-        if status != "PROPOSED":
-            self._save_state({"last_processed_as_of": as_of})
+        latest_as_of = processed_rows[-1][1]
+        self._save_state(
+            {
+                "last_processed_as_of": latest_as_of,
+                "last_processed_by_profile": last_processed_by_profile,
+            }
+        )
+
+        if selected is None:
+            if not multi_profile_result and len(processed_rows) == 1:
+                profile, as_of, proposal, analysis, _status = processed_rows[0]
+                return self._write_heartbeat(
+                    {
+                        "status": "NO_TRADE",
+                        "started_at_utc": started_at,
+                        "as_of": as_of,
+                        "proposal": proposal.model_dump(mode="json"),
+                        "analysis": analysis,
+                        "history_reconciliation": history_reconciliation,
+                    }
+                )
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",
                     "started_at_utc": started_at,
-                    "as_of": as_of,
-                    "proposal": proposal.model_dump(mode="json"),
-                    "analysis": analysis,
+                    "history_reconciliation": history_reconciliation,
+                    "profiles": [
+                        {
+                            "entry_profile": profile,
+                            "as_of": as_of,
+                            "proposal": proposal.model_dump(mode="json"),
+                            "analysis": analysis,
+                            "status": status,
+                        }
+                        for profile, as_of, proposal, analysis, status in processed_rows
+                    ],
                 }
             )
 
-        execution = self.executor.execute_proposal(proposal)
-        self._save_state({"last_processed_as_of": as_of})
-        return self._write_heartbeat(
-            {
-                "status": (
-                    "ORDER_PLACED"
-                    if execution.get("status") == "PLACED"
-                    else "ORDER_NOT_PLACED"
-                ),
+        profile, as_of, proposal, analysis = selected
+        block = self._blocked_strategy(proposal)
+        if block is not None:
+            execution = {
+                "status": "SKIPPED_BLOCKED_STRATEGY",
+                "reason": "BLOCKED_STRATEGY_RULE",
+                "matched_rule": block,
+                "proposal": proposal.model_dump(mode="json"),
+            }
+            payload = {
+                "status": "ORDER_BLOCKED_STRATEGY",
                 "started_at_utc": started_at,
+                "entry_profile": profile,
                 "as_of": as_of,
                 "proposal": proposal.model_dump(mode="json"),
                 "execution": execution,
                 "analysis": analysis,
+                "history_reconciliation": history_reconciliation,
             }
-        )
+            if not multi_profile_result:
+                payload.pop("entry_profile", None)
+            return self._write_heartbeat(payload)
+
+        execution = self.executor.execute_proposal(proposal)
+        payload = {
+            "status": (
+                "ORDER_PLACED"
+                if execution.get("status") == "PLACED"
+                else "ORDER_NOT_PLACED"
+            ),
+            "started_at_utc": started_at,
+            "entry_profile": profile,
+            "as_of": as_of,
+            "proposal": proposal.model_dump(mode="json"),
+            "execution": execution,
+            "analysis": analysis,
+            "history_reconciliation": history_reconciliation,
+        }
+        if not multi_profile_result:
+            payload.pop("entry_profile", None)
+        return self._write_heartbeat(payload)
+
+    def _reconcile_trade_history(self) -> dict:
+        reconcile = getattr(self.executor, "reconcile_trade_history", None)
+        if not callable(reconcile):
+            return {"status": "UNAVAILABLE"}
+        try:
+            return reconcile(
+                since_utc=self.history_since_utc,
+                now_utc=datetime.now(timezone.utc),
+            )
+        except Exception as exc:
+            return {
+                "status": "RECONCILE_ERROR",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    def _session_loss_limit(self, history_reconciliation: dict) -> dict | None:
+        max_session_loss = self.config.max_session_loss
+        if max_session_loss <= 0:
+            return None
+        if history_reconciliation.get("status") != "RECONCILED":
+            return None
+        try:
+            net_profit = float(history_reconciliation.get("net_profit", 0.0))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(net_profit) or net_profit > -max_session_loss:
+            return None
+        return {
+            "max_session_loss": max_session_loss,
+            "net_profit": net_profit,
+            "closed_trade_count": history_reconciliation.get("closed_trade_count", 0),
+            "wins": history_reconciliation.get("wins", 0),
+            "losses": history_reconciliation.get("losses", 0),
+        }
+
+    def _load_history_since_utc(self) -> datetime:
+        if self.summary_store.summary_path.exists():
+            try:
+                summary = json.loads(
+                    self.summary_store.summary_path.read_text(encoding="utf-8")
+                )
+                started_at = datetime.fromisoformat(str(summary["started_at_utc"]))
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                started_at = datetime.now(timezone.utc)
+        else:
+            started_at = datetime.now(timezone.utc)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        return started_at.astimezone(timezone.utc)
 
     def run_forever(self) -> dict:
         cycles = 0
@@ -147,6 +297,8 @@ class MT5Runner:
         while True:
             last_result = self.run_once()
             cycles += 1
+            if last_result.get("status") == "RISK_LIMIT_REACHED":
+                return {"status": "STOPPED_RISK_LIMIT", "last_result": last_result}
             if (
                 deadline is None
                 and self.config.max_cycles
@@ -197,10 +349,42 @@ class MT5Runner:
             "analysis_func must return (as_of, proposal) or (as_of, proposal, analysis)"
         )
 
+    def _parse_analysis_results(self, result) -> list[tuple[str, str, OrderProposal, dict]]:
+        if isinstance(result, list):
+            rows = []
+            for item in result:
+                if not isinstance(item, tuple):
+                    raise ValueError("analysis profile rows must be tuples")
+                if len(item) == 4:
+                    profile, as_of, proposal, analysis = item
+                    rows.append((str(profile), as_of, proposal, dict(analysis or {})))
+                else:
+                    as_of, proposal, analysis = self._parse_analysis_result(item)
+                    rows.append(("normal", as_of, proposal, analysis))
+            return rows
+
+        as_of, proposal, analysis = self._parse_analysis_result(result)
+        return [("normal", as_of, proposal, analysis)]
+
+    def _blocked_strategy(self, proposal: OrderProposal) -> str | None:
+        side = _strategy_token(getattr(proposal.side, "value", proposal.side))
+        strategy = _strategy_token(proposal.strategy_type)
+        setup = _strategy_token(proposal.setup_name)
+        for rule in self.config.blocked_strategy_rules:
+            strategy_rule, side_rule = _split_block_rule(rule)
+            strategy_match = strategy_rule == "*" or strategy_rule in {strategy, setup}
+            side_match = side_rule == "*" or side_rule == side
+            if strategy_match and side_match:
+                return rule
+        return None
+
     def _load_state(self) -> dict:
         if not self.state_path.exists():
-            return {}
-        return json.loads(self.state_path.read_text(encoding="utf-8"))
+            return {"last_processed_by_profile": {}}
+        return {
+            "last_processed_by_profile": {},
+            **json.loads(self.state_path.read_text(encoding="utf-8")),
+        }
 
     def _save_state(self, state: dict) -> dict:
         self.state_path.write_text(
@@ -208,3 +392,34 @@ class MT5Runner:
             encoding="utf-8",
         )
         return state
+
+
+def _normalize_rule_list(value) -> tuple[str, ...]:
+    if value in (None, ""):
+        return ()
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    else:
+        raw_items = list(value)
+    normalized = []
+    for item in raw_items:
+        text = str(item).strip()
+        if text:
+            normalized.append(text.upper())
+    return tuple(normalized)
+
+
+def _split_block_rule(rule: str) -> tuple[str, str]:
+    if ":" in rule:
+        strategy, side = rule.split(":", 1)
+    else:
+        strategy, side = rule, "*"
+    return _strategy_token(strategy) or "*", _strategy_token(side) or "*"
+
+
+def _strategy_token(value) -> str:
+    text = str(value or "").strip().upper()
+    if text == "*":
+        return "*"
+    text = re.sub(r"[^A-Z0-9]+", "_", text)
+    return re.sub(r"_+", "_", text).strip("_")

@@ -59,10 +59,20 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_POLL_SECONDS": "runner_poll_seconds",
         "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
+        "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
+        "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
         "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
         "TRADINGAGENTS_B_PLUS_MIN_RR": "b_plus_min_rr",
+        "TRADINGAGENTS_FAST_ENTRIES_ENABLED": "fast_entries_enabled",
+        "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
+        "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
+        "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
+        "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
+        "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
+        "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
+        "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
     }
     for env_var, key in env_overrides.items():
         raw = os.environ.get(env_var)
@@ -75,20 +85,44 @@ def _load_runtime_env() -> None:
             DEFAULT_CONFIG[key] = int(raw)
         elif isinstance(reference, float):
             DEFAULT_CONFIG[key] = float(raw)
+        elif isinstance(reference, tuple):
+            DEFAULT_CONFIG[key] = tuple(
+                item.strip() for item in raw.split(",") if item.strip()
+            )
         else:
             DEFAULT_CONFIG[key] = raw
 
-    DEFAULT_CONFIG["results_dir"] = os.getenv(
-        "TRADINGAGENTS_RESULTS_DIR",
-        DEFAULT_CONFIG["results_dir"],
-    )
-    DEFAULT_CONFIG["data_cache_dir"] = os.getenv(
-        "TRADINGAGENTS_CACHE_DIR",
-        DEFAULT_CONFIG["data_cache_dir"],
-    )
+    results_dir = os.environ.get("TRADINGAGENTS_RESULTS_DIR")
+    if results_dir not in (None, ""):
+        DEFAULT_CONFIG["results_dir"] = results_dir
+    data_cache_dir = os.environ.get("TRADINGAGENTS_CACHE_DIR")
+    if data_cache_dir not in (None, ""):
+        DEFAULT_CONFIG["data_cache_dir"] = data_cache_dir
     DEFAULT_CONFIG["price_action"]["time_filter_mode"] = DEFAULT_CONFIG["time_filter_mode"]
     DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] = DEFAULT_CONFIG["minimum_setup_grade"]
     DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] = DEFAULT_CONFIG["b_plus_min_rr"]
+    DEFAULT_CONFIG["price_action"]["fast_entries_enabled"] = DEFAULT_CONFIG[
+        "fast_entries_enabled"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_timeframe"] = DEFAULT_CONFIG["fast_timeframe"]
+    DEFAULT_CONFIG["price_action"]["fast_confirmation_timeframe"] = DEFAULT_CONFIG[
+        "fast_confirmation_timeframe"
+    ]
+    DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
+        "normal_activation_window_minutes"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_activation_window_minutes"] = DEFAULT_CONFIG[
+        "fast_activation_window_minutes"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_counter_bias_minimum_grade"] = DEFAULT_CONFIG[
+        "fast_counter_bias_minimum_grade"
+    ]
+    DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] = DEFAULT_CONFIG[
+        "minimum_stop_distance_price"
+    ]
+    DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] = DEFAULT_CONFIG[
+        "minimum_stop_spread_multiple"
+    ]
 
 
 def _console_encoding(console_obj: Console) -> str:
@@ -478,11 +512,14 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
             create_order_proposal_executor,
         )
         from tradingagents.agents.price_action.decision import run_engine_decision
+        from tradingagents.agents.price_action.profiles import fast_profile, normal_profile
         from tradingagents.brokers.mt5 import MT5Broker
         from tradingagents.brokers.mt5_execution import load_order_proposal
+        from tradingagents.dataflows.data_health import build_data_status
         from tradingagents.dataflows.mt5_price_action import (
             fetch_mt5_price_action_snapshot,
         )
+        from tradingagents.dataflows.price_action import PriceActionSnapshot
 
         engine_symbol = selections["ticker"]
         broker_symbol = selections.get("broker_symbol")
@@ -501,44 +538,112 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 ),
             )
 
-        state = run_engine_decision(
-            symbol=engine_symbol,
-            broker_symbol=broker_symbol,
-            as_of=selections["as_of"],
-            results_dir=DEFAULT_CONFIG["results_dir"],
-            timeframe=selections.get("timeframe", DEFAULT_CONFIG["timeframe"]),
-            confirmation_timeframe=selections.get(
-                "confirmation_timeframe",
-                DEFAULT_CONFIG["confirmation_timeframe"],
-            ),
-            market_timezone=selections.get(
-                "market_timezone",
-                DEFAULT_CONFIG["market_timezone"],
-            ),
-            session_config=DEFAULT_CONFIG.get("price_action"),
-            snapshot=snapshot,
+        market_timezone = selections.get(
+            "market_timezone",
+            DEFAULT_CONFIG["market_timezone"],
         )
-        proposal_state = create_order_proposal_executor(DEFAULT_CONFIG)(state)
-        proposal_path = proposal_state["order_proposal_path"]
-        proposal = load_order_proposal(proposal_path)
-        engine_payload = state.get("engine_payload") or {}
-        analysis = {
-            "order_proposal_path": proposal_path,
-            "telemetry_path": state.get("telemetry_path"),
-            "telemetry": engine_payload.get("telemetry", {}),
-            "data_status": engine_payload.get("data_status", {}),
-            "price_action_report": state.get("price_action_report", ""),
-            "trade_plan": state.get("trade_plan", ""),
-            "engine_status": engine_payload.get("status"),
-        }
-        return selections["as_of"], proposal, analysis
+        profiles = [normal_profile(DEFAULT_CONFIG)]
+        if DEFAULT_CONFIG.get("fast_entries_enabled"):
+            profiles.append(fast_profile(DEFAULT_CONFIG))
+
+        proposal_executor = create_order_proposal_executor(DEFAULT_CONFIG)
+        rows = []
+        for profile in profiles:
+            profile_as_of = (
+                selections["as_of"]
+                if profile.name == "normal"
+                else last_closed_candle(profile.timeframe, market_timezone)
+            )
+            profile_config = {
+                **DEFAULT_CONFIG.get("price_action", {}),
+                "entry_profile": profile.name,
+                "timeframe": profile.timeframe,
+                "confirmation_timeframe": profile.confirmation_timeframe,
+                "zone_timeframes": profile.zone_timeframes,
+                "activation_window_minutes": profile.activation_window_minutes,
+                "independent_direction": profile.independent_direction,
+                "fast_counter_bias_minimum_grade": profile.counter_bias_minimum_grade,
+            }
+            profile_snapshot = snapshot
+            if snapshot is not None:
+                required_timeframes = tuple(
+                    dict.fromkeys(
+                        (
+                            *profile.zone_timeframes,
+                            profile.timeframe,
+                            profile.confirmation_timeframe,
+                        )
+                    )
+                )
+                profile_snapshot = PriceActionSnapshot(
+                    candles=snapshot.candles,
+                    data_status=build_data_status(
+                        snapshot.candles,
+                        profile_as_of,
+                        market_timezone,
+                        required_timeframes=required_timeframes,
+                        trading_timeframe=profile.timeframe,
+                        confirmation_timeframe=profile.confirmation_timeframe,
+                    ),
+                )
+            state = run_engine_decision(
+                symbol=engine_symbol,
+                broker_symbol=broker_symbol,
+                as_of=profile_as_of,
+                results_dir=DEFAULT_CONFIG["results_dir"],
+                timeframe=profile.timeframe,
+                confirmation_timeframe=profile.confirmation_timeframe,
+                market_timezone=market_timezone,
+                session_config=profile_config,
+                snapshot=profile_snapshot,
+            )
+            state["entry_profile"] = profile.name
+            state["activation_window_minutes"] = profile.activation_window_minutes
+            engine_payload = state.get("engine_payload") or {}
+            engine_payload.setdefault("entry_profile", profile.name)
+            engine_payload.setdefault(
+                "activation_window_minutes",
+                profile.activation_window_minutes,
+            )
+            engine_payload.setdefault("timeframe", profile.timeframe)
+            engine_payload.setdefault(
+                "confirmation_timeframe",
+                profile.confirmation_timeframe,
+            )
+            state["engine_payload"] = engine_payload
+
+            proposal_state = proposal_executor(state)
+            proposal_path = proposal_state["order_proposal_path"]
+            proposal = load_order_proposal(proposal_path)
+            analysis = {
+                "entry_profile": profile.name,
+                "order_proposal_path": proposal_path,
+                "telemetry_path": state.get("telemetry_path"),
+                "telemetry": engine_payload.get("telemetry", {}),
+                "data_status": engine_payload.get("data_status", {}),
+                "price_action_report": state.get("price_action_report", ""),
+                "trade_plan": state.get("trade_plan", ""),
+                "engine_status": engine_payload.get("status"),
+            }
+            rows.append((profile.name, profile_as_of, proposal, analysis))
+
+        if len(rows) == 1:
+            _profile, as_of, proposal, analysis = rows[0]
+            return as_of, proposal, analysis
+        return rows
 
     return analyze_once
 
 
 def _mt5_runner_current_as_of_func():
     def current_as_of():
-        return build_env_selections()["as_of"]
+        _load_runtime_env()
+        timeframe = (
+            DEFAULT_CONFIG.get("fast_timeframe", "1m")
+            if DEFAULT_CONFIG.get("fast_entries_enabled")
+            else DEFAULT_CONFIG["timeframe"]
+        )
+        return last_closed_candle(timeframe, DEFAULT_CONFIG["market_timezone"])
 
     return current_as_of
 
@@ -641,12 +746,265 @@ def mt5_run(
                     if duration_hours
                     else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
                 ),
+                max_session_loss=float(
+                    DEFAULT_CONFIG.get("runner_max_session_loss", 0.0)
+                ),
+                blocked_strategy_rules=tuple(
+                    DEFAULT_CONFIG.get("runner_blocked_strategy_rules", ())
+                ),
             ),
             executor=executor,
             analysis_func=analysis_func,
             current_as_of_func=_mt5_runner_current_as_of_func(),
         )
         result = runner.run_once() if once else runner.run_forever()
+    except (MT5BrokerError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(json.dumps(result, indent=2, sort_keys=True))
+
+
+@app.command("mt5-straddle-run")
+def mt5_straddle_run(
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Place the straddle pair. Without this flag the command only validates and records a dry run.",
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help="Keep scanning continuously until stopped.",
+    ),
+    poll_seconds: int = typer.Option(
+        5,
+        "--poll-seconds",
+        min=5,
+        help="Seconds between watch cycles.",
+    ),
+    duration_hours: float = typer.Option(
+        0.0,
+        "--duration-hours",
+        min=0.0,
+        help="Stop the watch loop after this many wall-clock hours. Zero means no duration limit.",
+    ),
+    max_cycles: int = typer.Option(
+        0,
+        "--max-cycles",
+        min=0,
+        help="Stop the watch loop after this many cycles. Zero means no cycle limit.",
+    ),
+    timeframe: str = typer.Option(
+        "1m",
+        "--timeframe",
+        help="MT5 candle timeframe used to build the straddle box.",
+    ),
+    confirmation_timeframe: str = typer.Option(
+        "3m",
+        "--confirmation-timeframe",
+        help="Metadata timeframe recorded on the straddle proposals.",
+    ),
+    lookback_candles: int = typer.Option(
+        3,
+        "--lookback-candles",
+        min=2,
+        help="Number of recent candles used for the straddle box.",
+    ),
+    entry_buffer_points: float = typer.Option(
+        0.50,
+        "--entry-buffer-points",
+        min=0.0,
+        help="Price buffer added outside the box high/low.",
+    ),
+    stop_distance_points: float = typer.Option(
+        2.0,
+        "--stop-distance-points",
+        min=0.01,
+        help="Fixed stop distance from each pending entry.",
+    ),
+    target_distance_points: float = typer.Option(
+        3.0,
+        "--target-distance-points",
+        min=0.01,
+        help="Fixed target distance from each pending entry.",
+    ),
+    activation_window_minutes: int = typer.Option(
+        3,
+        "--activation-window-minutes",
+        min=1,
+        help="Minutes before the untriggered pair should expire.",
+    ),
+    max_spread_points: float = typer.Option(
+        0.50,
+        "--max-spread-points",
+        min=0.0,
+        help="Maximum live bid/ask spread allowed for pair creation.",
+    ),
+    min_box_points: float = typer.Option(
+        0.50,
+        "--min-box-points",
+        min=0.0,
+        help="Minimum candle-box height allowed for pair creation.",
+    ),
+    max_box_points: float = typer.Option(
+        3.0,
+        "--max-box-points",
+        min=0.0,
+        help="Maximum candle-box height allowed for pair creation.",
+    ),
+    entry_regime_filter: bool = typer.Option(
+        True,
+        "--entry-regime-filter/--no-entry-regime-filter",
+        help="Pause new straddle entries after loss streaks or repeated wide boxes.",
+    ),
+    loss_streak_cooldown_trades: int = typer.Option(
+        2,
+        "--loss-streak-cooldown-trades",
+        min=0,
+        help="Consecutive closed losing straddle trades before pausing entries. Zero disables loss-streak cooldown.",
+    ),
+    loss_cooldown_minutes: float = typer.Option(
+        10.0,
+        "--loss-cooldown-minutes",
+        min=0.0,
+        help="Minutes to pause entries after the loss-streak limit is reached.",
+    ),
+    wide_box_cooldown_count: int = typer.Option(
+        3,
+        "--wide-box-cooldown-count",
+        min=0,
+        help="Distinct too-wide straddle boxes before pausing entries. Zero disables wide-box cooldown.",
+    ),
+    wide_box_cooldown_minutes: float = typer.Option(
+        5.0,
+        "--wide-box-cooldown-minutes",
+        min=0.0,
+        help="Minutes to pause entries after repeated too-wide boxes.",
+    ),
+    post_cooldown_momentum_body_points: float = typer.Option(
+        0.80,
+        "--post-cooldown-momentum-body-points",
+        min=0.0,
+        help="Minimum latest-candle body required before entries resume after cooldown.",
+    ),
+    post_cooldown_momentum_breakout_points: float = typer.Option(
+        0.20,
+        "--post-cooldown-momentum-breakout-points",
+        min=0.0,
+        help="Minimum latest-candle close beyond the prior high/low before entries resume after cooldown.",
+    ),
+    exit_management: bool = typer.Option(
+        True,
+        "--exit-management/--no-exit-management",
+        help="Manage active straddle positions with early exits, break-even, and trailing stops.",
+    ),
+    break_even_trigger_points: float = typer.Option(
+        0.8,
+        "--break-even-trigger-points",
+        min=0.0,
+        help="Favorable price points before moving the stop to break-even. Zero disables break-even.",
+    ),
+    break_even_lock_points: float = typer.Option(
+        0.20,
+        "--break-even-lock-points",
+        min=0.0,
+        help="Price points locked beyond entry when break-even is triggered.",
+    ),
+    trailing_trigger_points: float = typer.Option(
+        0.0,
+        "--trailing-trigger-points",
+        min=0.0,
+        help="Favorable price points before trailing stop management starts. Zero disables trailing.",
+    ),
+    trailing_distance_points: float = typer.Option(
+        0.8,
+        "--trailing-distance-points",
+        min=0.0,
+        help="Distance behind current price used for the trailing stop.",
+    ),
+    min_stop_update_points: float = typer.Option(
+        0.30,
+        "--min-stop-update-points",
+        min=0.0,
+        help="Minimum stop improvement required before sending another stop update.",
+    ),
+    early_loss_exit_points: float = typer.Option(
+        1.5,
+        "--early-loss-exit-points",
+        min=0.0,
+        help="Adverse price points before closing the active position early. Zero disables early loss exit.",
+    ),
+    scalp_profit_points: float = typer.Option(
+        1.50,
+        "--scalp-profit-points",
+        min=0.0,
+        help="Favorable price points before closing the active position to bank a scalp. Zero disables scalp closes.",
+    ),
+):
+    """Run isolated MT5 straddle breakout."""
+    _load_runtime_env()
+    from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
+    from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
+    from tradingagents.brokers.mt5_straddle import (
+        StraddleEntryRegimeConfig,
+        MT5StraddleExecutor,
+        StraddleExitManagementConfig,
+    )
+
+    try:
+        config = MT5ConnectionConfig.from_env()
+        straddle_config = StraddleBreakoutConfig(
+            symbol=config.symbol,
+            broker_symbol=config.symbol,
+            timeframe=timeframe,
+            confirmation_timeframe=confirmation_timeframe,
+            lookback_candles=lookback_candles,
+            entry_buffer_points=entry_buffer_points,
+            stop_distance_points=stop_distance_points,
+            target_distance_points=target_distance_points,
+            activation_window_minutes=activation_window_minutes,
+            max_spread_points=max_spread_points,
+            min_box_points=min_box_points,
+            max_box_points=max_box_points,
+        )
+        executor = MT5StraddleExecutor(config, DEFAULT_CONFIG["results_dir"])
+        exit_management_config = StraddleExitManagementConfig(
+            enabled=exit_management,
+            break_even_trigger_points=break_even_trigger_points,
+            break_even_lock_points=break_even_lock_points,
+            trailing_trigger_points=trailing_trigger_points,
+            trailing_distance_points=trailing_distance_points,
+            min_stop_update_points=min_stop_update_points,
+            early_loss_exit_points=early_loss_exit_points,
+            scalp_profit_points=scalp_profit_points,
+        )
+        entry_regime_config = StraddleEntryRegimeConfig(
+            enabled=entry_regime_filter,
+            loss_streak_limit=loss_streak_cooldown_trades,
+            loss_cooldown_minutes=loss_cooldown_minutes,
+            wide_box_streak_limit=wide_box_cooldown_count,
+            wide_box_cooldown_minutes=wide_box_cooldown_minutes,
+            post_cooldown_momentum_body_points=post_cooldown_momentum_body_points,
+            post_cooldown_momentum_breakout_points=post_cooldown_momentum_breakout_points,
+        )
+        if watch:
+            result = executor.watch_forever(
+                straddle_config,
+                live=live,
+                poll_seconds=poll_seconds,
+                max_cycles=max_cycles,
+                max_runtime_seconds=(
+                    math.ceil(duration_hours * 3600)
+                    if duration_hours
+                    else 0
+                ),
+                exit_management=exit_management_config,
+                entry_regime=entry_regime_config,
+            )
+        else:
+            pair = executor.build_pair(straddle_config)
+            result = executor.execute_pair(pair, live=live)
     except (MT5BrokerError, ValueError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc

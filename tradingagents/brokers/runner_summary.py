@@ -91,6 +91,7 @@ class RunnerSummaryStore:
             "updated_at_utc": now,
             "total_checks": 0,
             "status_counts": {},
+            "profile_status_counts": {},
             "hold_reason_counts": {},
             "orders_placed": 0,
             "orders_rejected": 0,
@@ -104,9 +105,31 @@ class RunnerSummaryStore:
                 "unhealthy_checks": 0,
                 "latest_status": {},
             },
+            "trade_history": {
+                "filled_trade_count": 0,
+                "closed_trade_count": 0,
+                "wins": 0,
+                "losses": 0,
+                "break_even": 0,
+                "net_profit": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "processed_entry_deal_tickets": [],
+                "processed_exit_deal_tickets": [],
+                "filled_trades": [],
+                "closed_trades": [],
+                "latest_filled_trade": {},
+                "latest_closed_trade": {},
+                "latest_reconciliation": {},
+            },
             "latest_execution": {},
             "latest_cycle": {},
         }
+
+    def _record_profile_status(self, summary: dict, profile: str, status: str) -> None:
+        profile_counts = summary.setdefault("profile_status_counts", {})
+        counts = profile_counts.setdefault(profile, {})
+        counts[status] = int(counts.get(status, 0)) + 1
 
     def record_cycle(self, result: dict[str, Any]) -> dict[str, Any]:
         summary = _read_json(self.summary_path, self._empty_summary())
@@ -117,31 +140,82 @@ class RunnerSummaryStore:
         data_status = analysis.get("data_status") or {}
         proposal = result.get("proposal") or {}
         reason = str(proposal.get("reason") or telemetry.get("primary_hold_reason") or status)
+        profile_rows = [
+            row for row in (result.get("profiles") or []) if isinstance(row, dict)
+        ]
+
+        hold_contexts: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        data_statuses: list[dict[str, Any]] = []
+        telemetry_sources: list[dict[str, Any]] = []
+        if profile_rows:
+            for profile_row in profile_rows:
+                profile_analysis = profile_row.get("analysis") or {}
+                profile_telemetry = profile_analysis.get("telemetry") or {}
+                profile_data_status = profile_analysis.get("data_status") or {}
+                profile_proposal = profile_row.get("proposal") or {}
+                telemetry_sources.append(profile_telemetry)
+                if profile_data_status:
+                    data_statuses.append(profile_data_status)
+                if str(profile_row.get("status") or "").upper() == "NO_TRADE":
+                    profile_reason = str(
+                        profile_proposal.get("reason")
+                        or profile_telemetry.get("primary_hold_reason")
+                        or profile_row.get("status")
+                        or status
+                    )
+                    hold_contexts.append(
+                        (profile_reason, profile_telemetry, profile_data_status)
+                    )
+        else:
+            telemetry_sources.append(telemetry)
+            if data_status:
+                data_statuses.append(data_status)
+            if status == "NO_TRADE":
+                hold_contexts.append((reason, telemetry, data_status))
 
         if countable_check:
             status_counts = Counter(summary.get("status_counts", {}))
             status_counts[status] += 1
             summary["status_counts"] = dict(status_counts)
             summary["total_checks"] = int(summary.get("total_checks", 0)) + 1
+            if result.get("entry_profile"):
+                self._record_profile_status(
+                    summary,
+                    str(result["entry_profile"]),
+                    status,
+                )
+            for profile_row in result.get("profiles") or []:
+                self._record_profile_status(
+                    summary,
+                    str(profile_row.get("entry_profile", "normal")),
+                    str(profile_row.get("status", "UNKNOWN")),
+                )
         summary["updated_at_utc"] = _utc_now()
 
         candidate_counts = Counter(summary.get("candidate_strategy_counts", {}))
         approved_candidate_counts = Counter(
             summary.get("approved_candidate_strategy_counts", {})
         )
-        for item in telemetry.get("candidate_evaluations") or []:
-            setup = item.get("setup") or {}
-            setup_name = str(setup.get("name") or "unknown")
-            candidate_counts[setup_name] += 1
-            if item.get("approved") is True:
-                approved_candidate_counts[setup_name] += 1
+        for telemetry_source in telemetry_sources:
+            for item in telemetry_source.get("candidate_evaluations") or []:
+                setup = item.get("setup") or {}
+                setup_name = str(setup.get("name") or "unknown")
+                candidate_counts[setup_name] += 1
+                if item.get("approved") is True:
+                    approved_candidate_counts[setup_name] += 1
         summary["candidate_strategy_counts"] = dict(candidate_counts)
         summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
 
         if countable_check and status == "NO_TRADE":
-            hold_reason = categorize_hold_reason(reason, telemetry, data_status)
             hold_counts = Counter(summary.get("hold_reason_counts", {}))
-            hold_counts[hold_reason] += 1
+            for hold_reason, hold_telemetry, hold_data_status in hold_contexts:
+                hold_counts[
+                    categorize_hold_reason(
+                        hold_reason,
+                        hold_telemetry,
+                        hold_data_status,
+                    )
+                ] += 1
             summary["hold_reason_counts"] = dict(hold_counts)
 
         execution = result.get("execution") or {}
@@ -183,27 +257,145 @@ class RunnerSummaryStore:
                 "heartbeat_utc": result.get("heartbeat_utc"),
             }
 
-        if countable_check and data_status:
+        if countable_check and data_statuses:
             data_health = summary.setdefault("data_health", {})
-            data_health["latest_status"] = data_status
-            if data_status.get("healthy", True):
-                data_health["healthy_checks"] = int(data_health.get("healthy_checks", 0)) + 1
-            else:
-                data_health["unhealthy_checks"] = int(data_health.get("unhealthy_checks", 0)) + 1
+            for current_data_status in data_statuses:
+                data_health["latest_status"] = current_data_status
+                if current_data_status.get("healthy", True):
+                    data_health["healthy_checks"] = int(data_health.get("healthy_checks", 0)) + 1
+                else:
+                    data_health["unhealthy_checks"] = int(data_health.get("unhealthy_checks", 0)) + 1
+
+        self._record_trade_history(
+            summary,
+            result.get("history_reconciliation") or {},
+        )
+
+        latest_hold_reason = None
+        if status == "NO_TRADE":
+            categorized_reasons = [
+                categorize_hold_reason(
+                    hold_reason,
+                    hold_telemetry,
+                    hold_data_status,
+                )
+                for hold_reason, hold_telemetry, hold_data_status in hold_contexts
+            ]
+            unique_reasons = sorted(set(categorized_reasons))
+            if len(unique_reasons) == 1:
+                latest_hold_reason = unique_reasons[0]
+            elif len(unique_reasons) > 1:
+                latest_hold_reason = "mixed"
 
         summary["latest_cycle"] = {
             "status": status,
             "as_of": result.get("as_of"),
             "heartbeat_utc": result.get("heartbeat_utc"),
-            "hold_reason": (
-                categorize_hold_reason(reason, telemetry, data_status)
-                if status == "NO_TRADE"
-                else None
-            ),
+            "hold_reason": latest_hold_reason,
         }
         self._append_cycle(result)
         self._write_summary(summary)
         return summary
+
+    def _record_trade_history(
+        self,
+        summary: dict[str, Any],
+        reconciliation: dict[str, Any],
+    ) -> None:
+        if not reconciliation:
+            return
+
+        history = summary.setdefault("trade_history", {})
+        history.setdefault("filled_trade_count", 0)
+        history.setdefault("closed_trade_count", 0)
+        history.setdefault("wins", 0)
+        history.setdefault("losses", 0)
+        history.setdefault("break_even", 0)
+        history.setdefault("net_profit", 0.0)
+        history.setdefault("gross_profit", 0.0)
+        history.setdefault("gross_loss", 0.0)
+        history.setdefault("processed_entry_deal_tickets", [])
+        history.setdefault("processed_exit_deal_tickets", [])
+        history.setdefault("filled_trades", [])
+        history.setdefault("closed_trades", [])
+        history["latest_reconciliation"] = {
+            key: value
+            for key, value in reconciliation.items()
+            if key not in {"filled_trades", "closed_trades"}
+        }
+
+        seen_entries = {
+            str(ticket) for ticket in history.get("processed_entry_deal_tickets", [])
+        }
+        seen_exits = {
+            str(ticket) for ticket in history.get("processed_exit_deal_tickets", [])
+        }
+
+        for trade in reconciliation.get("filled_trades") or []:
+            entry_key = str(
+                trade.get("entry_deal_ticket")
+                or f"position:{trade.get('position_id')}:entry"
+            )
+            if entry_key not in seen_entries:
+                seen_entries.add(entry_key)
+                history["filled_trade_count"] = int(history["filled_trade_count"]) + 1
+                history["filled_trades"].append(trade)
+                history["latest_filled_trade"] = trade
+
+        for trade in reconciliation.get("closed_trades") or []:
+            entry_key = str(
+                trade.get("entry_deal_ticket")
+                or f"position:{trade.get('position_id')}:entry"
+            )
+            if entry_key not in seen_entries:
+                seen_entries.add(entry_key)
+                history["filled_trade_count"] = int(history["filled_trade_count"]) + 1
+                fill_trade = {
+                    key: trade.get(key)
+                    for key in (
+                        "position_id",
+                        "entry_deal_ticket",
+                        "entry_order",
+                        "side",
+                        "volume",
+                        "entry_price",
+                        "opened_at_utc",
+                    )
+                    if key in trade
+                }
+                history["filled_trades"].append(fill_trade)
+                history["latest_filled_trade"] = fill_trade
+
+            exit_key = str(
+                trade.get("exit_deal_ticket")
+                or f"position:{trade.get('position_id')}:exit"
+            )
+            if exit_key in seen_exits:
+                continue
+            seen_exits.add(exit_key)
+
+            profit = float(trade.get("profit") or 0.0)
+            history["closed_trade_count"] = int(history["closed_trade_count"]) + 1
+            history["net_profit"] = round(float(history["net_profit"]) + profit, 2)
+            if profit > 0:
+                history["wins"] = int(history["wins"]) + 1
+                history["gross_profit"] = round(
+                    float(history["gross_profit"]) + profit,
+                    2,
+                )
+            elif profit < 0:
+                history["losses"] = int(history["losses"]) + 1
+                history["gross_loss"] = round(
+                    float(history["gross_loss"]) + profit,
+                    2,
+                )
+            else:
+                history["break_even"] = int(history["break_even"]) + 1
+            history["closed_trades"].append(trade)
+            history["latest_closed_trade"] = trade
+
+        history["processed_entry_deal_tickets"] = sorted(seen_entries)
+        history["processed_exit_deal_tickets"] = sorted(seen_exits)
 
     def _append_cycle(self, result: dict[str, Any]) -> None:
         line = json.dumps(result, sort_keys=True, default=str) + "\n"
