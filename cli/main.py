@@ -894,6 +894,12 @@ def mt5_straddle_run(
         min=0.0,
         help="Adverse price points before closing the active position early. Zero disables early loss exit.",
     ),
+    scalp_profit_points: float = typer.Option(
+        1.50,
+        "--scalp-profit-points",
+        min=0.0,
+        help="Favorable price points before closing the active position to bank a scalp. Zero disables scalp closes.",
+    ),
 ):
     """Run isolated MT5 straddle breakout."""
     _load_runtime_env()
@@ -929,6 +935,7 @@ def mt5_straddle_run(
             trailing_distance_points=trailing_distance_points,
             min_stop_update_points=min_stop_update_points,
             early_loss_exit_points=early_loss_exit_points,
+            scalp_profit_points=scalp_profit_points,
         )
         if watch:
             result = executor.watch_forever(

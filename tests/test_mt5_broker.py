@@ -31,6 +31,8 @@ class FakeMT5:
     POSITION_TYPE_BUY = 0
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
+    ORDER_FILLING_FOK = 0
+    ORDER_FILLING_IOC = 1
     ORDER_FILLING_RETURN = 2
     TIMEFRAME_M1 = 1
     TIMEFRAME_M3 = 3
@@ -55,6 +57,7 @@ class FakeMT5:
         self.terminal_connected = True
         self.result_request = None
         self.order_send_returns_none = False
+        self.deal_results_by_filling = {}
         self.history_deals = []
         self.history_deals_calls = []
         self.orders = [
@@ -145,6 +148,7 @@ class FakeMT5:
             volume_min=0.01,
             volume_max=100.0,
             volume_step=0.01,
+            filling_mode=self.ORDER_FILLING_IOC,
         )
 
     def symbol_info_tick(self, symbol):
@@ -154,14 +158,23 @@ class FakeMT5:
         self.sent_requests.append(request)
         if self.order_send_returns_none:
             return None
+        retcode = self.order_retcode
+        comment = "ok"
+        if (
+            request.get("action") == self.TRADE_ACTION_DEAL
+            and self.deal_results_by_filling
+        ):
+            fill_result = self.deal_results_by_filling.get(request.get("type_filling"))
+            if fill_result is not None:
+                retcode, comment = fill_result
         result_request = self.result_request
         if result_request == "echo":
             result_request = SimpleNamespace(**request)
         return SimpleNamespace(
-            retcode=self.order_retcode,
+            retcode=retcode,
             order=111222,
             deal=0,
-            comment="ok",
+            comment=comment,
             request=result_request,
         )
 
@@ -1960,6 +1973,7 @@ def test_mt5_broker_closes_buy_position_with_market_sell():
     assert fake_mt5.sent_requests[-1]["volume"] == 0.01
     assert fake_mt5.sent_requests[-1]["price"] == 4506.99
     assert fake_mt5.sent_requests[-1]["comment"] == "straddle early exit"
+    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_FOK
 
 
 def test_mt5_broker_closes_sell_position_with_market_buy():
@@ -1988,7 +2002,40 @@ def test_mt5_broker_closes_sell_position_with_market_buy():
     assert fake_mt5.sent_requests[-1]["position"] == 333445
     assert fake_mt5.sent_requests[-1]["volume"] == 0.01
     assert fake_mt5.sent_requests[-1]["price"] == 4507.32
-    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_RETURN
+    assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_FOK
+
+
+def test_mt5_broker_close_position_retries_next_filling_mode_when_fok_is_rejected():
+    fake_mt5 = FakeMT5()
+    fake_mt5.deal_results_by_filling = {
+        fake_mt5.ORDER_FILLING_FOK: (10030, "Unsupported filling mode"),
+        fake_mt5.ORDER_FILLING_IOC: (fake_mt5.TRADE_RETCODE_DONE, "Request executed"),
+    }
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        }
+    )
+
+    assert result["ok"] is True
+    assert [request["type_filling"] for request in fake_mt5.sent_requests[-2:]] == [
+        fake_mt5.ORDER_FILLING_FOK,
+        fake_mt5.ORDER_FILLING_IOC,
+    ]
+    assert result["filling_attempts"][0]["comment"] == "Unsupported filling mode"
+    assert result["request"]["type_filling"] == fake_mt5.ORDER_FILLING_IOC
 
 
 @pytest.mark.parametrize(

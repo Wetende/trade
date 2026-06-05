@@ -570,6 +570,8 @@ class MT5Broker:
             "BUY_STOP": self._constant("ORDER_TYPE_BUY_STOP"),
             "SELL_STOP": self._constant("ORDER_TYPE_SELL_STOP"),
             "ORDER_TIME_GTC": self._constant("ORDER_TIME_GTC"),
+            "ORDER_FILLING_FOK": self._constant("ORDER_FILLING_FOK"),
+            "ORDER_FILLING_IOC": self._constant("ORDER_FILLING_IOC"),
             "ORDER_FILLING_RETURN": self._constant("ORDER_FILLING_RETURN"),
             "TRADE_RETCODE_DONE": self._constant("TRADE_RETCODE_DONE"),
             "TRADE_RETCODE_PLACED": self._constant("TRADE_RETCODE_PLACED"),
@@ -601,6 +603,8 @@ class MT5Broker:
             },
             "type_time": {"ORDER_TIME_GTC": constants["ORDER_TIME_GTC"]},
             "type_filling": {
+                "ORDER_FILLING_FOK": constants["ORDER_FILLING_FOK"],
+                "ORDER_FILLING_IOC": constants["ORDER_FILLING_IOC"],
                 "ORDER_FILLING_RETURN": constants["ORDER_FILLING_RETURN"]
             },
         }
@@ -861,22 +865,57 @@ class MT5Broker:
         close_type = "SELL" if side == "BUY" else "BUY"
         price_field = "bid" if close_type == "SELL" else "ask"
         price = self._positive_float(tick.get(price_field), "price")
-        return self._send(
-            self._materialize_request(
+        base_request = {
+            "action": "TRADE_ACTION_DEAL",
+            "symbol": self.config.symbol,
+            "volume": volume,
+            "type": close_type,
+            "position": ticket,
+            "price": price,
+            "deviation": self.config.deviation,
+            "magic": self.config.magic,
+            "comment": comment,
+        }
+        attempts = []
+        last_response = None
+        for filling_name in (
+            "ORDER_FILLING_FOK",
+            "ORDER_FILLING_IOC",
+            "ORDER_FILLING_RETURN",
+        ):
+            response = self._send(
+                self._materialize_request(
+                    {**base_request, "type_filling": filling_name}
+                )
+            )
+            attempts.append(
                 {
-                    "action": "TRADE_ACTION_DEAL",
-                    "symbol": self.config.symbol,
-                    "volume": volume,
-                    "type": close_type,
-                    "position": ticket,
-                    "price": price,
-                    "deviation": self.config.deviation,
-                    "magic": self.config.magic,
-                    "comment": comment,
-                    "type_filling": "ORDER_FILLING_RETURN",
+                    "type_filling": filling_name,
+                    "retcode": response.get("retcode"),
+                    "comment": response.get("comment"),
+                    "ok": response.get("ok"),
                 }
             )
-        )
+            response["filling_attempts"] = attempts
+            last_response = response
+            if response.get("ok"):
+                return response
+            if not self._is_unsupported_filling_response(response):
+                return response
+        return last_response or {
+            "ok": False,
+            "retcode": None,
+            "order": None,
+            "deal": None,
+            "comment": "no close filling mode attempted",
+            "request": {},
+            "filling_attempts": attempts,
+        }
+
+    @staticmethod
+    def _is_unsupported_filling_response(response: dict[str, Any]) -> bool:
+        comment = str(response.get("comment") or "").lower()
+        return "filling" in comment and "unsupported" in comment
 
     def open_orders(self, symbol: str) -> list[dict[str, Any]]:
         self._assert_active_session()

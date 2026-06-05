@@ -52,6 +52,7 @@ def test_mt5_straddle_run_command_exists():
     assert "break-even" in result.output
     assert "trailing" in result.output
     assert "early" in result.output
+    assert "scalp" in result.output
 
 
 def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
@@ -281,6 +282,8 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             "0.2",
             "--early-loss-exit-points",
             "3.5",
+            "--scalp-profit-points",
+            "1.4",
         ],
     )
 
@@ -296,6 +299,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
     assert exit_management.trailing_distance_points == 1.8
     assert exit_management.min_stop_update_points == 0.2
     assert exit_management.early_loss_exit_points == 3.5
+    assert exit_management.scalp_profit_points == 1.4
 
 
 def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):

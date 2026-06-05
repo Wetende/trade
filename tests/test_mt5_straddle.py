@@ -272,6 +272,7 @@ def test_straddle_position_manager_moves_buy_stop_to_break_even(tmp_path):
             trailing_trigger_points=5.0,
             trailing_distance_points=2.0,
             early_loss_exit_points=4.0,
+            scalp_profit_points=0.0,
         )
     )
 
@@ -303,6 +304,7 @@ def test_straddle_position_manager_trails_sell_stop_after_profit_expands(tmp_pat
             trailing_trigger_points=5.0,
             trailing_distance_points=2.0,
             early_loss_exit_points=4.0,
+            scalp_profit_points=0.0,
         )
     )
 
@@ -337,6 +339,35 @@ def test_straddle_position_manager_closes_early_adverse_position(tmp_path):
     assert broker.modified_stops == []
 
 
+def test_straddle_position_manager_closes_scalp_profit_before_break_even(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 666,
+            "symbol": "XAUUSD.vx",
+            "side": "BUY",
+            "entry_price": 4500.0,
+            "stop_loss": 4494.0,
+            "take_profit": 4509.0,
+            "current_price": 4501.6,
+        }
+    ]
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.manage_open_positions(
+        mt5_straddle.StraddleExitManagementConfig(
+            scalp_profit_points=1.5,
+            break_even_trigger_points=1.0,
+            break_even_lock_points=0.2,
+        )
+    )
+
+    assert result["status"] == "POSITION_CLOSED_SCALP"
+    assert result["actions"][0]["reason"] == "SCALP_PROFIT_EXIT"
+    assert broker.closed_positions[0][0]["ticket"] == 666
+    assert broker.modified_stops == []
+
+
 def test_straddle_watch_once_manages_open_position_before_building_pair(tmp_path):
     broker = FakeBroker()
     broker.positions = [
@@ -358,6 +389,7 @@ def test_straddle_watch_once_manages_open_position_before_building_pair(tmp_path
         exit_management=mt5_straddle.StraddleExitManagementConfig(
             break_even_trigger_points=3.0,
             break_even_lock_points=0.3,
+            scalp_profit_points=0.0,
         ),
     )
 

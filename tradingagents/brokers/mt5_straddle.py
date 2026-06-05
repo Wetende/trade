@@ -31,6 +31,7 @@ class StraddleExitManagementConfig:
     trailing_distance_points: float = 2.0
     min_stop_update_points: float = 0.50
     early_loss_exit_points: float = 4.0
+    scalp_profit_points: float = 0.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -40,6 +41,7 @@ class StraddleExitManagementConfig:
             "trailing_distance_points",
             "min_stop_update_points",
             "early_loss_exit_points",
+            "scalp_profit_points",
         ):
             value = _nonnegative_float(getattr(self, name), name)
             object.__setattr__(self, name, value)
@@ -186,15 +188,21 @@ class MT5StraddleExecutor:
         symbol_info = connection["symbol"]
         actions = []
         closed = False
+        closed_scalp = False
         moved = False
         for position in positions:
             action = self._manage_position(position, symbol_info, management)
             if action:
                 actions.append(action)
                 closed = closed or action.get("action") == "CLOSE_POSITION"
+                closed_scalp = closed_scalp or (
+                    action.get("reason") == "SCALP_PROFIT_EXIT"
+                )
                 moved = moved or action.get("action") == "MODIFY_STOP"
 
-        if closed:
+        if closed_scalp:
+            status = "POSITION_CLOSED_SCALP"
+        elif closed:
             status = "POSITION_CLOSED_EARLY"
         elif moved:
             status = "POSITION_STOP_MOVED"
@@ -233,6 +241,22 @@ class MT5StraddleExecutor:
             }
 
         favorable_points = current - entry if side == "BUY" else entry - current
+        if (
+            management.scalp_profit_points > 0
+            and favorable_points >= management.scalp_profit_points
+        ):
+            close_result = self.broker.close_position(
+                position,
+                comment="Straddle scalp profit exit",
+            )
+            return {
+                "action": "CLOSE_POSITION",
+                "reason": "SCALP_PROFIT_EXIT",
+                "ticket": position.get("ticket"),
+                "favorable_points": round(favorable_points, 2),
+                "result": close_result,
+            }
+
         if (
             management.early_loss_exit_points > 0
             and favorable_points <= -management.early_loss_exit_points
