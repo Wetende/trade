@@ -33,6 +33,12 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["market_timezone"] == "America/New_York"
     assert dc.DEFAULT_CONFIG["runner_poll_seconds"] == 30
     assert dc.DEFAULT_CONFIG["runner_max_cycles"] == 0
+    assert dc.DEFAULT_CONFIG["minimum_setup_grade"] == "B_PLUS"
+    assert dc.DEFAULT_CONFIG["b_plus_min_rr"] == 1.1
+    assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 0.35
+    assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 1.2
+    assert dc.DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] == "B_PLUS"
+    assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.1
 
 
 def test_string_overrides(monkeypatch):
