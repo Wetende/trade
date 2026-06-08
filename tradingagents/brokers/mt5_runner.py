@@ -74,7 +74,7 @@ class MT5Runner:
         started_at = datetime.now(timezone.utc).isoformat()
         snapshot = self.executor.snapshot_state()
         self.executor.cancel_stale_pending_orders()
-        self.executor.manage_open_positions()
+        position_management = self.executor.manage_open_positions()
         history_reconciliation = self._reconcile_trade_history()
 
         if snapshot.get("orders") or snapshot.get("positions"):
@@ -82,6 +82,7 @@ class MT5Runner:
                 {
                     "status": "ACTIVE_TRADE_MONITORED",
                     "started_at_utc": started_at,
+                    "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                 }
             )
@@ -93,6 +94,7 @@ class MT5Runner:
                     "status": "RISK_LIMIT_REACHED",
                     "started_at_utc": started_at,
                     "risk_limit": risk_limit,
+                    "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                 }
             )
@@ -106,6 +108,7 @@ class MT5Runner:
                         "status": "CANDLE_ALREADY_PROCESSED",
                         "started_at_utc": started_at,
                         "as_of": current_as_of,
+                        "position_management": position_management,
                         "history_reconciliation": history_reconciliation,
                     }
                 )
@@ -118,6 +121,7 @@ class MT5Runner:
                 {
                     "status": "RUNNER_ERROR",
                     "started_at_utc": started_at,
+                    "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                     "analysis": {
                         "error_type": type(exc).__name__,
@@ -150,6 +154,7 @@ class MT5Runner:
                     "status": "CANDLE_ALREADY_PROCESSED",
                     "started_at_utc": started_at,
                     "profiles": [],
+                    "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                 }
             )
@@ -172,6 +177,7 @@ class MT5Runner:
                         "as_of": as_of,
                         "proposal": proposal.model_dump(mode="json"),
                         "analysis": analysis,
+                        "position_management": position_management,
                         "history_reconciliation": history_reconciliation,
                     }
                 )
@@ -179,6 +185,7 @@ class MT5Runner:
                 {
                     "status": "NO_TRADE",
                     "started_at_utc": started_at,
+                    "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                     "profiles": [
                         {
@@ -210,6 +217,7 @@ class MT5Runner:
                 "proposal": proposal.model_dump(mode="json"),
                 "execution": execution,
                 "analysis": analysis,
+                "position_management": position_management,
                 "history_reconciliation": history_reconciliation,
             }
             if not multi_profile_result:
@@ -229,6 +237,7 @@ class MT5Runner:
             "proposal": proposal.model_dump(mode="json"),
             "execution": execution,
             "analysis": analysis,
+            "position_management": position_management,
             "history_reconciliation": history_reconciliation,
         }
         if not multi_profile_result:

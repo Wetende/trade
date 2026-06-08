@@ -455,7 +455,11 @@ def _monitor_mt5(cancel_stale: bool, manage_stops: bool, config=None) -> dict:
     try:
         if config is None:
             config = MT5ConnectionConfig.from_env()
-        executor = MT5Executor(config, DEFAULT_CONFIG["results_dir"])
+        executor = MT5Executor(
+            config,
+            DEFAULT_CONFIG["results_dir"],
+            exit_management=_mt5_exit_management_config(),
+        )
         results = {}
         if cancel_stale:
             results["cancel_stale"] = executor.cancel_stale_pending_orders()
@@ -467,6 +471,30 @@ def _monitor_mt5(cancel_stale: bool, manage_stops: bool, config=None) -> dict:
     except (MT5BrokerError, ValueError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
+
+
+def _mt5_exit_management_config():
+    from tradingagents.brokers.mt5_execution import MT5ExitManagementConfig
+
+    return MT5ExitManagementConfig(
+        scalp_profit_points=float(DEFAULT_CONFIG.get("exit_scalp_profit_points", 0.0)),
+        early_loss_exit_points=float(DEFAULT_CONFIG.get("exit_early_loss_points", 0.0)),
+        break_even_trigger_points=float(
+            DEFAULT_CONFIG.get("exit_break_even_trigger_points", 2.0)
+        ),
+        break_even_lock_points=float(
+            DEFAULT_CONFIG.get("exit_break_even_lock_points", 0.0)
+        ),
+        trailing_trigger_points=float(
+            DEFAULT_CONFIG.get("exit_trailing_trigger_points", 0.0)
+        ),
+        trailing_distance_points=float(
+            DEFAULT_CONFIG.get("exit_trailing_distance_points", 0.0)
+        ),
+        min_stop_update_points=float(
+            DEFAULT_CONFIG.get("exit_min_stop_update_points", 0.0)
+        ),
+    )
 
 
 def _mt5_runner_analysis_func():
@@ -722,7 +750,11 @@ def mt5_run(
         if normalized_decision_mode not in {"engine", "graph"}:
             raise typer.BadParameter("decision-mode must be 'engine' or 'graph'")
         config = MT5ConnectionConfig.from_env()
-        executor = MT5Executor(config, DEFAULT_CONFIG["results_dir"])
+        executor = MT5Executor(
+            config,
+            DEFAULT_CONFIG["results_dir"],
+            exit_management=_mt5_exit_management_config(),
+        )
         analysis_func = (
             _mt5_runner_engine_analysis_func(config)
             if normalized_decision_mode == "engine"

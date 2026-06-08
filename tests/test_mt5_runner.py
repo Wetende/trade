@@ -10,6 +10,7 @@ class FakeExecutor:
         self.executed = []
         self.cancel_calls = 0
         self.manage_calls = 0
+        self.manage_result = {"status": "NO_POSITION_ACTION"}
         self.history_calls = 0
         self.history_kwargs = []
         self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
@@ -26,7 +27,7 @@ class FakeExecutor:
 
     def manage_open_positions(self):
         self.manage_calls += 1
-        return {"status": "NO_POSITION_ACTION"}
+        return dict(self.manage_result)
 
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
@@ -107,6 +108,25 @@ def test_runner_skips_new_analysis_when_active_trade_exists(tmp_path):
     assert executor.cancel_calls == 1
     assert executor.manage_calls == 1
     assert executor.history_calls == 1
+
+
+def test_runner_records_position_management_in_active_trade_heartbeat(tmp_path):
+    executor = FakeExecutor(active=True)
+    executor.manage_result = {
+        "status": "POSITION_STOP_MOVED",
+        "actions": [{"ticket": 123, "reason": "TRAILING_STOP"}],
+    }
+
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ACTIVE_TRADE_MONITORED"
+    assert result["position_management"] == executor.manage_result
 
 
 def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):

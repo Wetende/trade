@@ -37,6 +37,7 @@ def _base_checklist(time_checks: dict[str, str]) -> dict[str, str]:
         "volume_time": time_checks.get("volume_time", UNKNOWN),
         "playbook_setup": FAIL,
         "timeframe_correlation": UNKNOWN,
+        "confirmation_context_clear": UNKNOWN,
         "clean_range_to_fill": UNKNOWN,
         "candle_closed": UNKNOWN,
         "not_overextended": UNKNOWN,
@@ -226,6 +227,8 @@ def _candidate_rejection_reason(
 ) -> str | None:
     if not failed_rules:
         return None
+    if "confirmation_context_clear" in failed_rules:
+        return "The confirmation context is unclear. Default to HOLD."
     if checklist.get("clean_range_to_fill") == FAIL and risk.get("reason"):
         return str(risk["reason"])
     return "Required checklist rules failed: " + ", ".join(failed_rules)
@@ -359,6 +362,9 @@ def analyze_playbook(
         b_plus_min_rr = float((session_config or {}).get("b_plus_min_rr", 1.2))
     except (TypeError, ValueError):
         b_plus_min_rr = 1.2
+    require_clear_confirmation_context = bool(
+        (session_config or {}).get("require_clear_confirmation_context", True)
+    )
 
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
@@ -408,6 +414,7 @@ def analyze_playbook(
         "time_filter_mode": time_filter_mode,
         "minimum_setup_grade": minimum_setup_grade,
         "b_plus_min_rr": b_plus_min_rr,
+        "require_clear_confirmation_context": require_clear_confirmation_context,
     }
     confirmation_rejections: list[Setup] = []
     if not confirmation_breakouts:
@@ -525,6 +532,7 @@ def analyze_playbook(
         "volume_time",
         "playbook_setup",
         "timeframe_correlation",
+        "confirmation_context_clear",
         "clean_range_to_fill",
         "candle_closed",
         "not_overextended",
@@ -541,11 +549,16 @@ def analyze_playbook(
         candidate_checklist = dict(checklist)
         candidate_checklist["playbook_setup"] = PASS
         if confirmation_direction == setup.direction or (
-            independent_direction and confirmation_direction is None
+            independent_direction
+            and confirmation_direction is None
+            and not require_clear_confirmation_context
         ):
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL
+        candidate_checklist["confirmation_context_clear"] = (
+            PASS if confirmation_direction is not None else FAIL
+        )
         candidate_checklist["not_overextended"] = (
             FAIL if _is_overextended(entry_candles) else PASS
         )
@@ -735,6 +748,9 @@ def analyze_playbook(
             ),
         )
     if any(checklist[key] != PASS for key in required):
+        hold_reason = selected.get("rejection_reason") or (
+            "A required A+ checklist rule failed. Default to HOLD."
+        )
         return _payload(
             symbol,
             as_of,
@@ -745,10 +761,10 @@ def analyze_playbook(
             market_context,
             setups=[_setup_to_dict(setup, risk)],
             risk=risk,
-            message="A required A+ checklist rule failed. Default to HOLD.",
+            message=hold_reason,
             telemetry=make_telemetry(
                 "a_plus_checklist",
-                "A required A+ checklist rule failed. Default to HOLD.",
+                hold_reason,
                 candidate_setups,
                 telemetry_candidates,
             ),
@@ -764,10 +780,12 @@ def analyze_playbook(
         market_context,
         setups=[_setup_to_dict(setup, risk)],
         risk=risk,
-        message="A required A+ checklist rule failed. Default to HOLD.",
+        message=selected.get("rejection_reason")
+        or "A required A+ checklist rule failed. Default to HOLD.",
         telemetry=make_telemetry(
             "a_plus_checklist",
-            "A required A+ checklist rule failed. Default to HOLD.",
+            selected.get("rejection_reason")
+            or "A required A+ checklist rule failed. Default to HOLD.",
             candidate_setups,
             telemetry_candidates,
         ),

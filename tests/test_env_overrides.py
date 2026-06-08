@@ -136,6 +136,27 @@ def test_fast_risk_env_updates_price_action_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] == 4.0
 
 
+def test_exit_management_env_updates_runner_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS="1.5",
+        TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS="1.5",
+        TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS="1.0",
+        TRADINGAGENTS_EXIT_BREAK_EVEN_LOCK_POINTS="0.2",
+        TRADINGAGENTS_EXIT_TRAILING_TRIGGER_POINTS="3.0",
+        TRADINGAGENTS_EXIT_TRAILING_DISTANCE_POINTS="1.2",
+        TRADINGAGENTS_EXIT_MIN_STOP_UPDATE_POINTS="0.3",
+    )
+
+    assert dc.DEFAULT_CONFIG["exit_scalp_profit_points"] == 1.5
+    assert dc.DEFAULT_CONFIG["exit_early_loss_points"] == 1.5
+    assert dc.DEFAULT_CONFIG["exit_break_even_trigger_points"] == 1.0
+    assert dc.DEFAULT_CONFIG["exit_break_even_lock_points"] == 0.2
+    assert dc.DEFAULT_CONFIG["exit_trailing_trigger_points"] == 3.0
+    assert dc.DEFAULT_CONFIG["exit_trailing_distance_points"] == 1.2
+    assert dc.DEFAULT_CONFIG["exit_min_stop_update_points"] == 0.3
+
+
 def test_empty_env_value_is_passthrough(monkeypatch):
     """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
     dc = _reload_with_env(

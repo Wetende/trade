@@ -38,6 +38,13 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
     "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
     "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
+    "TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS": "exit_scalp_profit_points",
+    "TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS": "exit_early_loss_points",
+    "TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS": "exit_break_even_trigger_points",
+    "TRADINGAGENTS_EXIT_BREAK_EVEN_LOCK_POINTS": "exit_break_even_lock_points",
+    "TRADINGAGENTS_EXIT_TRAILING_TRIGGER_POINTS": "exit_trailing_trigger_points",
+    "TRADINGAGENTS_EXIT_TRAILING_DISTANCE_POINTS": "exit_trailing_distance_points",
+    "TRADINGAGENTS_EXIT_MIN_STOP_UPDATE_POINTS": "exit_min_stop_update_points",
 }
 
 
@@ -126,6 +133,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_counter_bias_minimum_grade": "A_PLUS",
     "minimum_stop_distance_price": 2.5,
     "minimum_stop_spread_multiple": 4.0,
+    "exit_scalp_profit_points": 1.5,
+    "exit_early_loss_points": 1.5,
+    "exit_break_even_trigger_points": 1.0,
+    "exit_break_even_lock_points": 0.2,
+    "exit_trailing_trigger_points": 3.0,
+    "exit_trailing_distance_points": 1.2,
+    "exit_min_stop_update_points": 0.3,
     "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
     # Data vendor configuration: keep only core OHLC fetching for now.

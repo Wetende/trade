@@ -7,6 +7,7 @@ import pytest
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
 from tradingagents.brokers.mt5 import MT5ConnectionConfig, MT5OrderRequestBuilder
 from tradingagents.brokers.mt5_execution import (
+    MT5ExitManagementConfig,
     MT5Executor,
     load_order_proposal,
 )
@@ -436,6 +437,7 @@ class FakeBroker:
         self.placed_requests = []
         self.cancelled = []
         self.modified_stops = []
+        self.closed_positions = []
         self.history_deals_result = []
         self.history_deals_calls = []
         self.place_result = {
@@ -477,6 +479,10 @@ class FakeBroker:
             }
         )
         return {"ok": True, "position": position_ticket, "retcode": 10009}
+
+    def close_position(self, position, *, comment="TradingAgents close"):
+        self.closed_positions.append((dict(position), comment))
+        return {"ok": True, "position": position.get("ticket"), "retcode": 10009}
 
     def history_deals(self, symbol, start_utc, end_utc):
         self.history_deals_calls.append((symbol, start_utc, end_utc))
@@ -932,6 +938,101 @@ def test_executor_moves_sell_stop_to_break_even(tmp_path):
     assert result["status"] == "MANAGED"
     assert broker.modified_stops[0]["position_ticket"] == 333445
     assert broker.modified_stops[0]["stop_loss"] == 2450.0
+
+
+def test_executor_closes_scalp_profit_before_break_even(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777001,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2451.6,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            scalp_profit_points=1.5,
+            break_even_trigger_points=1.0,
+            break_even_lock_points=0.2,
+        ),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_CLOSED_SCALP"
+    assert result["actions"][0]["reason"] == "SCALP_PROFIT_EXIT"
+    assert broker.closed_positions[0][0]["ticket"] == 777001
+    assert broker.modified_stops == []
+
+
+def test_executor_closes_early_adverse_position(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777002,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "entry_price": 2450.0,
+            "stop_loss": 2454.0,
+            "take_profit": 2444.0,
+            "current_price": 2451.7,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_CLOSED_EARLY"
+    assert result["actions"][0]["reason"] == "EARLY_LOSS_EXIT"
+    assert broker.closed_positions[0][0]["ticket"] == 777002
+    assert broker.modified_stops == []
+
+
+def test_executor_trails_stop_after_favorable_move(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777003,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "entry_price": 2450.0,
+            "stop_loss": 2450.2,
+            "take_profit": 2458.0,
+            "current_price": 2454.0,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=1.0,
+            break_even_lock_points=0.2,
+            trailing_trigger_points=3.0,
+            trailing_distance_points=1.2,
+            min_stop_update_points=0.3,
+        ),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_STOP_MOVED"
+    assert result["actions"][0]["reason"] == "TRAILING_STOP"
+    assert broker.modified_stops[0]["position_ticket"] == 777003
+    assert broker.modified_stops[0]["stop_loss"] == 2452.8
+    assert broker.closed_positions == []
 
 
 def test_full_fake_mt5_flow_places_cancels_and_manages(tmp_path):

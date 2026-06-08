@@ -402,6 +402,14 @@ def test_engine_can_run_fast_profile_with_one_minute_entries(monkeypatch):
         stop_loss=103.0,
         confirmation_candle=data["1m"][-1],
     )
+    confirmation_setup = Setup(
+        name="Breakout",
+        direction="BUY",
+        zone=zone,
+        entry_price=105.0,
+        stop_loss=102.0,
+        confirmation_candle=data["3m"][-1],
+    )
 
     monkeypatch.setattr(
         engine,
@@ -411,7 +419,13 @@ def test_engine_can_run_fast_profile_with_one_minute_entries(monkeypatch):
     monkeypatch.setattr(
         engine,
         "detect_breakouts",
-        lambda raw_candles, zones: [setup] if raw_candles == data["1m"] else [],
+        lambda raw_candles, zones: (
+            [setup]
+            if raw_candles == data["1m"]
+            else [confirmation_setup]
+            if raw_candles == data["3m"]
+            else []
+        ),
     )
     monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
@@ -452,6 +466,69 @@ def test_engine_can_run_fast_profile_with_one_minute_entries(monkeypatch):
     assert payload["activation_window_minutes"] == 6
     assert payload["telemetry"]["timeframe_rows"]["1m"] == 2
     assert payload["telemetry"]["zone_counts"]["3m"] == 1
+
+
+def test_fast_engine_rejects_entries_when_confirmation_context_is_unclear(monkeypatch):
+    data = {
+        **aligned_buy_setup_data(),
+        "3m": candles(
+            "2026-06-03 08:06:00,100,103,99,102,1000\n"
+            "2026-06-03 08:09:00,102,106,101,105,1000"
+        ),
+        "1m": candles(
+            "2026-06-03 08:10:00,104,105,103,104.5,1000\n"
+            "2026-06-03 08:11:00,104.5,106.5,104,106,1000"
+        ),
+    }
+    zone = Zone("resistance", "3m", 104, 105, 104.5, 3, 20, "test")
+    setup = Setup("Breakout", "BUY", zone, 106.0, 103.0, data["1m"][-1])
+
+    monkeypatch.setattr(
+        engine,
+        "calculate_support_resistance",
+        lambda raw_candles, timeframe: [zone] if timeframe == "3m" else [],
+    )
+    monkeypatch.setattr(
+        engine,
+        "detect_breakouts",
+        lambda raw_candles, zones: [setup] if raw_candles == data["1m"] else [],
+    )
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "nearest_target_zone", lambda *_args, **_kwargs: {"midpoint": 112.0})
+    monkeypatch.setattr(
+        engine,
+        "approve_risk",
+        lambda *_args, **_kwargs: {
+            "approved": True,
+            "take_profit": 112.0,
+            "risk_distance": 3.0,
+            "reward_distance": 6.0,
+            "risk_reward": 2.0,
+            "available_risk_reward": 2.0,
+        },
+    )
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-03 08:12",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "3m",
+            "zone_timeframes": ("1h", "30m", "15m", "3m"),
+            "activation_window_minutes": 6,
+            "minimum_stop_distance_price": 2.5,
+        },
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["timeframe_correlation"] == "failed"
+    assert payload["telemetry"]["decision_stage"] == "a_plus_checklist"
+    assert "confirmation context is unclear" in payload["telemetry"]["primary_hold_reason"]
 
 
 def test_fast_engine_requires_a_plus_when_counter_higher_timeframe_bias(monkeypatch):

@@ -64,9 +64,10 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir):
+        def __init__(self, received_config, results_dir, exit_management=None):
             calls["executor_config"] = received_config
             calls["executor_results_dir"] = results_dir
+            calls["executor_exit_management"] = exit_management
 
     class Runner:
         def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
@@ -93,6 +94,13 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
         "runner_blocked_strategy_rules",
         ("SUPPORT_RESISTANCE_BOUNCE:SELL",),
     )
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_scalp_profit_points", 1.5)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_early_loss_points", 1.5)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_break_even_trigger_points", 1.0)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_break_even_lock_points", 0.2)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_trailing_trigger_points", 3.0)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_trailing_distance_points", 1.2)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_min_stop_update_points", 0.3)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
@@ -113,6 +121,13 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     }
     assert calls["executor_config"] is config
     assert calls["executor_results_dir"] == tmp_path
+    assert calls["executor_exit_management"].scalp_profit_points == 1.5
+    assert calls["executor_exit_management"].early_loss_exit_points == 1.5
+    assert calls["executor_exit_management"].break_even_trigger_points == 1.0
+    assert calls["executor_exit_management"].break_even_lock_points == 0.2
+    assert calls["executor_exit_management"].trailing_trigger_points == 3.0
+    assert calls["executor_exit_management"].trailing_distance_points == 1.2
+    assert calls["executor_exit_management"].min_stop_update_points == 0.3
     assert calls["runner_config"].blocked_strategy_rules == (
         "SUPPORT_RESISTANCE_BOUNCE:SELL",
     )
@@ -416,7 +431,7 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir):
+        def __init__(self, config, results_dir, exit_management=None):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -461,7 +476,7 @@ def test_mt5_run_passes_configured_session_loss_limit(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir):
+        def __init__(self, config, results_dir, exit_management=None):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -506,7 +521,7 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir):
+        def __init__(self, config, results_dir, exit_management=None):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -554,7 +569,7 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir):
+        def __init__(self, config, results_dir, exit_management=None):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -608,7 +623,7 @@ def test_mt5_run_graph_decision_mode_uses_graph_analysis_func(monkeypatch, tmp_p
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir):
+        def __init__(self, config, results_dir, exit_management=None):
             pass
 
     class Runner:

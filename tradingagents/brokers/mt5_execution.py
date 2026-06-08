@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from tradingagents.agents.price_action.lifecycle import move_stop_to_break_even
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
 from tradingagents.brokers.execution_state import ExecutionStateStore
@@ -16,6 +17,37 @@ from tradingagents.brokers.mt5 import (
     MT5ConnectionConfig,
     MT5OrderRequestBuilder,
 )
+
+
+@dataclass(frozen=True)
+class MT5ExitManagementConfig:
+    """Point-based active-position management for engine trades."""
+
+    enabled: bool = True
+    break_even_trigger_points: float = 2.0
+    break_even_lock_points: float = 0.0
+    trailing_trigger_points: float = 0.0
+    trailing_distance_points: float = 0.0
+    min_stop_update_points: float = 0.0
+    early_loss_exit_points: float = 0.0
+    scalp_profit_points: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ValueError("enabled must be a boolean")
+        for name in (
+            "break_even_trigger_points",
+            "break_even_lock_points",
+            "trailing_trigger_points",
+            "trailing_distance_points",
+            "min_stop_update_points",
+            "early_loss_exit_points",
+            "scalp_profit_points",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative number")
+            object.__setattr__(self, name, value)
 
 
 def load_order_proposal(path: str | Path) -> OrderProposal:
@@ -33,12 +65,14 @@ class MT5Executor:
         results_dir: str | Path,
         broker: Any | None = None,
         journal: ExecutionJournal | None = None,
+        exit_management: MT5ExitManagementConfig | None = None,
     ) -> None:
         self.config = config
         self.broker = broker or MT5Broker(config)
         self.builder = MT5OrderRequestBuilder(config)
         self.journal = journal or ExecutionJournal(results_dir, config.symbol)
         self.state = ExecutionStateStore(results_dir, config.symbol)
+        self.exit_management = exit_management or MT5ExitManagementConfig()
 
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)
@@ -171,40 +205,151 @@ class MT5Executor:
 
     def manage_open_positions(
         self,
-        break_even_threshold_pips: float = 20.0,
+        break_even_threshold_pips: float | None = None,
+        exit_management: MT5ExitManagementConfig | None = None,
     ) -> dict[str, Any]:
-        """Move stops to break-even when open positions meet playbook rules."""
+        """Manage active positions with scalp, early-loss, break-even, and trailing rules."""
         self.broker.connect()
         positions = self.broker.open_positions(self.config.symbol)
-        actions = []
-        for position in positions:
-            managed = move_stop_to_break_even(position, break_even_threshold_pips)
-            if managed.get("management_action") != "MOVE_TO_BREAK_EVEN":
-                continue
-            ticket = int(position["ticket"])
-            stop_loss = float(managed["stop_loss"])
-            take_profit = float(position["take_profit"])
-            result = self.broker.modify_position_stops(
-                ticket,
-                stop_loss,
-                take_profit,
+        legacy_mode = break_even_threshold_pips is not None and exit_management is None
+        management = exit_management or self.exit_management
+        if legacy_mode:
+            management = MT5ExitManagementConfig(
+                break_even_trigger_points=float(break_even_threshold_pips) / 10.0,
+                break_even_lock_points=0.0,
+                trailing_trigger_points=0.0,
+                trailing_distance_points=0.0,
+                min_stop_update_points=0.0,
+                early_loss_exit_points=0.0,
+                scalp_profit_points=0.0,
             )
-            action_name = "MOVE_TO_BREAK_EVEN"
-            event_type = "POSITION_STOP_MOVED"
-            action = {
-                "ticket": position["ticket"],
-                "action": action_name,
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "result": result,
-            }
-            actions.append(action)
-            self.journal.append(event_type, action)
+        if not management.enabled:
+            return {"status": "NO_POSITION_ACTION", "actions": []}
 
+        actions = []
+        closed = False
+        closed_scalp = False
+        moved = False
+        for position in positions:
+            action = self._manage_position(position, management)
+            if action is None:
+                continue
+            if legacy_mode and action.get("management_action") == "MOVE_TO_BREAK_EVEN":
+                action = {**action, "action": "MOVE_TO_BREAK_EVEN"}
+            actions.append(action)
+            closed = closed or action.get("action") == "CLOSE_POSITION"
+            closed_scalp = closed_scalp or action.get("reason") == "SCALP_PROFIT_EXIT"
+            moved = moved or action.get("action") == "MODIFY_STOP"
+
+        if legacy_mode:
+            status = "MANAGED" if actions else "NO_POSITION_ACTION"
+        elif closed_scalp:
+            status = "POSITION_CLOSED_SCALP"
+        elif closed:
+            status = "POSITION_CLOSED_EARLY"
+        elif moved:
+            status = "POSITION_STOP_MOVED"
+        else:
+            status = "NO_POSITION_ACTION"
         return {
-            "status": "MANAGED" if actions else "NO_POSITION_ACTION",
+            "status": status,
             "actions": actions,
         }
+
+    def _manage_position(
+        self,
+        position: dict[str, Any],
+        management: MT5ExitManagementConfig,
+    ) -> dict[str, Any] | None:
+        side = str(position.get("side") or "").upper()
+        if side not in {"BUY", "SELL"}:
+            return None
+        entry = _first_float(position, "entry_price", "price_open")
+        current = _first_float(position, "current_price", "price_current")
+        if entry is None or current is None:
+            return None
+
+        favorable_points = current - entry if side == "BUY" else entry - current
+        if (
+            management.scalp_profit_points > 0
+            and favorable_points >= management.scalp_profit_points
+        ):
+            close_result = self.broker.close_position(
+                position,
+                comment="TradingAgents scalp profit exit",
+            )
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "CLOSE_POSITION",
+                "reason": "SCALP_PROFIT_EXIT",
+                "favorable_points": round(favorable_points, 2),
+                "result": close_result,
+            }
+            self.journal.append("POSITION_CLOSED_SCALP", action)
+            return action
+
+        if (
+            management.early_loss_exit_points > 0
+            and favorable_points <= -management.early_loss_exit_points
+        ):
+            close_result = self.broker.close_position(
+                position,
+                comment="TradingAgents early loss exit",
+            )
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "CLOSE_POSITION",
+                "reason": "EARLY_LOSS_EXIT",
+                "favorable_points": round(favorable_points, 2),
+                "result": close_result,
+            }
+            self.journal.append("POSITION_CLOSED_EARLY", action)
+            return action
+
+        target = _first_float(position, "take_profit", "tp")
+        stop = _first_float(position, "stop_loss", "sl")
+        ticket = position.get("ticket")
+        if target is None or stop is None or ticket in (None, ""):
+            return None
+
+        candidate, reason = _managed_stop_candidate(
+            side,
+            entry,
+            current,
+            favorable_points,
+            management,
+        )
+        if candidate is None or reason is None:
+            return None
+
+        connection = self.broker.connect()
+        symbol_info = connection["symbol"]
+        rounded_stop = self.builder._round_price(candidate, symbol_info)
+        rounded_target = self.builder._round_price(target, symbol_info)
+        if not _is_valid_managed_stop(side, rounded_stop, current):
+            return None
+        improvement = _stop_improvement_points(side, rounded_stop, stop)
+        if improvement <= 0 or improvement < management.min_stop_update_points:
+            return None
+
+        result = self.broker.modify_position_stops(
+            int(ticket),
+            rounded_stop,
+            rounded_target,
+        )
+        action_name = "MOVE_TO_BREAK_EVEN" if reason == "BREAK_EVEN" else "TRAIL_STOP"
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "MODIFY_STOP",
+            "management_action": action_name,
+            "reason": reason,
+            "stop_loss": rounded_stop,
+            "take_profit": rounded_target,
+            "favorable_points": round(favorable_points, 2),
+            "result": result,
+        }
+        self.journal.append("POSITION_STOP_MOVED", action)
+        return action
 
     def reconcile_trade_history(
         self,
@@ -427,3 +572,65 @@ class MT5Executor:
         }
         self.journal.append("STATE_SNAPSHOT", state)
         return state
+
+
+def _managed_stop_candidate(
+    side: str,
+    entry: float,
+    current: float,
+    favorable_points: float,
+    management: MT5ExitManagementConfig,
+) -> tuple[float | None, str | None]:
+    candidate = None
+    reason = None
+    if (
+        management.break_even_trigger_points > 0
+        and favorable_points >= management.break_even_trigger_points
+    ):
+        candidate = (
+            entry + management.break_even_lock_points
+            if side == "BUY"
+            else entry - management.break_even_lock_points
+        )
+        reason = "BREAK_EVEN"
+    if (
+        management.trailing_trigger_points > 0
+        and favorable_points >= management.trailing_trigger_points
+    ):
+        trailing = (
+            current - management.trailing_distance_points
+            if side == "BUY"
+            else current + management.trailing_distance_points
+        )
+        if candidate is None or _stop_improvement_points(side, trailing, candidate) > 0:
+            candidate = trailing
+            reason = "TRAILING_STOP"
+    return candidate, reason
+
+
+def _first_float(source: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = source.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _is_valid_managed_stop(side: str, stop: float, current: float) -> bool:
+    if side == "BUY":
+        return stop < current
+    if side == "SELL":
+        return stop > current
+    return False
+
+
+def _stop_improvement_points(side: str, candidate: float, current_stop: float) -> float:
+    if side == "BUY":
+        return candidate - current_stop
+    if side == "SELL":
+        return current_stop - candidate
+    return 0.0
