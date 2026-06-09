@@ -991,6 +991,7 @@ def test_executor_closes_scalp_profit_before_break_even(tmp_path):
     assert result["status"] == "POSITION_CLOSED_SCALP"
     assert result["actions"][0]["reason"] == "SCALP_PROFIT_EXIT"
     assert broker.closed_positions[0][0]["ticket"] == 777001
+    assert broker.closed_positions[0][1] == "TA scalp exit"
     assert broker.modified_stops == []
 
 
@@ -1019,6 +1020,7 @@ def test_executor_closes_early_adverse_position(tmp_path):
     assert result["status"] == "POSITION_CLOSED_EARLY"
     assert result["actions"][0]["reason"] == "EARLY_LOSS_EXIT"
     assert broker.closed_positions[0][0]["ticket"] == 777002
+    assert broker.closed_positions[0][1] == "TA early loss"
     assert broker.modified_stops == []
 
 

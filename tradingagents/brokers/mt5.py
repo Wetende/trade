@@ -28,6 +28,18 @@ _TRADE_MODE_LABEL_CONSTANTS = {
 }
 _REAL_ORDER_ACK = "I_UNDERSTAND_REAL_MONEY_IS_AT_RISK"
 _MISSING = object()
+_MT5_COMMENT_MAX_LENGTH = 20
+
+
+def _safe_mt5_comment(value: Any, *, fallback: str = "TA close") -> str:
+    text = str(value or fallback)
+    text = "".join(
+        ch for ch in text if 32 <= ord(ch) < 127 and ch not in {'"', "'"}
+    )
+    text = " ".join(text.split())
+    if not text:
+        text = fallback
+    return text[:_MT5_COMMENT_MAX_LENGTH].rstrip() or fallback[:_MT5_COMMENT_MAX_LENGTH]
 
 
 @dataclass(frozen=True)
@@ -898,7 +910,7 @@ class MT5Broker:
             "price": price,
             "deviation": self.config.deviation,
             "magic": self.config.magic,
-            "comment": comment,
+            "comment": _safe_mt5_comment(comment),
         }
         attempts = []
         last_response = None

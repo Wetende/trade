@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
@@ -223,6 +224,118 @@ def test_runner_stops_before_analysis_when_session_loss_limit_is_reached(tmp_pat
     assert result["risk_limit"]["net_profit"] == -350.0
     assert executor.executed == []
     assert result["summary"]["latest_cycle"]["status"] == "RISK_LIMIT_REACHED"
+
+
+def test_runner_starts_post_close_cooldown_before_new_analysis(tmp_path):
+    closed_at = datetime.now(timezone.utc)
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 1,
+        "net_profit": 42.0,
+        "latest_closed_trade": {
+            "position_id": 111222,
+            "exit_deal_ticket": 1002,
+            "profit": 42.0,
+            "closed_at_utc": closed_at.isoformat(),
+        },
+    }
+
+    def analysis_func():
+        raise AssertionError("analysis should not run during entry cooldown")
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            post_close_cooldown_seconds=300,
+        ),
+        executor=executor,
+        analysis_func=analysis_func,
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["mode_decision"] == "ENTRY_COOLDOWN_ACTIVE"
+    assert result["mode_rejection_reason"] == "POST_CLOSE_COOLDOWN"
+    assert result["health_gate"] == {"passed": False, "reasons": ["entry_cooldown"]}
+    assert result["entry_cooldown"]["exit_ticket"] == 1002
+    assert result["entry_cooldown"]["reason"] == "POST_CLOSE_COOLDOWN"
+    assert executor.executed == []
+    assert runner._load_state()["entry_cooldown_exit_ticket"] == 1002
+
+
+def test_runner_uses_longer_loss_cooldown_after_losing_trade(tmp_path):
+    closed_at = datetime.now(timezone.utc)
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 1,
+        "net_profit": -30.0,
+        "latest_closed_trade": {
+            "position_id": 111223,
+            "exit_deal_ticket": 1003,
+            "profit": -30.0,
+            "closed_at_utc": closed_at.isoformat(),
+        },
+    }
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            post_close_cooldown_seconds=60,
+            loss_cooldown_seconds=600,
+        ),
+        executor=executor,
+        analysis_func=lambda: (_ for _ in ()).throw(
+            AssertionError("analysis should not run during loss cooldown")
+        ),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["mode_rejection_reason"] == "LOSS_COOLDOWN"
+    assert result["entry_cooldown"]["seconds"] == 600
+    assert result["entry_cooldown"]["profit"] == -30.0
+    assert executor.executed == []
+
+
+def test_runner_allows_analysis_after_entry_cooldown_expires(tmp_path):
+    proposal = proposed_order()
+    executor = FakeExecutor(active=False)
+    closed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 1,
+        "net_profit": 8.0,
+        "latest_closed_trade": {
+            "position_id": 111224,
+            "exit_deal_ticket": 1004,
+            "profit": 8.0,
+            "closed_at_utc": closed_at.isoformat(),
+        },
+    }
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            post_close_cooldown_seconds=60,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert len(executor.executed) == 1
+    assert runner._load_state()["entry_cooldown_exit_ticket"] == 1004
 
 
 def test_runner_reconciles_history_from_session_start(tmp_path):

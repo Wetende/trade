@@ -60,6 +60,8 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
         "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
+        "TRADINGAGENTS_RUNNER_POST_CLOSE_COOLDOWN_SECONDS": "runner_post_close_cooldown_seconds",
+        "TRADINGAGENTS_RUNNER_LOSS_COOLDOWN_SECONDS": "runner_loss_cooldown_seconds",
         "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
         "TRADINGAGENTS_TRADING_MODE": "trading_mode",
         "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "require_demo_account",
@@ -869,6 +871,20 @@ def mt5_run(
             ),
             "trading_mode": trading_mode.value,
         }
+        if trading_mode != TradingMode.AUTO_GATED:
+            runner_config_kwargs.update(
+                {
+                    "post_close_cooldown_seconds": int(
+                        DEFAULT_CONFIG.get(
+                            "runner_post_close_cooldown_seconds",
+                            0,
+                        )
+                    ),
+                    "loss_cooldown_seconds": int(
+                        DEFAULT_CONFIG.get("runner_loss_cooldown_seconds", 0)
+                    ),
+                }
+            )
         if trading_mode == TradingMode.AUTO_GATED:
             straddle_executor = MT5StraddleExecutor(
                 config,

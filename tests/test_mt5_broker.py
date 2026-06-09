@@ -2018,6 +2018,32 @@ def test_mt5_broker_closes_buy_position_with_market_sell():
     assert fake_mt5.sent_requests[-1]["type_filling"] == FakeMT5.ORDER_FILLING_FOK
 
 
+def test_mt5_broker_sanitizes_long_close_comment_before_order_send():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        },
+        comment='TradingAgents scalp profit exit "bad"',
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["comment"] == "TradingAgents scalp"
+    assert len(fake_mt5.sent_requests[-1]["comment"]) <= 20
+
+
 def test_mt5_broker_closes_sell_position_with_market_buy():
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(

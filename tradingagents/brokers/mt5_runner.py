@@ -7,9 +7,9 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.mode_gate import TradingMode, health_gate, mode_value
@@ -23,6 +23,8 @@ class MT5RunnerConfig:
     max_cycles: int = 0
     max_runtime_seconds: int = 0
     max_session_loss: float = 0.0
+    post_close_cooldown_seconds: int = 0
+    loss_cooldown_seconds: int = 0
     blocked_strategy_rules: tuple[str, ...] = ()
     trading_mode: str = TradingMode.ENTRY_ONLY.value
 
@@ -31,6 +33,14 @@ class MT5RunnerConfig:
         max_cycles = int(self.max_cycles)
         max_runtime_seconds = int(self.max_runtime_seconds)
         max_session_loss = float(self.max_session_loss)
+        post_close_cooldown_seconds = _nonnegative_int(
+            self.post_close_cooldown_seconds,
+            "post_close_cooldown_seconds",
+        )
+        loss_cooldown_seconds = _nonnegative_int(
+            self.loss_cooldown_seconds,
+            "loss_cooldown_seconds",
+        )
         trading_mode = mode_value(self.trading_mode)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
@@ -44,6 +54,12 @@ class MT5RunnerConfig:
         object.__setattr__(self, "max_cycles", max_cycles)
         object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
         object.__setattr__(self, "max_session_loss", max_session_loss)
+        object.__setattr__(
+            self,
+            "post_close_cooldown_seconds",
+            post_close_cooldown_seconds,
+        )
+        object.__setattr__(self, "loss_cooldown_seconds", loss_cooldown_seconds)
         object.__setattr__(self, "trading_mode", trading_mode)
         object.__setattr__(
             self,
@@ -104,6 +120,22 @@ class MT5Runner:
             )
 
         state = self._load_state()
+        entry_cooldown = self._entry_cooldown_payload(history_reconciliation, state)
+        if entry_cooldown is not None:
+            return self._write_heartbeat(
+                {
+                    "status": "NO_TRADE",
+                    "started_at_utc": started_at,
+                    "selected_method": "HOLD",
+                    "selected_profile": None,
+                    "mode_decision": "ENTRY_COOLDOWN_ACTIVE",
+                    "mode_rejection_reason": entry_cooldown["reason"],
+                    "health_gate": health_gate(False, ["entry_cooldown"]),
+                    "position_management": position_management,
+                    "history_reconciliation": history_reconciliation,
+                    "entry_cooldown": entry_cooldown,
+                }
+            )
         if self.current_as_of_func is not None:
             current_as_of = self.current_as_of_func()
             if state.get("last_processed_as_of") == current_as_of:
@@ -161,12 +193,13 @@ class MT5Runner:
             )
 
         latest_as_of = processed_rows[-1][1]
-        self._save_state(
+        state.update(
             {
                 "last_processed_as_of": latest_as_of,
                 "last_processed_by_profile": last_processed_by_profile,
             }
         )
+        self._save_state(state)
 
         selected, decision, rejection_reason = self._select_directional_candidate(
             processed_rows
@@ -329,6 +362,72 @@ class MT5Runner:
             "closed_trade_count": history_reconciliation.get("closed_trade_count", 0),
             "wins": history_reconciliation.get("wins", 0),
             "losses": history_reconciliation.get("losses", 0),
+        }
+
+    def _entry_cooldown_payload(
+        self,
+        history_reconciliation: dict,
+        state: dict,
+    ) -> dict[str, Any] | None:
+        now_utc = datetime.now(timezone.utc)
+        cooldown_until = _parse_utc_datetime(
+            state.get("entry_cooldown_until_utc")
+        )
+        if cooldown_until is not None and now_utc < cooldown_until:
+            return {
+                "reason": state.get("entry_cooldown_reason")
+                or "POST_CLOSE_COOLDOWN",
+                "cooldown_until_utc": cooldown_until.isoformat(),
+                "exit_ticket": state.get("entry_cooldown_exit_ticket"),
+                "profit": state.get("entry_cooldown_profit"),
+            }
+        if cooldown_until is not None:
+            state.pop("entry_cooldown_until_utc", None)
+            state.pop("entry_cooldown_reason", None)
+            self._save_state(state)
+
+        if history_reconciliation.get("status") != "RECONCILED":
+            return None
+        latest = history_reconciliation.get("latest_closed_trade")
+        if not isinstance(latest, dict) or not latest:
+            return None
+
+        exit_ticket = _closed_trade_exit_ticket(latest)
+        if exit_ticket is None:
+            return None
+        if str(state.get("entry_cooldown_exit_ticket") or "") == str(exit_ticket):
+            return None
+
+        profit = _closed_trade_profit(latest)
+        seconds = self.config.post_close_cooldown_seconds
+        reason = "POST_CLOSE_COOLDOWN"
+        if profit is not None and profit < 0 and self.config.loss_cooldown_seconds > 0:
+            seconds = self.config.loss_cooldown_seconds
+            reason = "LOSS_COOLDOWN"
+        if seconds <= 0:
+            state["entry_cooldown_exit_ticket"] = exit_ticket
+            state["entry_cooldown_profit"] = profit
+            self._save_state(state)
+            return None
+
+        closed_at = _parse_utc_datetime(latest.get("closed_at_utc")) or now_utc
+        cooldown_until = closed_at + timedelta(seconds=seconds)
+        state["entry_cooldown_exit_ticket"] = exit_ticket
+        state["entry_cooldown_profit"] = profit
+        state["entry_cooldown_started_at_utc"] = now_utc.isoformat()
+        if now_utc >= cooldown_until:
+            self._save_state(state)
+            return None
+
+        state["entry_cooldown_until_utc"] = cooldown_until.isoformat()
+        state["entry_cooldown_reason"] = reason
+        self._save_state(state)
+        return {
+            "reason": reason,
+            "seconds": seconds,
+            "cooldown_until_utc": cooldown_until.isoformat(),
+            "exit_ticket": exit_ticket,
+            "profit": profit,
         }
 
     def _load_history_since_utc(self) -> datetime:
@@ -523,6 +622,51 @@ def _normalize_rule_list(value) -> tuple[str, ...]:
         if text:
             normalized.append(text.upper())
     return tuple(normalized)
+
+
+def _nonnegative_int(value, label: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a non-negative integer") from exc
+    if number < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return number
+
+
+def _closed_trade_exit_ticket(trade: dict[str, Any]) -> int | None:
+    for key in ("exit_deal_ticket", "exit_ticket", "deal", "ticket"):
+        value = trade.get(key)
+        try:
+            ticket = int(value)
+        except (TypeError, ValueError):
+            continue
+        if ticket > 0:
+            return ticket
+    return None
+
+
+def _closed_trade_profit(trade: dict[str, Any]) -> float | None:
+    try:
+        profit = float(trade.get("profit"))
+    except (TypeError, ValueError):
+        return None
+    return profit if math.isfinite(profit) else None
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _split_block_rule(rule: str) -> tuple[str, str]:

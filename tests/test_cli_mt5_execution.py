@@ -96,6 +96,8 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
         "runner_blocked_strategy_rules",
         ("SUPPORT_RESISTANCE_BOUNCE:SELL",),
     )
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "runner_post_close_cooldown_seconds", 90)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "runner_loss_cooldown_seconds", 600)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_scalp_profit_points", 1.5)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_early_loss_points", 1.5)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_break_even_trigger_points", 1.0)
@@ -133,6 +135,8 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     assert calls["runner_config"].blocked_strategy_rules == (
         "SUPPORT_RESISTANCE_BOUNCE:SELL",
     )
+    assert calls["runner_config"].post_close_cooldown_seconds == 90
+    assert calls["runner_config"].loss_cooldown_seconds == 600
     assert calls["runner_analysis_func"] is analysis_func
     assert calls["run_once"] is True
 

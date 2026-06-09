@@ -313,7 +313,7 @@ class MT5Executor:
         ):
             close_result = self.broker.close_position(
                 position,
-                comment="TradingAgents scalp profit exit",
+                comment="TA scalp exit",
             )
             action = {
                 "ticket": position.get("ticket"),
@@ -331,7 +331,7 @@ class MT5Executor:
         ):
             close_result = self.broker.close_position(
                 position,
-                comment="TradingAgents early loss exit",
+                comment="TA early loss",
             )
             action = {
                 "ticket": position.get("ticket"),
