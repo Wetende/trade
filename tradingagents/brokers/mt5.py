@@ -38,6 +38,7 @@ class MT5ConnectionConfig:
     symbol: str = "XAUUSD"
     terminal_path: str | None = None
     allow_real_orders: bool = False
+    require_demo_account: bool = True
     expected_login: int | None = None
     expected_server: str | None = None
     volume: float = 0.01
@@ -51,6 +52,8 @@ class MT5ConnectionConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.allow_real_orders, bool):
             raise MT5BrokerError("allow_real_orders must be a boolean")
+        if not isinstance(self.require_demo_account, bool):
+            raise MT5BrokerError("require_demo_account must be a boolean")
 
         if self.expected_login is None:
             object.__setattr__(self, "expected_login", self.login)
@@ -133,6 +136,10 @@ class MT5ConnectionConfig:
             symbol=os.environ.get("TRADINGAGENTS_MT5_SYMBOL", "XAUUSD"),
             terminal_path=os.environ.get("TRADINGAGENTS_MT5_PATH") or None,
             allow_real_orders=allow_real_orders,
+            require_demo_account=_bool_env(
+                "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT",
+                True,
+            ),
             expected_login=_int_env("TRADINGAGENTS_MT5_EXPECTED_LOGIN", login),
             expected_server=os.environ.get("TRADINGAGENTS_MT5_EXPECTED_SERVER")
             or os.environ["TRADINGAGENTS_MT5_SERVER"],
@@ -397,6 +404,18 @@ def _float_env(name: str, default: float) -> float:
         return float(raw)
     except ValueError as exc:
         raise MT5BrokerError(f"{name} must be numeric") from exc
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise MT5BrokerError(f"{name} must be boolean")
 
 
 def _coerce_nonnegative_int_guard(value: Any, name: str) -> int:
@@ -664,6 +683,11 @@ class MT5Broker:
         mt5 = self._module()
         account = _asdict(mt5.account_info())
         trade_mode_label = self._trade_mode_label(account.get("trade_mode"))
+        if self.config.require_demo_account and trade_mode_label != "DEMO":
+            raise MT5BrokerError(
+                "MT5 demo account is required for broker execution; "
+                f"connected trade mode is {trade_mode_label}"
+            )
         if trade_mode_label == "REAL" and not self.config.allow_real_orders:
             raise MT5BrokerError(
                 "Real-account broker execution requires real-money acknowledgement"

@@ -217,6 +217,7 @@ def test_mt5_config_from_env_does_not_require_account_or_execution_mode(monkeypa
     assert not hasattr(config, "account_mode")
     assert not hasattr(config, "execution_mode")
     assert config.allow_real_orders is False
+    assert config.require_demo_account is True
 
 
 def test_mt5_config_reads_real_order_acknowledgement(monkeypatch):
@@ -1185,6 +1186,7 @@ def test_mt5_broker_blocks_real_account_before_order_send_without_acknowledgemen
         password="secret",
         server="ExampleBroker-Demo",
         symbol="XAUUSD",
+        require_demo_account=False,
     )
     broker = MT5Broker(config, mt5_module=fake_mt5)
     broker.connect()
@@ -1196,6 +1198,44 @@ def test_mt5_broker_blocks_real_account_before_order_send_without_acknowledgemen
     assert fake_mt5.sent_requests == []
 
 
+def test_demo_only_guard_rejects_real_account_order_send_even_with_acknowledgement():
+    fake_mt5 = FakeMT5()
+    fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        allow_real_orders=True,
+        require_demo_account=True,
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="demo account"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_demo_only_guard_allows_demo_account_order_send():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        require_demo_account=True,
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.place_pending_order(_valid_pending_request())
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[0]["action"] == FakeMT5.TRADE_ACTION_PENDING
+
+
 def test_mt5_broker_allows_real_account_order_with_acknowledgement():
     fake_mt5 = FakeMT5()
     fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
@@ -1205,6 +1245,7 @@ def test_mt5_broker_allows_real_account_order_with_acknowledgement():
         server="ExampleBroker-Demo",
         symbol="XAUUSD",
         allow_real_orders=True,
+        require_demo_account=False,
     )
     broker = MT5Broker(config, mt5_module=fake_mt5)
     broker.connect()
@@ -1232,6 +1273,7 @@ def test_mt5_broker_management_actions_block_real_account_without_acknowledgemen
         password="secret",
         server="ExampleBroker-Demo",
         symbol="XAUUSD",
+        require_demo_account=False,
     )
     broker = MT5Broker(config, mt5_module=fake_mt5)
     broker.connect()
