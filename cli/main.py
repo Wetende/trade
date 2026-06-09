@@ -1012,6 +1012,7 @@ def mt5_straddle_run(
     """Run isolated MT5 straddle breakout."""
     _load_runtime_env()
     from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
+    from tradingagents.brokers.mode_gate import TradingMode, parse_trading_mode
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_straddle import (
         StraddleEntryRegimeConfig,
@@ -1020,6 +1021,20 @@ def mt5_straddle_run(
     )
 
     try:
+        trading_mode = parse_trading_mode(DEFAULT_CONFIG.get("trading_mode", "OFF"))
+        if trading_mode == TradingMode.OFF:
+            console.print(
+                json.dumps(
+                    _trading_disabled_result("mt5-straddle-run"),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
+        if trading_mode == TradingMode.ENTRY_ONLY:
+            raise ValueError(
+                "mt5-straddle-run requires STRADDLE_ONLY or AUTO_GATED trading mode"
+            )
         config = MT5ConnectionConfig.from_env()
         straddle_config = StraddleBreakoutConfig(
             symbol=config.symbol,
@@ -1035,7 +1050,11 @@ def mt5_straddle_run(
             min_box_points=min_box_points,
             max_box_points=max_box_points,
         )
-        executor = MT5StraddleExecutor(config, DEFAULT_CONFIG["results_dir"])
+        executor = MT5StraddleExecutor(
+            config,
+            DEFAULT_CONFIG["results_dir"],
+            trading_mode=trading_mode.value,
+        )
         exit_management_config = StraddleExitManagementConfig(
             enabled=exit_management,
             break_even_trigger_points=break_even_trigger_points,
@@ -1055,10 +1074,18 @@ def mt5_straddle_run(
             post_cooldown_momentum_body_points=post_cooldown_momentum_body_points,
             post_cooldown_momentum_breakout_points=post_cooldown_momentum_breakout_points,
         )
+        effective_live = bool(
+            live
+            or (
+                watch
+                and trading_mode
+                in {TradingMode.STRADDLE_ONLY, TradingMode.AUTO_GATED}
+            )
+        )
         if watch:
             result = executor.watch_forever(
                 straddle_config,
-                live=live,
+                live=effective_live,
                 poll_seconds=poll_seconds,
                 max_cycles=max_cycles,
                 max_runtime_seconds=(

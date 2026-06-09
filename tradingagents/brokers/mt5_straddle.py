@@ -16,6 +16,7 @@ from tradingagents.agents.straddle_breakout import (
     build_straddle_breakout_pair,
 )
 from tradingagents.brokers.execution_journal import ExecutionJournal
+from tradingagents.brokers.mode_gate import TradingMode, health_gate, mode_value
 from tradingagents.brokers.mt5 import MT5Broker, MT5ConnectionConfig, MT5OrderRequestBuilder
 from tradingagents.brokers.straddle_state import StraddleStateStore
 
@@ -110,6 +111,7 @@ class MT5StraddleExecutor:
         results_dir: str | Path,
         broker: Any | None = None,
         journal: ExecutionJournal | None = None,
+        trading_mode: str = TradingMode.STRADDLE_ONLY.value,
     ) -> None:
         self.config = config
         self.broker = broker or MT5Broker(config)
@@ -117,6 +119,7 @@ class MT5StraddleExecutor:
         self.journal = journal or ExecutionJournal(results_dir, config.symbol)
         self.state = StraddleStateStore(results_dir, config.symbol)
         self.heartbeat_path = self.state.directory / "mt5_straddle_heartbeat.json"
+        self.trading_mode = mode_value(trading_mode)
         self._entry_regime = _EntryRegimeState()
         self._last_closed_candles: list[dict[str, Any]] = []
 
@@ -613,6 +616,14 @@ class MT5StraddleExecutor:
         live: bool,
     ) -> dict[str, Any]:
         payload = {
+            "trading_mode": self.trading_mode,
+            "selected_method": result.get("selected_method")
+            or _selected_method_for_status(result.get("status")),
+            "selected_profile": result.get("selected_profile"),
+            "mode_decision": result.get("mode_decision")
+            or _mode_decision_for_status(result.get("status")),
+            "mode_rejection_reason": result.get("mode_rejection_reason"),
+            "health_gate": result.get("health_gate") or health_gate(True, []),
             **result,
             "heartbeat_utc": datetime.now(timezone.utc).isoformat(),
             "heartbeat_path": str(self.heartbeat_path),
@@ -1010,3 +1021,25 @@ def _is_valid_managed_stop(side: str, stop: float, current: float) -> bool:
     if side == "BUY":
         return stop < current
     return stop > current
+
+
+def _selected_method_for_status(status: Any) -> str:
+    text = str(status or "").upper()
+    if text in {
+        "PAIR_PLACED",
+        "PAIR_STILL_ACTIVE",
+        "PAIR_RESOLVED",
+        "POSITION_CLOSED_SCALP",
+        "POSITION_CLOSED_EARLY",
+        "POSITION_STOP_MOVED",
+        "POSITION_MONITORED",
+    }:
+        return "STRADDLE"
+    return "HOLD"
+
+
+def _mode_decision_for_status(status: Any) -> str:
+    text = str(status or "UNKNOWN").upper()
+    if text.startswith("STRADDLE_"):
+        return text
+    return "STRADDLE_" + text

@@ -170,6 +170,38 @@ def test_mt5_run_rejects_straddle_only_mode(monkeypatch, tmp_path):
     assert "mt5-run requires ENTRY_ONLY or AUTO_GATED" in result.output
 
 
+def test_mt5_straddle_run_off_mode_places_no_orders(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "OFF")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(
+        MT5ConnectionConfig,
+        "from_env",
+        staticmethod(lambda: (_ for _ in ()).throw(AssertionError("no MT5 connect"))),
+    )
+
+    result = runner.invoke(app, ["mt5-straddle-run", "--watch"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "TRADING_DISABLED"
+    assert payload["trading_mode"] == "OFF"
+    assert payload["selected_method"] == "HOLD"
+
+
+def test_mt5_straddle_run_rejects_entry_only_mode(monkeypatch, tmp_path):
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "ENTRY_ONLY")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+
+    result = runner.invoke(app, ["mt5-straddle-run", "--watch"])
+
+    assert result.exit_code != 0
+    assert "mt5-straddle-run requires STRADDLE_ONLY or AUTO_GATED" in result.output
+
+
 def test_mt5_straddle_run_defaults_to_dry_run(monkeypatch, tmp_path):
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
     from tradingagents.brokers import mt5_straddle
@@ -184,7 +216,7 @@ def test_mt5_straddle_run_defaults_to_dry_run(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir):
+        def __init__(self, received_config, results_dir, trading_mode=None):
             calls["executor_config"] = received_config
             calls["executor_results_dir"] = results_dir
 
@@ -197,6 +229,7 @@ def test_mt5_straddle_run_defaults_to_dry_run(monkeypatch, tmp_path):
             return {"status": "DRY_RUN_PAIR_READY", "live": live}
 
     _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "STRADDLE_ONLY")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
@@ -244,7 +277,7 @@ def test_mt5_straddle_run_live_flag_places_pair(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir):
+        def __init__(self, received_config, results_dir, trading_mode=None):
             pass
 
         def build_pair(self, straddle_config):
@@ -255,6 +288,7 @@ def test_mt5_straddle_run_live_flag_places_pair(monkeypatch, tmp_path):
             return {"status": "PAIR_PLACED", "live": live}
 
     _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "STRADDLE_ONLY")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
@@ -279,7 +313,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir):
+        def __init__(self, received_config, results_dir, trading_mode=None):
             calls["executor_config"] = received_config
             calls["executor_results_dir"] = results_dir
 
@@ -312,6 +346,7 @@ def test_mt5_straddle_run_watch_mode_uses_watch_forever(monkeypatch, tmp_path):
             return {"status": "STOPPED_MAX_CYCLES"}
 
     _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "STRADDLE_ONLY")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
@@ -391,7 +426,7 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir):
+        def __init__(self, received_config, results_dir, trading_mode=None):
             calls["executor_config"] = received_config
             calls["executor_results_dir"] = results_dir
 
@@ -424,6 +459,7 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
             return {"status": "STOPPED_MAX_CYCLES"}
 
     _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "STRADDLE_ONLY")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", Executor)
@@ -432,7 +468,7 @@ def test_mt5_straddle_run_watch_mode_uses_scalper_defaults(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert json.loads(result.output) == {"status": "STOPPED_MAX_CYCLES"}
-    assert calls["watch_forever"]["live"] is False
+    assert calls["watch_forever"]["live"] is True
     assert calls["watch_forever"]["poll_seconds"] == 5
     assert calls["watch_forever"]["max_cycles"] == 0
     assert calls["watch_forever"]["max_runtime_seconds"] == 0

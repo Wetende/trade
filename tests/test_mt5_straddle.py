@@ -712,6 +712,41 @@ def test_straddle_watch_forever_writes_heartbeat_each_cycle(tmp_path, monkeypatc
     assert heartbeat["symbol"] == "XAUUSD.vx"
 
 
+def test_straddle_heartbeat_contains_trading_mode_and_method(tmp_path, monkeypatch):
+    broker = FakeBroker()
+    executor = MT5StraddleExecutor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        trading_mode="STRADDLE_ONLY",
+    )
+
+    monkeypatch.setattr(
+        executor,
+        "watch_once",
+        lambda straddle_config,
+        live=False,
+        now_utc=None,
+        exit_management=None,
+        entry_regime=None: {
+            "status": "PAIR_PLACED",
+        },
+    )
+
+    result = executor.watch_forever(
+        StraddleBreakoutConfig(symbol="XAUUSD.vx"),
+        live=True,
+        poll_seconds=0,
+        max_cycles=1,
+    )
+
+    heartbeat = result["last_result"]
+    assert heartbeat["trading_mode"] == "STRADDLE_ONLY"
+    assert heartbeat["selected_method"] == "STRADDLE"
+    assert heartbeat["selected_profile"] is None
+    assert heartbeat["mode_decision"] == "STRADDLE_PAIR_PLACED"
+
+
 def test_straddle_watch_forever_records_error_and_keeps_polling(tmp_path, monkeypatch):
     broker = FakeBroker()
     executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
