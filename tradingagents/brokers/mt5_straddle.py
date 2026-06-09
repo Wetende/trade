@@ -16,7 +16,12 @@ from tradingagents.agents.straddle_breakout import (
     build_straddle_breakout_pair,
 )
 from tradingagents.brokers.execution_journal import ExecutionJournal
-from tradingagents.brokers.mode_gate import TradingMode, health_gate, mode_value
+from tradingagents.brokers.mode_gate import (
+    TradingMode,
+    account_safety_from_connection,
+    health_gate,
+    mode_value,
+)
 from tradingagents.brokers.mt5 import MT5Broker, MT5ConnectionConfig, MT5OrderRequestBuilder
 from tradingagents.brokers.straddle_state import StraddleStateStore
 
@@ -129,8 +134,7 @@ class MT5StraddleExecutor:
         *,
         now_utc: datetime | str | None = None,
     ) -> StraddlePairProposal:
-        connection = self.broker.connect()
-        self.journal.append("STRADDLE_CONNECTED", connection)
+        connection, _account_safety = self._connect_and_record()
         candles = self.broker.fetch_rates(
             straddle_config.timeframe,
             straddle_config.lookback_candles + 1,
@@ -234,7 +238,20 @@ class MT5StraddleExecutor:
             self.journal.append("STRADDLE_CANDIDATE_NO_TRADE", _jsonable_pair_result(result))
             return result
 
-        connection = self.broker.connect()
+        connection, account_safety = self._connect_and_record()
+        if not account_safety["passed"]:
+            result = {
+                "status": "STRADDLE_SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "symbol": self.config.symbol,
+                "pair": pair,
+                "account_safety": account_safety,
+            }
+            self.journal.append(
+                "STRADDLE_CANDIDATE_SKIPPED",
+                _jsonable_pair_result(result),
+            )
+            return result
         try:
             requests = [
                 self._request_for(pair.buy_stop, connection["symbol"]),
@@ -254,6 +271,7 @@ class MT5StraddleExecutor:
             "symbol": self.config.symbol,
             "pair": pair,
             "requests": requests,
+            "account_safety": account_safety,
         }
         self.journal.append("STRADDLE_CANDIDATE_PROPOSED", _jsonable_pair_result(result))
         return result
@@ -318,11 +336,23 @@ class MT5StraddleExecutor:
         """Move stops or close active straddle positions before placing new pairs."""
 
         management = exit_management or StraddleExitManagementConfig()
-        connection = self.broker.connect()
-        self.journal.append("STRADDLE_CONNECTED", connection)
+        connection, account_safety = self._connect_and_record()
+        if not account_safety["passed"]:
+            result = {
+                "status": "STRADDLE_SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
+            self.journal.append("STRADDLE_POSITION_MONITOR_SKIPPED", result)
+            return result
         positions = self.broker.open_positions(self.config.symbol)
         if not positions:
-            result = {"status": "NO_OPEN_POSITION", "symbol": self.config.symbol}
+            result = {
+                "status": "NO_OPEN_POSITION",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
             self.journal.append("STRADDLE_POSITION_MONITOR_SKIPPED", result)
             return result
 
@@ -354,6 +384,7 @@ class MT5StraddleExecutor:
             "symbol": self.config.symbol,
             "open_positions": positions,
             "actions": actions,
+            "account_safety": account_safety,
         }
         self.journal.append("STRADDLE_POSITION_MANAGED", result)
         return result
@@ -673,6 +704,7 @@ class MT5StraddleExecutor:
         cycle: int,
         live: bool,
     ) -> dict[str, Any]:
+        account_safety = result.get("account_safety")
         payload = {
             "trading_mode": self.trading_mode,
             "selected_method": result.get("selected_method")
@@ -682,6 +714,7 @@ class MT5StraddleExecutor:
             or _mode_decision_for_status(result.get("status")),
             "mode_rejection_reason": result.get("mode_rejection_reason"),
             "health_gate": result.get("health_gate") or health_gate(True, []),
+            "account_safety": account_safety or {},
             **result,
             "heartbeat_utc": datetime.now(timezone.utc).isoformat(),
             "heartbeat_path": str(self.heartbeat_path),
@@ -703,20 +736,35 @@ class MT5StraddleExecutor:
         *,
         live: bool = False,
     ) -> dict[str, Any]:
-        connection = self.broker.connect()
-        self.journal.append("STRADDLE_CONNECTED", connection)
+        connection, account_safety = self._connect_and_record()
 
         if pair.status != "PROPOSED" or pair.buy_stop is None or pair.sell_stop is None:
             result = {
                 "status": "STRADDLE_NO_TRADE",
                 "reason": pair.reason,
                 "pair": pair.model_dump(mode="json"),
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_NO_TRADE", result)
             return result
 
+        if live and not account_safety["passed"]:
+            result = {
+                "status": "STRADDLE_SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "symbol": self.config.symbol,
+                "pair": pair.model_dump(mode="json"),
+                "account_safety": account_safety,
+            }
+            self.journal.append("STRADDLE_ORDER_SKIPPED", result)
+            return result
+
         if self._active_trade_exists():
-            result = {"status": "SKIPPED_ACTIVE_TRADE", "symbol": self.config.symbol}
+            result = {
+                "status": "SKIPPED_ACTIVE_TRADE",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
             self.journal.append("STRADDLE_SKIPPED_ACTIVE_TRADE", result)
             return result
 
@@ -730,6 +778,7 @@ class MT5StraddleExecutor:
                 "status": "STRADDLE_SKIPPED_INVALID_ENTRY",
                 "error": str(exc),
                 "pair": pair.model_dump(mode="json"),
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_ORDER_SKIPPED", result)
             return result
@@ -742,6 +791,7 @@ class MT5StraddleExecutor:
                 "symbol": self.config.symbol,
                 "requests": requests,
                 "pair": pair.model_dump(mode="json"),
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_PAIR_DRY_RUN", result)
             return result
@@ -753,6 +803,7 @@ class MT5StraddleExecutor:
                 "buy_result": buy_result,
                 "sell_result": None,
                 "requests": requests,
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_PAIR_REJECTED", result)
             return result
@@ -770,6 +821,7 @@ class MT5StraddleExecutor:
                 "sell_result": sell_result,
                 "rollback": rollback,
                 "requests": requests,
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_PAIR_REJECTED_ROLLBACK", result)
             return result
@@ -787,6 +839,7 @@ class MT5StraddleExecutor:
             "sell_result": sell_result,
             "requests": requests,
             "pair": pair.model_dump(mode="json"),
+            "account_safety": account_safety,
         }
         self.journal.append("STRADDLE_PAIR_PLACED", result)
         return result
@@ -794,11 +847,25 @@ class MT5StraddleExecutor:
     def monitor_pair(self, now_utc: datetime | str | None = None) -> dict[str, Any]:
         """Clear dry-run state or cancel live pending legs after expiry."""
 
-        self.broker.connect()
+        _connection, account_safety = self._connect_and_record()
         state = self.state.load()
         active = state.get("active_pair")
         if not active:
-            result = {"status": "NO_ACTIVE_PAIR", "symbol": self.config.symbol}
+            result = {
+                "status": "NO_ACTIVE_PAIR",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
+            self.journal.append("STRADDLE_MONITOR_SKIPPED", result)
+            return result
+
+        if not account_safety["passed"]:
+            result = {
+                "status": "STRADDLE_SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
             self.journal.append("STRADDLE_MONITOR_SKIPPED", result)
             return result
 
@@ -833,6 +900,7 @@ class MT5StraddleExecutor:
                 "symbol": self.config.symbol,
                 "open_positions": positions,
                 "results": cancelled,
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_PAIR_RESOLVED", result)
             return result
@@ -847,6 +915,7 @@ class MT5StraddleExecutor:
                     "status": "DRY_RUN_PAIR_EXPIRED",
                     "symbol": self.config.symbol,
                     "results": cancelled,
+                    "account_safety": account_safety,
                 }
             else:
                 if cancelled or not open_order_tickets:
@@ -855,6 +924,7 @@ class MT5StraddleExecutor:
                     "status": "PAIR_CANCELLED",
                     "symbol": self.config.symbol,
                     "results": cancelled,
+                    "account_safety": account_safety,
                 }
             self.journal.append("STRADDLE_PAIR_CANCELLED", result)
             return result
@@ -863,6 +933,7 @@ class MT5StraddleExecutor:
             result = {
                 "status": "PAIR_STILL_ACTIVE",
                 "cancel_after_utc": cancel_after.isoformat(),
+                "account_safety": account_safety,
             }
             self.journal.append("STRADDLE_MONITOR_SKIPPED", result)
             return result
@@ -872,9 +943,22 @@ class MT5StraddleExecutor:
             "status": "PAIR_RESOLVED",
             "symbol": self.config.symbol,
             "results": [],
+            "account_safety": account_safety,
         }
         self.journal.append("STRADDLE_PAIR_RESOLVED", result)
         return result
+
+    def _connect_and_record(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        connection = self.broker.connect()
+        account_safety = account_safety_from_connection(
+            connection,
+            require_demo=bool(getattr(self.config, "require_demo_account", True)),
+        )
+        self.journal.append(
+            "STRADDLE_CONNECTED",
+            {**connection, "account_safety": account_safety},
+        )
+        return connection, account_safety
 
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)

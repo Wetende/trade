@@ -50,3 +50,24 @@ class AccountSafety:
             "passed": self.passed,
             "reason": self.reason,
         }
+
+
+def account_safety_from_connection(
+    connection: dict[str, Any],
+    *,
+    require_demo: bool = True,
+) -> dict[str, Any]:
+    account = connection.get("account") or {}
+    trade_mode = account.get("trade_mode_label") or account.get("trade_mode")
+    if trade_mode is not None:
+        trade_mode = str(trade_mode).upper()
+    passed = (not require_demo) or trade_mode == "DEMO"
+    reason = None
+    if not passed:
+        reason = f"demo account required; connected trade mode is {trade_mode}"
+    return AccountSafety(
+        require_demo=bool(require_demo),
+        trade_mode=trade_mode,
+        passed=passed,
+        reason=reason,
+    ).as_dict()

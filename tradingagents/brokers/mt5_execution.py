@@ -12,7 +12,7 @@ from typing import Any
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
 from tradingagents.brokers.execution_state import ExecutionStateStore
-from tradingagents.brokers.mode_gate import AccountSafety
+from tradingagents.brokers.mode_gate import account_safety_from_connection
 from tradingagents.brokers.mt5 import (
     MT5Broker,
     MT5ConnectionConfig,
@@ -172,21 +172,10 @@ class MT5Executor:
         }
 
     def _account_safety(self, connection: dict[str, Any]) -> dict[str, Any]:
-        account = connection.get("account") or {}
-        trade_mode = account.get("trade_mode_label") or account.get("trade_mode")
-        if trade_mode is not None:
-            trade_mode = str(trade_mode).upper()
-        require_demo = bool(getattr(self.config, "require_demo_account", True))
-        passed = (not require_demo) or trade_mode == "DEMO"
-        reason = None
-        if not passed:
-            reason = f"demo account required; connected trade mode is {trade_mode}"
-        return AccountSafety(
-            require_demo=require_demo,
-            trade_mode=trade_mode,
-            passed=passed,
-            reason=reason,
-        ).as_dict()
+        return account_safety_from_connection(
+            connection,
+            require_demo=bool(getattr(self.config, "require_demo_account", True)),
+        )
 
     def cancel_stale_pending_orders(
         self,

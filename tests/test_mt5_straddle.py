@@ -58,12 +58,13 @@ class FakeBroker:
         self.closed_positions = []
         self.history_deals_result = []
         self.history_deals_calls = []
+        self.account = {"login": 123, "trade_mode_label": "DEMO"}
 
     def connect(self):
         return {
             "connected": True,
             "symbol": self.symbol_info,
-            "account": {"login": 123},
+            "account": self.account,
         }
 
     def fetch_rates(self, timeframe, count):
@@ -217,6 +218,40 @@ def test_straddle_executor_places_two_live_orders_and_records_tickets(tmp_path):
     assert state["dry_run"] is False
     assert state["buy_ticket"] == 101
     assert state["sell_ticket"] == 202
+
+
+def test_straddle_result_and_journal_include_account_safety(tmp_path):
+    broker = FakeBroker()
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_pair(_pair(), live=True)
+
+    assert result["account_safety"] == {
+        "require_demo": True,
+        "trade_mode": "DEMO",
+        "passed": True,
+        "reason": None,
+    }
+    journal_path = tmp_path / "XAUUSD.vx" / "execution_journal" / "mt5_events.jsonl"
+    events = [
+        json.loads(line)
+        for line in journal_path.read_text(encoding="utf-8").splitlines()
+    ]
+    connected = events[0]
+    assert connected["event_type"] == "STRADDLE_CONNECTED"
+    assert connected["payload"]["account_safety"]["trade_mode"] == "DEMO"
+
+
+def test_straddle_live_order_skips_when_account_safety_fails(tmp_path):
+    broker = FakeBroker()
+    broker.account = {"login": 123, "trade_mode_label": "REAL"}
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_pair(_pair(), live=True)
+
+    assert result["status"] == "STRADDLE_SKIPPED_ACCOUNT_SAFETY"
+    assert result["account_safety"]["passed"] is False
+    assert broker.placed_requests == []
 
 
 def test_straddle_executor_cancels_first_order_when_second_live_order_fails(tmp_path):
