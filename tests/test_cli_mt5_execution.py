@@ -170,6 +170,81 @@ def test_mt5_run_rejects_straddle_only_mode(monkeypatch, tmp_path):
     assert "mt5-run requires ENTRY_ONLY or AUTO_GATED" in result.output
 
 
+def test_auto_gated_mode_runs_autogate_runner(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.brokers import mt5_autogate, mt5_execution, mt5_runner, mt5_straddle
+
+    config = SimpleNamespace(symbol="XAUUSD.vx")
+    analysis_func = object()
+    calls = {}
+
+    class DirectionalExecutor:
+        def __init__(self, received_config, results_dir, exit_management=None):
+            calls["directional_executor"] = (received_config, results_dir, exit_management)
+
+    class StraddleExecutor:
+        def __init__(self, received_config, results_dir, trading_mode=None):
+            calls["straddle_executor"] = (received_config, results_dir, trading_mode)
+
+    class AutoGateRunner:
+        def __init__(
+            self,
+            runner_config,
+            directional_executor,
+            straddle_executor,
+            directional_analysis_func,
+            straddle_config,
+            current_as_of_func=None,
+            straddle_exit_management=None,
+            straddle_entry_regime=None,
+        ):
+            calls["runner_config"] = runner_config
+            calls["directional_analysis_func"] = directional_analysis_func
+            calls["straddle_config"] = straddle_config
+
+        def run_once(self):
+            return {
+                "status": "NO_TRADE",
+                "trading_mode": calls["runner_config"].trading_mode,
+            }
+
+        def run_forever(self):
+            raise AssertionError("--once should call run_once")
+
+    class DirectionalRunner:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("AUTO_GATED should not instantiate MT5Runner")
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "AUTO_GATED")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", DirectionalExecutor)
+    monkeypatch.setattr(mt5_straddle, "MT5StraddleExecutor", StraddleExecutor)
+    monkeypatch.setattr(mt5_autogate, "MT5AutoGateRunner", AutoGateRunner)
+    monkeypatch.setattr(mt5_runner, "MT5Runner", DirectionalRunner)
+    monkeypatch.setattr(
+        cli_main,
+        "_mt5_runner_engine_analysis_func",
+        lambda config=None: analysis_func,
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--once"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "status": "NO_TRADE",
+        "trading_mode": "AUTO_GATED",
+    }
+    assert calls["runner_config"].trading_mode == "AUTO_GATED"
+    assert calls["directional_analysis_func"] is analysis_func
+    assert calls["straddle_config"].symbol == "XAUUSD.vx"
+    assert calls["straddle_executor"][2] == "AUTO_GATED"
+
+
 def test_mt5_straddle_run_off_mode_places_no_orders(monkeypatch, tmp_path):
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
 

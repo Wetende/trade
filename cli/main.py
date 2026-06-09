@@ -518,6 +518,54 @@ def _mt5_exit_management_config():
     )
 
 
+def _mt5_default_straddle_config(mt5_config):
+    from tradingagents.agents.straddle_breakout import StraddleBreakoutConfig
+
+    return StraddleBreakoutConfig(
+        symbol=mt5_config.symbol,
+        broker_symbol=mt5_config.symbol,
+        timeframe="1m",
+        confirmation_timeframe="3m",
+        lookback_candles=3,
+        entry_buffer_points=0.50,
+        stop_distance_points=2.0,
+        target_distance_points=3.0,
+        activation_window_minutes=3,
+        max_spread_points=0.50,
+        min_box_points=0.50,
+        max_box_points=3.0,
+    )
+
+
+def _mt5_default_straddle_exit_management_config():
+    from tradingagents.brokers.mt5_straddle import StraddleExitManagementConfig
+
+    return StraddleExitManagementConfig(
+        enabled=True,
+        break_even_trigger_points=0.8,
+        break_even_lock_points=0.20,
+        trailing_trigger_points=0.0,
+        trailing_distance_points=0.8,
+        min_stop_update_points=0.30,
+        early_loss_exit_points=1.5,
+        scalp_profit_points=1.50,
+    )
+
+
+def _mt5_default_straddle_entry_regime_config():
+    from tradingagents.brokers.mt5_straddle import StraddleEntryRegimeConfig
+
+    return StraddleEntryRegimeConfig(
+        enabled=True,
+        loss_streak_limit=2,
+        loss_cooldown_minutes=10.0,
+        wide_box_streak_limit=3,
+        wide_box_cooldown_minutes=5.0,
+        post_cooldown_momentum_body_points=0.80,
+        post_cooldown_momentum_breakout_points=0.20,
+    )
+
+
 def _mt5_runner_analysis_func():
     def analyze_once():
         selections = build_env_selections()
@@ -763,9 +811,11 @@ def mt5_run(
     """
     _load_runtime_env()
     from tradingagents.brokers.mode_gate import TradingMode, parse_trading_mode
+    from tradingagents.brokers.mt5_autogate import MT5AutoGateConfig, MT5AutoGateRunner
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_execution import MT5Executor
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
+    from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
 
     try:
         trading_mode = parse_trading_mode(DEFAULT_CONFIG.get("trading_mode", "OFF"))
@@ -794,36 +844,54 @@ def mt5_run(
             exit_management=_mt5_exit_management_config(),
         )
         analysis_func = _mt5_runner_engine_analysis_func(config)
-        runner = MT5Runner(
-            MT5RunnerConfig(
-                results_dir=DEFAULT_CONFIG["results_dir"],
-                poll_seconds=poll_seconds,
-                max_cycles=(
-                    1
-                    if once
-                    else (
-                        0
-                        if duration_hours
-                        else int(DEFAULT_CONFIG.get("runner_max_cycles", 0))
-                    )
-                ),
-                max_runtime_seconds=(
-                    math.ceil(duration_hours * 3600)
+        runner_config_kwargs = {
+            "results_dir": DEFAULT_CONFIG["results_dir"],
+            "poll_seconds": poll_seconds,
+            "max_cycles": (
+                1
+                if once
+                else (
+                    0
                     if duration_hours
-                    else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
-                ),
-                max_session_loss=float(
-                    DEFAULT_CONFIG.get("runner_max_session_loss", 0.0)
-                ),
-                blocked_strategy_rules=tuple(
-                    DEFAULT_CONFIG.get("runner_blocked_strategy_rules", ())
-                ),
-                trading_mode=trading_mode.value,
+                    else int(DEFAULT_CONFIG.get("runner_max_cycles", 0))
+                )
             ),
-            executor=executor,
-            analysis_func=analysis_func,
-            current_as_of_func=_mt5_runner_current_as_of_func(),
-        )
+            "max_runtime_seconds": (
+                math.ceil(duration_hours * 3600)
+                if duration_hours
+                else int(DEFAULT_CONFIG.get("runner_max_runtime_seconds", 0))
+            ),
+            "max_session_loss": float(
+                DEFAULT_CONFIG.get("runner_max_session_loss", 0.0)
+            ),
+            "blocked_strategy_rules": tuple(
+                DEFAULT_CONFIG.get("runner_blocked_strategy_rules", ())
+            ),
+            "trading_mode": trading_mode.value,
+        }
+        if trading_mode == TradingMode.AUTO_GATED:
+            straddle_executor = MT5StraddleExecutor(
+                config,
+                DEFAULT_CONFIG["results_dir"],
+                trading_mode=trading_mode.value,
+            )
+            runner = MT5AutoGateRunner(
+                MT5AutoGateConfig(**runner_config_kwargs),
+                directional_executor=executor,
+                straddle_executor=straddle_executor,
+                directional_analysis_func=analysis_func,
+                straddle_config=_mt5_default_straddle_config(config),
+                current_as_of_func=_mt5_runner_current_as_of_func(),
+                straddle_exit_management=_mt5_default_straddle_exit_management_config(),
+                straddle_entry_regime=_mt5_default_straddle_entry_regime_config(),
+            )
+        else:
+            runner = MT5Runner(
+                MT5RunnerConfig(**runner_config_kwargs),
+                executor=executor,
+                analysis_func=analysis_func,
+                current_as_of_func=_mt5_runner_current_as_of_func(),
+            )
         result = runner.run_once() if once else runner.run_forever()
     except (MT5BrokerError, ValueError) as exc:
         console.print(f"[red]{exc}[/red]")

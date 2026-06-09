@@ -200,6 +200,64 @@ class MT5StraddleExecutor:
             return regime_result
         return self.execute_pair(pair, live=live)
 
+    def evaluate_entry_candidate(
+        self,
+        straddle_config: StraddleBreakoutConfig,
+        *,
+        now_utc: datetime | str | None = None,
+        exit_management: StraddleExitManagementConfig | None = None,
+        entry_regime: StraddleEntryRegimeConfig | None = None,
+    ) -> dict[str, Any]:
+        """Build and validate a straddle candidate without placing or storing it."""
+
+        if self._active_trade_exists():
+            result = {"status": "SKIPPED_ACTIVE_TRADE", "symbol": self.config.symbol}
+            self.journal.append("STRADDLE_CANDIDATE_SKIPPED_ACTIVE_TRADE", result)
+            return result
+
+        current = _utc_datetime(now_utc)
+        regime = entry_regime or StraddleEntryRegimeConfig()
+        regime_result = self._entry_regime_pre_build(regime, current)
+        if regime_result:
+            return regime_result
+
+        pair = self.build_pair(straddle_config, now_utc=current)
+        regime_result = self._entry_regime_after_pair(pair, regime, current)
+        if regime_result:
+            return regime_result
+        if pair.status != "PROPOSED" or pair.buy_stop is None or pair.sell_stop is None:
+            result = {
+                "status": "STRADDLE_NO_TRADE",
+                "reason": pair.reason,
+                "pair": pair,
+            }
+            self.journal.append("STRADDLE_CANDIDATE_NO_TRADE", _jsonable_pair_result(result))
+            return result
+
+        connection = self.broker.connect()
+        try:
+            requests = [
+                self._request_for(pair.buy_stop, connection["symbol"]),
+                self._request_for(pair.sell_stop, connection["symbol"]),
+            ]
+        except ValueError as exc:
+            result = {
+                "status": "STRADDLE_SKIPPED_INVALID_ENTRY",
+                "error": str(exc),
+                "pair": pair,
+            }
+            self.journal.append("STRADDLE_CANDIDATE_SKIPPED", _jsonable_pair_result(result))
+            return result
+
+        result = {
+            "status": "PROPOSED",
+            "symbol": self.config.symbol,
+            "pair": pair,
+            "requests": requests,
+        }
+        self.journal.append("STRADDLE_CANDIDATE_PROPOSED", _jsonable_pair_result(result))
+        return result
+
     def watch_forever(
         self,
         straddle_config: StraddleBreakoutConfig,
@@ -1043,3 +1101,11 @@ def _mode_decision_for_status(status: Any) -> str:
     if text.startswith("STRADDLE_"):
         return text
     return "STRADDLE_" + text
+
+
+def _jsonable_pair_result(result: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(result)
+    pair = payload.get("pair")
+    if hasattr(pair, "model_dump"):
+        payload["pair"] = pair.model_dump(mode="json")
+    return payload

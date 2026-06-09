@@ -182,6 +182,26 @@ def test_straddle_executor_builds_pair_from_closed_candles_only(tmp_path):
     assert pair.box["low"] == 4496.5
 
 
+def test_straddle_evaluates_entry_candidate_without_mutating_state(tmp_path):
+    broker = FakeBroker()
+    executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
+
+    result = executor.evaluate_entry_candidate(
+        StraddleBreakoutConfig(
+            symbol="XAUUSD.vx",
+            lookback_candles=3,
+            max_box_points=8.0,
+        ),
+        now_utc="2026-06-04T12:03:00+00:00",
+    )
+
+    assert result["status"] == "PROPOSED"
+    assert result["pair"].status == "PROPOSED"
+    assert len(result["requests"]) == 2
+    assert broker.placed_requests == []
+    assert executor.state.load()["active_pair"] is None
+
+
 def test_straddle_executor_places_two_live_orders_and_records_tickets(tmp_path):
     broker = FakeBroker()
     executor = MT5StraddleExecutor(_config(), tmp_path, broker=broker)
