@@ -236,6 +236,36 @@ def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):
     assert summary["profile_status_counts"]["normal"]["NO_TRADE"] == 1
 
 
+def test_runner_summary_records_latest_mode_decision(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "ORDER_PLACED",
+            "trading_mode": "AUTO_GATED",
+            "selected_method": "ENTRY_FAST",
+            "selected_profile": "fast",
+            "mode_decision": "ENTRY_FAST_SELECTED",
+            "mode_rejection_reason": None,
+            "health_gate": {"passed": True, "reasons": []},
+            "account_safety": {
+                "require_demo": True,
+                "trade_mode": "DEMO",
+                "passed": True,
+            },
+        }
+    )
+
+    latest = summary["latest_cycle"]
+    assert latest["trading_mode"] == "AUTO_GATED"
+    assert latest["selected_method"] == "ENTRY_FAST"
+    assert latest["selected_profile"] == "fast"
+    assert latest["mode_decision"] == "ENTRY_FAST_SELECTED"
+    assert latest["mode_rejection_reason"] is None
+    assert latest["health_gate"]["passed"] is True
+    assert latest["account_safety"]["trade_mode"] == "DEMO"
+
+
 def test_runner_summary_counts_multi_profile_hold_reasons_and_data_health(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 

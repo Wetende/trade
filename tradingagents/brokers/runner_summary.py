@@ -292,6 +292,13 @@ class RunnerSummaryStore:
             "as_of": result.get("as_of"),
             "heartbeat_utc": result.get("heartbeat_utc"),
             "hold_reason": latest_hold_reason,
+            "trading_mode": result.get("trading_mode"),
+            "selected_method": result.get("selected_method"),
+            "selected_profile": result.get("selected_profile"),
+            "mode_decision": result.get("mode_decision"),
+            "mode_rejection_reason": result.get("mode_rejection_reason"),
+            "health_gate": result.get("health_gate") or {},
+            "account_safety": result.get("account_safety") or {},
         }
         self._append_cycle(result)
         self._write_summary(summary)
