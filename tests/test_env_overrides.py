@@ -37,6 +37,8 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["b_plus_min_rr"] == 1.1
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 0.35
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 1.2
+    assert dc.DEFAULT_CONFIG["trading_mode"] == "OFF"
+    assert dc.DEFAULT_CONFIG["require_demo_account"] is True
     assert dc.DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] == "B_PLUS"
     assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.1
 
@@ -104,6 +106,19 @@ def test_runner_blocked_strategy_rules_env_override(monkeypatch):
         "SUPPORT_RESISTANCE_BOUNCE:SELL",
         "BREAKOUT:*",
     )
+
+
+def test_trading_mode_env_override(monkeypatch):
+    dc = _reload_with_env(monkeypatch, TRADINGAGENTS_TRADING_MODE="AUTO_GATED")
+
+    assert dc.DEFAULT_CONFIG["trading_mode"] == "AUTO_GATED"
+
+
+def test_invalid_trading_mode_rejected():
+    from tradingagents.brokers.mode_gate import parse_trading_mode
+
+    with pytest.raises(ValueError, match="TRADINGAGENTS_TRADING_MODE"):
+        parse_trading_mode("ENTRY")
 
 
 def test_time_filter_mode_env_updates_price_action_config(monkeypatch):
