@@ -270,6 +270,83 @@ def test_runner_executes_first_proposed_profile_and_marks_each_profile(tmp_path)
     assert runner._load_state()["last_processed_by_profile"]["fast"] == "2026-06-03 08:16"
 
 
+def test_autogate_selects_fast_when_only_fast_qualifies(tmp_path):
+    normal_no_trade = proposed_order()
+    normal_no_trade.status = OrderStatus.NO_TRADE
+    fast_order = proposed_order()
+    fast_order.timeframe = "1m"
+    fast_order.confirmation_timeframe = "3m"
+
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            trading_mode="AUTO_GATED",
+        ),
+        executor=executor,
+        analysis_func=lambda: [
+            (
+                "normal",
+                "2026-06-03 08:15",
+                normal_no_trade,
+                {"entry_profile": "normal"},
+            ),
+            (
+                "fast",
+                "2026-06-03 08:16",
+                fast_order,
+                {"entry_profile": "fast"},
+            ),
+        ],
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert result["trading_mode"] == "AUTO_GATED"
+    assert result["selected_method"] == "ENTRY_FAST"
+    assert result["selected_profile"] == "fast"
+    assert result["mode_decision"] == "ENTRY_FAST_SELECTED"
+    assert result["health_gate"] == {"passed": True, "reasons": []}
+    assert len(executor.executed) == 1
+
+
+def test_autogate_holds_when_fast_and_normal_conflict(tmp_path):
+    normal = proposed_order()
+    normal.side = TradeAction.BUY
+    fast = proposed_order()
+    fast.side = TradeAction.SELL
+    fast.timeframe = "1m"
+    fast.confirmation_timeframe = "3m"
+
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            trading_mode="AUTO_GATED",
+        ),
+        executor=executor,
+        analysis_func=lambda: [
+            ("normal", "2026-06-03 08:15", normal, {"entry_profile": "normal"}),
+            ("fast", "2026-06-03 08:16", fast, {"entry_profile": "fast"}),
+        ],
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["trading_mode"] == "AUTO_GATED"
+    assert result["selected_method"] == "HOLD"
+    assert result["selected_profile"] is None
+    assert result["mode_decision"] == "DIRECTIONAL_CONFLICT_HOLD"
+    assert result["mode_rejection_reason"] == "FAST_NORMAL_DIRECTION_CONFLICT"
+    assert executor.executed == []
+
+
 def test_runner_marks_no_trade_candle_as_processed(tmp_path):
     no_trade = proposed_order()
     no_trade.status = OrderStatus.NO_TRADE

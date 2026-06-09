@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from tradingagents.agents.schemas import OrderProposal
+from tradingagents.brokers.mode_gate import TradingMode, health_gate, mode_value
 from tradingagents.brokers.runner_summary import RunnerSummaryStore
 
 
@@ -23,12 +24,14 @@ class MT5RunnerConfig:
     max_runtime_seconds: int = 0
     max_session_loss: float = 0.0
     blocked_strategy_rules: tuple[str, ...] = ()
+    trading_mode: str = TradingMode.ENTRY_ONLY.value
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
         max_cycles = int(self.max_cycles)
         max_runtime_seconds = int(self.max_runtime_seconds)
         max_session_loss = float(self.max_session_loss)
+        trading_mode = mode_value(self.trading_mode)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
         if max_cycles < 0:
@@ -41,6 +44,7 @@ class MT5RunnerConfig:
         object.__setattr__(self, "max_cycles", max_cycles)
         object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
         object.__setattr__(self, "max_session_loss", max_session_loss)
+        object.__setattr__(self, "trading_mode", trading_mode)
         object.__setattr__(
             self,
             "blocked_strategy_rules",
@@ -133,7 +137,6 @@ class MT5Runner:
         multi_profile_result = isinstance(analysis_result, list)
         last_processed_by_profile = dict(state.get("last_processed_by_profile") or {})
         processed_rows = []
-        selected = None
         legacy_last_processed = state.get("last_processed_as_of")
 
         for profile, as_of, proposal, analysis in analysis_rows:
@@ -145,8 +148,6 @@ class MT5Runner:
             status = str(getattr(proposal.status, "value", proposal.status)).upper()
             processed_rows.append((profile, as_of, proposal, analysis, status))
             last_processed_by_profile[profile] = as_of
-            if selected is None and status == "PROPOSED":
-                selected = (profile, as_of, proposal, analysis)
 
         if not processed_rows:
             return self._write_heartbeat(
@@ -167,6 +168,35 @@ class MT5Runner:
             }
         )
 
+        selected, decision, rejection_reason = self._select_directional_candidate(
+            processed_rows
+        )
+        if decision == "DIRECTIONAL_CONFLICT_HOLD":
+            return self._write_heartbeat(
+                {
+                    "status": "NO_TRADE",
+                    "started_at_utc": started_at,
+                    "selected_method": "HOLD",
+                    "selected_profile": None,
+                    "mode_decision": decision,
+                    "mode_rejection_reason": rejection_reason,
+                    "health_gate": health_gate(False, ["directional_conflict"]),
+                    "position_management": position_management,
+                    "history_reconciliation": history_reconciliation,
+                    "candidate_methods": self._candidate_methods(processed_rows),
+                    "profiles": [
+                        {
+                            "entry_profile": profile,
+                            "as_of": as_of,
+                            "proposal": proposal.model_dump(mode="json"),
+                            "analysis": analysis,
+                            "status": status,
+                        }
+                        for profile, as_of, proposal, analysis, status in processed_rows
+                    ],
+                }
+            )
+
         if selected is None:
             if not multi_profile_result and len(processed_rows) == 1:
                 profile, as_of, proposal, analysis, _status = processed_rows[0]
@@ -174,6 +204,11 @@ class MT5Runner:
                     {
                         "status": "NO_TRADE",
                         "started_at_utc": started_at,
+                        "selected_method": "HOLD",
+                        "selected_profile": None,
+                        "mode_decision": decision,
+                        "mode_rejection_reason": rejection_reason,
+                        "candidate_methods": self._candidate_methods(processed_rows),
                         "as_of": as_of,
                         "proposal": proposal.model_dump(mode="json"),
                         "analysis": analysis,
@@ -185,6 +220,11 @@ class MT5Runner:
                 {
                     "status": "NO_TRADE",
                     "started_at_utc": started_at,
+                    "selected_method": "HOLD",
+                    "selected_profile": None,
+                    "mode_decision": decision,
+                    "mode_rejection_reason": rejection_reason,
+                    "candidate_methods": self._candidate_methods(processed_rows),
                     "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                     "profiles": [
@@ -201,6 +241,7 @@ class MT5Runner:
             )
 
         profile, as_of, proposal, analysis = selected
+        selected_method = _method_for_profile(profile)
         block = self._blocked_strategy(proposal)
         if block is not None:
             execution = {
@@ -213,6 +254,11 @@ class MT5Runner:
                 "status": "ORDER_BLOCKED_STRATEGY",
                 "started_at_utc": started_at,
                 "entry_profile": profile,
+                "selected_method": selected_method,
+                "selected_profile": profile,
+                "mode_decision": f"{selected_method}_BLOCKED",
+                "mode_rejection_reason": "BLOCKED_STRATEGY_RULE",
+                "candidate_methods": self._candidate_methods(processed_rows),
                 "as_of": as_of,
                 "proposal": proposal.model_dump(mode="json"),
                 "execution": execution,
@@ -233,6 +279,11 @@ class MT5Runner:
             ),
             "started_at_utc": started_at,
             "entry_profile": profile,
+            "selected_method": selected_method,
+            "selected_profile": profile,
+            "mode_decision": decision,
+            "mode_rejection_reason": rejection_reason,
+            "candidate_methods": self._candidate_methods(processed_rows),
             "as_of": as_of,
             "proposal": proposal.model_dump(mode="json"),
             "execution": execution,
@@ -332,6 +383,12 @@ class MT5Runner:
 
     def _write_heartbeat(self, result: dict) -> dict:
         payload = {
+            "trading_mode": self.config.trading_mode,
+            "selected_method": result.get("selected_method", "HOLD"),
+            "selected_profile": result.get("selected_profile"),
+            "mode_decision": result.get("mode_decision") or result.get("status"),
+            "mode_rejection_reason": result.get("mode_rejection_reason"),
+            "health_gate": result.get("health_gate") or health_gate(True, []),
             **result,
             "heartbeat_utc": datetime.now(timezone.utc).isoformat(),
             "heartbeat_path": str(self.heartbeat_path),
@@ -387,6 +444,37 @@ class MT5Runner:
                 return rule
         return None
 
+    def _select_directional_candidate(
+        self,
+        processed_rows: list[tuple[str, str, OrderProposal, dict, str]],
+    ) -> tuple[tuple[str, str, OrderProposal, dict] | None, str, str | None]:
+        proposed = [row for row in processed_rows if row[4] == "PROPOSED"]
+        normal = next((row for row in proposed if row[0] == "normal"), None)
+        fast = next((row for row in proposed if row[0] == "fast"), None)
+        if normal and fast and _proposal_side(normal[2]) != _proposal_side(fast[2]):
+            return None, "DIRECTIONAL_CONFLICT_HOLD", "FAST_NORMAL_DIRECTION_CONFLICT"
+        if fast is not None:
+            return fast[:4], "ENTRY_FAST_SELECTED", None
+        if normal is not None:
+            return normal[:4], "ENTRY_NORMAL_SELECTED", None
+        return None, "NO_DIRECTIONAL_CANDIDATE", "NO_PROPOSED_DIRECTIONAL_PROFILE"
+
+    def _candidate_methods(
+        self,
+        processed_rows: list[tuple[str, str, OrderProposal, dict, str]],
+    ) -> dict:
+        candidates = {}
+        for profile, _as_of, proposal, analysis, status in processed_rows:
+            method = _method_for_profile(profile)
+            telemetry = (analysis or {}).get("telemetry") or {}
+            candidates[method] = {
+                "status": status,
+                "reason": getattr(proposal, "reason", None)
+                or telemetry.get("primary_hold_reason"),
+                "selected_profile": profile,
+            }
+        return candidates
+
     def _load_state(self) -> dict:
         if not self.state_path.exists():
             return {"last_processed_by_profile": {}}
@@ -432,3 +520,11 @@ def _strategy_token(value) -> str:
         return "*"
     text = re.sub(r"[^A-Z0-9]+", "_", text)
     return re.sub(r"_+", "_", text).strip("_")
+
+
+def _method_for_profile(profile: str) -> str:
+    return "ENTRY_FAST" if str(profile).lower() == "fast" else "ENTRY_NORMAL"
+
+
+def _proposal_side(proposal: OrderProposal) -> str:
+    return str(getattr(proposal.side, "value", proposal.side)).upper()
