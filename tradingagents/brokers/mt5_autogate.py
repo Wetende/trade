@@ -390,6 +390,10 @@ class MT5AutoGateRunner:
         return candidates
 
     def _write_heartbeat(self, result: dict[str, Any]) -> dict[str, Any]:
+        account_safety = result.get("account_safety")
+        execution = result.get("execution")
+        if account_safety is None and isinstance(execution, dict):
+            account_safety = execution.get("account_safety")
         payload = {
             "trading_mode": self.config.trading_mode,
             "selected_method": result.get("selected_method", "HOLD"),
@@ -397,6 +401,7 @@ class MT5AutoGateRunner:
             "mode_decision": result.get("mode_decision") or result.get("status"),
             "mode_rejection_reason": result.get("mode_rejection_reason"),
             "health_gate": result.get("health_gate") or health_gate(True, []),
+            "account_safety": account_safety or {},
             **result,
             "heartbeat_utc": datetime.now(timezone.utc).isoformat(),
             "heartbeat_path": str(self.heartbeat_path),

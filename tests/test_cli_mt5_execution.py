@@ -712,6 +712,7 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
     from tradingagents.brokers.mt5 import MT5ConnectionConfig
     from tradingagents.brokers import mt5_execution, mt5_runner
 
+    _isolate_runtime_env(monkeypatch)
     calls = {}
 
     class Executor:

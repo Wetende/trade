@@ -683,6 +683,10 @@ class MT5Broker:
         mt5 = self._module()
         account = _asdict(mt5.account_info())
         trade_mode_label = self._trade_mode_label(account.get("trade_mode"))
+        if trade_mode_label == "UNKNOWN":
+            raise MT5BrokerError(
+                "MT5 account trade mode is unknown; refusing broker order"
+            )
         if self.config.require_demo_account and trade_mode_label != "DEMO":
             raise MT5BrokerError(
                 "MT5 demo account is required for broker execution; "
@@ -691,10 +695,6 @@ class MT5Broker:
         if trade_mode_label == "REAL" and not self.config.allow_real_orders:
             raise MT5BrokerError(
                 "Real-account broker execution requires real-money acknowledgement"
-            )
-        if trade_mode_label == "UNKNOWN":
-            raise MT5BrokerError(
-                "MT5 account trade mode is unknown; refusing broker order"
             )
 
     def _success_retcodes_for_action(self, action: Any) -> set[Any]:

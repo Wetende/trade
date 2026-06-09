@@ -12,6 +12,7 @@ from typing import Any
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
 from tradingagents.brokers.execution_state import ExecutionStateStore
+from tradingagents.brokers.mode_gate import AccountSafety
 from tradingagents.brokers.mt5 import (
     MT5Broker,
     MT5ConnectionConfig,
@@ -114,12 +115,27 @@ class MT5Executor:
     def execute_proposal(self, proposal: OrderProposal) -> dict[str, Any]:
         """Place a pending order when no active trade exists."""
         connection = self.broker.connect()
-        self.journal.append("CONNECTED", connection)
+        account_safety = self._account_safety(connection)
+        self.journal.append(
+            "CONNECTED",
+            {**connection, "account_safety": account_safety},
+        )
+
+        if not account_safety["passed"]:
+            result = {
+                "status": "SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "symbol": self.config.symbol,
+                "account_safety": account_safety,
+            }
+            self.journal.append("ORDER_SKIPPED", result)
+            return result
 
         if self._active_trade_exists():
             result = {
                 "status": "SKIPPED_ACTIVE_TRADE",
                 "symbol": self.config.symbol,
+                "account_safety": account_safety,
             }
             self.journal.append("SKIPPED_ACTIVE_TRADE", result)
             return result
@@ -135,6 +151,7 @@ class MT5Executor:
                 "reason": "ENTRY_PRICE_STALE_OR_INVALID",
                 "error": str(exc),
                 "proposal": proposal.model_dump(mode="json"),
+                "account_safety": account_safety,
             }
             self.journal.append("ORDER_SKIPPED", result)
             return result
@@ -151,7 +168,25 @@ class MT5Executor:
             "status": "PLACED" if ok else "REJECTED",
             "order": broker_result.get("order"),
             "broker_result": broker_result,
+            "account_safety": account_safety,
         }
+
+    def _account_safety(self, connection: dict[str, Any]) -> dict[str, Any]:
+        account = connection.get("account") or {}
+        trade_mode = account.get("trade_mode_label") or account.get("trade_mode")
+        if trade_mode is not None:
+            trade_mode = str(trade_mode).upper()
+        require_demo = bool(getattr(self.config, "require_demo_account", True))
+        passed = (not require_demo) or trade_mode == "DEMO"
+        reason = None
+        if not passed:
+            reason = f"demo account required; connected trade mode is {trade_mode}"
+        return AccountSafety(
+            require_demo=require_demo,
+            trade_mode=trade_mode,
+            passed=passed,
+            reason=reason,
+        ).as_dict()
 
     def cancel_stale_pending_orders(
         self,

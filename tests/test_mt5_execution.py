@@ -451,7 +451,7 @@ class FakeBroker:
         return {
             "connected": True,
             "symbol": self.symbol_info,
-            "account": {"login": 123456789},
+            "account": {"login": 123456789, "trade_mode_label": "DEMO"},
         }
 
     def open_orders(self, symbol):
@@ -525,6 +525,28 @@ def test_executor_places_pending_order_when_no_active_trade(tmp_path):
     assert result["order"] == 111222
     assert len(broker.placed_requests) == 1
     assert broker.placed_requests[0]["type"] == "BUY_LIMIT"
+
+
+def test_executor_result_and_journal_include_account_safety(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_proposal(_proposal())
+
+    assert result["account_safety"] == {
+        "require_demo": True,
+        "trade_mode": "DEMO",
+        "passed": True,
+        "reason": None,
+    }
+    journal_path = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    events = [
+        json.loads(line)
+        for line in journal_path.read_text(encoding="utf-8").splitlines()
+    ]
+    connected = events[0]
+    assert connected["event_type"] == "CONNECTED"
+    assert connected["payload"]["account_safety"]["trade_mode"] == "DEMO"
 
 
 def test_executor_refuses_when_active_order_exists(tmp_path):

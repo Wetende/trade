@@ -29,7 +29,16 @@ class FakeDirectionalExecutor:
 
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
-        return {"status": "PLACED", "order": 123}
+        return {
+            "status": "PLACED",
+            "order": 123,
+            "account_safety": {
+                "require_demo": True,
+                "trade_mode": "DEMO",
+                "passed": True,
+                "reason": None,
+            },
+        }
 
     def reconcile_trade_history(self, **kwargs):
         self.history_calls += 1
@@ -168,5 +177,6 @@ def test_autogate_selects_directional_before_straddle(tmp_path):
     assert result["status"] == "ORDER_PLACED"
     assert result["selected_method"] == "ENTRY_FAST"
     assert result["mode_decision"] == "ENTRY_FAST_SELECTED"
+    assert result["account_safety"]["trade_mode"] == "DEMO"
     assert len(directional_executor.executed) == 1
     assert straddle_executor.executed == []

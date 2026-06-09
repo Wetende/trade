@@ -31,7 +31,16 @@ class FakeExecutor:
 
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
-        return {"status": "PLACED", "order": 123}
+        return {
+            "status": "PLACED",
+            "order": 123,
+            "account_safety": {
+                "require_demo": True,
+                "trade_mode": "DEMO",
+                "passed": True,
+                "reason": None,
+            },
+        }
 
     def reconcile_trade_history(self, **kwargs):
         self.history_calls += 1
@@ -310,6 +319,7 @@ def test_autogate_selects_fast_when_only_fast_qualifies(tmp_path):
     assert result["selected_profile"] == "fast"
     assert result["mode_decision"] == "ENTRY_FAST_SELECTED"
     assert result["health_gate"] == {"passed": True, "reasons": []}
+    assert result["account_safety"]["trade_mode"] == "DEMO"
     assert len(executor.executed) == 1
 
 
