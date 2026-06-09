@@ -390,10 +390,7 @@ class MT5AutoGateRunner:
         return candidates
 
     def _write_heartbeat(self, result: dict[str, Any]) -> dict[str, Any]:
-        account_safety = result.get("account_safety")
-        execution = result.get("execution")
-        if account_safety is None and isinstance(execution, dict):
-            account_safety = execution.get("account_safety")
+        account_safety = _nested_account_safety(result)
         payload = {
             "trading_mode": self.config.trading_mode,
             "selected_method": result.get("selected_method", "HOLD"),
@@ -414,6 +411,23 @@ class MT5AutoGateRunner:
             encoding="utf-8",
         )
         return payload
+
+
+def _nested_account_safety(result: dict[str, Any]) -> dict[str, Any] | None:
+    account_safety = result.get("account_safety")
+    if account_safety is not None:
+        return account_safety
+    for key in (
+        "execution",
+        "position_management",
+        "stale_orders",
+        "straddle_monitor",
+        "snapshot",
+    ):
+        nested = result.get(key)
+        if isinstance(nested, dict) and nested.get("account_safety") is not None:
+            return nested["account_safety"]
+    return None
 
 
 def _straddle_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:

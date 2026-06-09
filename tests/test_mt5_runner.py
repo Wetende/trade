@@ -10,7 +10,15 @@ class FakeExecutor:
         self.executed = []
         self.cancel_calls = 0
         self.manage_calls = 0
-        self.manage_result = {"status": "NO_POSITION_ACTION"}
+        self.manage_result = {
+            "status": "NO_POSITION_ACTION",
+            "account_safety": {
+                "require_demo": True,
+                "trade_mode": "DEMO",
+                "passed": True,
+                "reason": None,
+            },
+        }
         self.history_calls = 0
         self.history_kwargs = []
         self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
@@ -124,6 +132,12 @@ def test_runner_records_position_management_in_active_trade_heartbeat(tmp_path):
     executor.manage_result = {
         "status": "POSITION_STOP_MOVED",
         "actions": [{"ticket": 123, "reason": "TRAILING_STOP"}],
+        "account_safety": {
+            "require_demo": True,
+            "trade_mode": "DEMO",
+            "passed": True,
+            "reason": None,
+        },
     }
 
     runner = MT5Runner(
@@ -136,6 +150,7 @@ def test_runner_records_position_management_in_active_trade_heartbeat(tmp_path):
 
     assert result["status"] == "ACTIVE_TRADE_MONITORED"
     assert result["position_management"] == executor.manage_result
+    assert result["account_safety"]["trade_mode"] == "DEMO"
 
 
 def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):

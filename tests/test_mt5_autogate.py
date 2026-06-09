@@ -25,7 +25,15 @@ class FakeDirectionalExecutor:
 
     def manage_open_positions(self):
         self.manage_calls += 1
-        return {"status": "NO_POSITION_ACTION"}
+        return {
+            "status": "NO_POSITION_ACTION",
+            "account_safety": {
+                "require_demo": True,
+                "trade_mode": "DEMO",
+                "passed": True,
+                "reason": None,
+            },
+        }
 
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
@@ -147,6 +155,7 @@ def test_autogate_active_trade_blocks_directional_and_straddle_scans(tmp_path):
 
     assert result["status"] == "ACTIVE_TRADE_MONITORED"
     assert result["selected_method"] == "HOLD"
+    assert result["account_safety"]["trade_mode"] == "DEMO"
     assert straddle_executor.candidate_calls == 0
     assert directional_executor.executed == []
 

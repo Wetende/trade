@@ -382,10 +382,7 @@ class MT5Runner:
                 time.sleep(self.config.poll_seconds)
 
     def _write_heartbeat(self, result: dict) -> dict:
-        account_safety = result.get("account_safety")
-        execution = result.get("execution")
-        if account_safety is None and isinstance(execution, dict):
-            account_safety = execution.get("account_safety")
+        account_safety = self._nested_account_safety(result)
         payload = {
             "trading_mode": self.config.trading_mode,
             "selected_method": result.get("selected_method", "HOLD"),
@@ -406,6 +403,23 @@ class MT5Runner:
             encoding="utf-8",
         )
         return payload
+
+
+    def _nested_account_safety(self, result: dict) -> dict | None:
+        account_safety = result.get("account_safety")
+        if account_safety is not None:
+            return account_safety
+        for key in (
+            "execution",
+            "position_management",
+            "stale_orders",
+            "straddle_monitor",
+            "snapshot",
+        ):
+            nested = result.get(key)
+            if isinstance(nested, dict) and nested.get("account_safety") is not None:
+                return nested["account_safety"]
+        return None
 
     def _parse_analysis_result(self, result) -> tuple[str, OrderProposal, dict]:
         if not isinstance(result, tuple):

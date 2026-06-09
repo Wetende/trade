@@ -233,7 +233,15 @@ class MT5Executor:
         exit_management: MT5ExitManagementConfig | None = None,
     ) -> dict[str, Any]:
         """Manage active positions with scalp, early-loss, break-even, and trailing rules."""
-        self.broker.connect()
+        connection = self.broker.connect()
+        account_safety = self._account_safety(connection)
+        if not account_safety["passed"]:
+            return {
+                "status": "SKIPPED_ACCOUNT_SAFETY",
+                "reason": "ACCOUNT_SAFETY_FAILED",
+                "actions": [],
+                "account_safety": account_safety,
+            }
         positions = self.broker.open_positions(self.config.symbol)
         legacy_mode = break_even_threshold_pips is not None and exit_management is None
         management = exit_management or self.exit_management
@@ -248,7 +256,11 @@ class MT5Executor:
                 scalp_profit_points=0.0,
             )
         if not management.enabled:
-            return {"status": "NO_POSITION_ACTION", "actions": []}
+            return {
+                "status": "NO_POSITION_ACTION",
+                "actions": [],
+                "account_safety": account_safety,
+            }
 
         actions = []
         closed = False
@@ -278,6 +290,7 @@ class MT5Executor:
         return {
             "status": status,
             "actions": actions,
+            "account_safety": account_safety,
         }
 
     def _manage_position(
@@ -587,10 +600,12 @@ class MT5Executor:
     def snapshot_state(self) -> dict[str, Any]:
         """Read current broker orders and positions without placing orders."""
         connection = self.broker.connect()
+        account_safety = self._account_safety(connection)
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
         state = {
             "connection": connection,
+            "account_safety": account_safety,
             "orders": orders,
             "positions": positions,
         }
