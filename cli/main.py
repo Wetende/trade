@@ -61,6 +61,8 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
         "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
         "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
+        "TRADINGAGENTS_TRADING_MODE": "trading_mode",
+        "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "require_demo_account",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
         "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
@@ -73,6 +75,13 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
         "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
         "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
+        "TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS": "exit_scalp_profit_points",
+        "TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS": "exit_early_loss_points",
+        "TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS": "exit_break_even_trigger_points",
+        "TRADINGAGENTS_EXIT_BREAK_EVEN_LOCK_POINTS": "exit_break_even_lock_points",
+        "TRADINGAGENTS_EXIT_TRAILING_TRIGGER_POINTS": "exit_trailing_trigger_points",
+        "TRADINGAGENTS_EXIT_TRAILING_DISTANCE_POINTS": "exit_trailing_distance_points",
+        "TRADINGAGENTS_EXIT_MIN_STOP_UPDATE_POINTS": "exit_min_stop_update_points",
     }
     for env_var, key in env_overrides.items():
         raw = os.environ.get(env_var)
@@ -123,6 +132,18 @@ def _load_runtime_env() -> None:
     DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] = DEFAULT_CONFIG[
         "minimum_stop_spread_multiple"
     ]
+
+
+def _trading_disabled_result(command: str) -> dict:
+    return {
+        "status": "TRADING_DISABLED",
+        "trading_mode": "OFF",
+        "selected_method": "HOLD",
+        "selected_profile": None,
+        "mode_decision": "TRADING_DISABLED",
+        "mode_rejection_reason": f"{command} disabled by trading mode OFF",
+        "health_gate": {"passed": False, "reasons": ["trading_mode_off"]},
+    }
 
 
 def _console_encoding(console_obj: Console) -> str:
@@ -741,25 +762,38 @@ def mt5_run(
     Seconds between runner cycles.
     """
     _load_runtime_env()
+    from tradingagents.brokers.mode_gate import TradingMode, parse_trading_mode
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_execution import MT5Executor
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
 
     try:
+        trading_mode = parse_trading_mode(DEFAULT_CONFIG.get("trading_mode", "OFF"))
+        if trading_mode == TradingMode.OFF:
+            console.print(
+                json.dumps(
+                    _trading_disabled_result("mt5-run"),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
+        if trading_mode == TradingMode.STRADDLE_ONLY:
+            raise ValueError("mt5-run requires ENTRY_ONLY or AUTO_GATED trading mode")
         normalized_decision_mode = decision_mode.strip().lower()
         if normalized_decision_mode not in {"engine", "graph"}:
             raise typer.BadParameter("decision-mode must be 'engine' or 'graph'")
+        if normalized_decision_mode == "graph":
+            raise ValueError(
+                "graph decision mode is not allowed for MT5 execution"
+            )
         config = MT5ConnectionConfig.from_env()
         executor = MT5Executor(
             config,
             DEFAULT_CONFIG["results_dir"],
             exit_management=_mt5_exit_management_config(),
         )
-        analysis_func = (
-            _mt5_runner_engine_analysis_func(config)
-            if normalized_decision_mode == "engine"
-            else _mt5_runner_analysis_func()
-        )
+        analysis_func = _mt5_runner_engine_analysis_func(config)
         runner = MT5Runner(
             MT5RunnerConfig(
                 results_dir=DEFAULT_CONFIG["results_dir"],
@@ -784,6 +818,7 @@ def mt5_run(
                 blocked_strategy_rules=tuple(
                     DEFAULT_CONFIG.get("runner_blocked_strategy_rules", ())
                 ),
+                trading_mode=trading_mode.value,
             ),
             executor=executor,
             analysis_func=analysis_func,

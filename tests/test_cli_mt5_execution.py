@@ -15,6 +15,8 @@ def _isolate_runtime_env(monkeypatch):
     monkeypatch.setattr(cli_main, "load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.delenv("TRADINGAGENTS_RESULTS_DIR", raising=False)
     monkeypatch.delenv("TRADINGAGENTS_CACHE_DIR", raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_TRADING_MODE", raising=False)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "trading_mode", "ENTRY_ONLY")
 
 
 def test_mt5_execute_command_help_mentions_proposal():
@@ -133,6 +135,39 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     )
     assert calls["runner_analysis_func"] is analysis_func
     assert calls["run_once"] is True
+
+
+def test_mt5_run_off_mode_places_no_orders(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "OFF")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setattr(
+        MT5ConnectionConfig,
+        "from_env",
+        staticmethod(lambda: (_ for _ in ()).throw(AssertionError("no MT5 connect"))),
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--once"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "TRADING_DISABLED"
+    assert payload["trading_mode"] == "OFF"
+    assert payload["selected_method"] == "HOLD"
+    assert payload["health_gate"]["passed"] is False
+
+
+def test_mt5_run_rejects_straddle_only_mode(monkeypatch, tmp_path):
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "STRADDLE_ONLY")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+
+    result = runner.invoke(app, ["mt5-run", "--once"])
+
+    assert result.exit_code != 0
+    assert "mt5-run requires ENTRY_ONLY or AUTO_GATED" in result.output
 
 
 def test_mt5_straddle_run_defaults_to_dry_run(monkeypatch, tmp_path):
@@ -614,52 +649,20 @@ def test_mt5_run_rejects_too_short_poll_interval():
     assert invalid_result.exit_code != 0
 
 
-def test_mt5_run_graph_decision_mode_uses_graph_analysis_func(monkeypatch, tmp_path):
-    from tradingagents.brokers.mt5 import MT5ConnectionConfig
-    from tradingagents.brokers import mt5_execution, mt5_runner
-
-    graph_analysis_func = object()
-    engine_analysis_func = object()
-    calls = {}
-
-    class Executor:
-        def __init__(self, config, results_dir, exit_management=None):
-            pass
-
-    class Runner:
-        def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
-            calls["analysis_func"] = analysis_func
-
-        def run_once(self):
-            return {"status": "NO_TRADE"}
-
-        def run_forever(self):
-            raise AssertionError("--once should call run_once")
-
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
-    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: object()))
-    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
-    monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
-    monkeypatch.setattr(
-        cli_main,
-        "_mt5_runner_analysis_func",
-        lambda: graph_analysis_func,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        cli_main,
-        "_mt5_runner_engine_analysis_func",
-        lambda config=None: engine_analysis_func,
-        raising=False,
-    )
+def test_mt5_run_rejects_graph_decision_mode_for_live_execution(monkeypatch):
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "ENTRY_ONLY")
 
     result = runner.invoke(app, ["mt5-run", "--once", "--decision-mode", "graph"])
 
-    assert result.exit_code == 0
-    assert calls["analysis_func"] is graph_analysis_func
+    assert result.exit_code != 0
+    assert "graph decision mode is not allowed for MT5 execution" in result.output
 
 
-def test_mt5_run_invalid_decision_mode_is_rejected():
+def test_mt5_run_invalid_decision_mode_is_rejected(monkeypatch):
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setenv("TRADINGAGENTS_TRADING_MODE", "ENTRY_ONLY")
+
     result = runner.invoke(app, ["mt5-run", "--once", "--decision-mode", "llm"])
 
     assert result.exit_code != 0
