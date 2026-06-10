@@ -107,6 +107,77 @@ def _zone_counts(zones_by_tf: dict[str, list[Zone]]) -> dict[str, int]:
     return {tf: len(zones_by_tf.get(tf, [])) for tf in _ordered_timeframes(zones_by_tf)}
 
 
+def _direction_from_context(context: dict[str, Any]) -> str | None:
+    bias = str(context.get("m30_bias") or "").strip().upper()
+    if bias == "BULLISH":
+        return "BUY"
+    if bias == "BEARISH":
+        return "SELL"
+    return None
+
+
+def _timeframe_context(
+    timeframe: str,
+    candles: list[Candle],
+    zones: list[Zone],
+) -> dict[str, Any]:
+    breakouts = detect_breakouts(candles, zones)
+    context = determine_m30_bias([_setup_to_dict(setup) for setup in breakouts])
+    context["source_timeframe"] = timeframe
+    if _direction_from_context(context) is not None:
+        return context
+
+    rejections = detect_sr_bounce(candles, zones)
+    if not rejections:
+        return context
+    rejected = rejections[0]
+    return {
+        "m30_bias": "BULLISH" if rejected.direction == "BUY" else "BEARISH",
+        "m30_context": "REJECTION",
+        "m30_rejection": _setup_to_dict(rejected),
+        "source_timeframe": timeframe,
+    }
+
+
+def _governing_context(
+    candles_by_tf: dict[str, list[Candle]],
+    zones_by_tf: dict[str, list[Zone]],
+    governing_timeframes: tuple[str, ...],
+) -> dict[str, Any]:
+    contexts = [
+        _timeframe_context(
+            timeframe,
+            candles_by_tf.get(timeframe, []),
+            zones_by_tf.get(timeframe, []),
+        )
+        for timeframe in governing_timeframes
+    ]
+    clear = [
+        (timeframe, context, _direction_from_context(context))
+        for timeframe, context in zip(governing_timeframes, contexts)
+        if _direction_from_context(context) is not None
+    ]
+    directions = {direction for _timeframe, _context, direction in clear}
+    if not directions:
+        return {
+            "m30_bias": "UNCLEAR",
+            "m30_context": "UNCLEAR",
+            "governing_contexts": contexts,
+        }
+    if len(directions) > 1:
+        return {
+            "m30_bias": "UNCLEAR",
+            "m30_context": "CONFLICT",
+            "governing_contexts": contexts,
+        }
+
+    _timeframe, selected, _direction = clear[0]
+    return {
+        **selected,
+        "governing_contexts": contexts,
+    }
+
+
 def _telemetry(
     *,
     decision_stage: str,
@@ -326,6 +397,13 @@ def analyze_playbook(
             ("1d", "4h", "1h", confirmation_timeframe),
         )
     )
+    governing_timeframes = tuple(
+        str(tf)
+        for tf in profile_config.get(
+            "governing_timeframes",
+            (confirmation_timeframe,),
+        )
+    )
     independent_direction = bool(
         profile_config.get("independent_direction", profile_name == "fast")
     )
@@ -368,18 +446,26 @@ def analyze_playbook(
 
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
-    for tf in zone_timeframes:
+    zone_lookup_timeframes = tuple(
+        dict.fromkeys((*zone_timeframes, *governing_timeframes, confirmation_timeframe))
+    )
+    for tf in zone_lookup_timeframes:
         tf_zones = calculate_support_resistance(candles_by_tf.get(tf, []), timeframe=tf)
         zones_by_tf[tf] = tf_zones
-        zones.extend(tf_zones)
+        if tf in zone_timeframes:
+            zones.extend(tf_zones)
     zones = sorted(zones, key=lambda zone: zone.score, reverse=True)
 
-    confirmation_zones = zones_by_tf.get(confirmation_timeframe, [])
-    confirmation_breakouts = detect_breakouts(confirmation_candles, confirmation_zones)
-    confirmation_breakout_dicts = [
-        _setup_to_dict(setup) for setup in confirmation_breakouts
-    ]
-    confirmation_context = determine_m30_bias(confirmation_breakout_dicts)
+    timing_zones = zones_by_tf.get(confirmation_timeframe, [])
+    timing_breakouts = detect_breakouts(confirmation_candles, timing_zones)
+    timing_context = determine_m30_bias(
+        [_setup_to_dict(setup) for setup in timing_breakouts]
+    )
+    governing_context = _governing_context(
+        candles_by_tf,
+        zones_by_tf,
+        governing_timeframes,
+    )
     daily_structure = classify_timeframe_structure(
         candles_by_tf.get("1d", []),
         zones_by_tf.get("1d", []),
@@ -396,38 +482,28 @@ def analyze_playbook(
         "1H",
     )
     market_context = {
-        **confirmation_context,
+        **governing_context,
         "entry_profile": profile_name,
         "timeframe": entry_timeframe,
         "confirmation_timeframe": confirmation_timeframe,
+        "governing_timeframes": governing_timeframes,
         "activation_window_minutes": activation_window_minutes,
         "independent_direction": independent_direction,
-        "confirmation_bias": confirmation_context.get("m30_bias"),
-        "confirmation_context": confirmation_context.get("m30_context"),
+        "confirmation_bias": governing_context.get("m30_bias"),
+        "confirmation_context": governing_context.get("m30_context"),
+        "timing_context": timing_context,
         "daily_structure": daily_structure,
         "h4_structure": h4_structure,
         "h1_structure": h1_structure,
         "daily_permission": daily_structure["permission"],
         "h4_permission": h4_structure["permission"],
         "h1_permission": h1_structure["permission"],
-        "range": classify_range(confirmation_candles, confirmation_zones),
+        "range": classify_range(confirmation_candles, timing_zones),
         "time_filter_mode": time_filter_mode,
         "minimum_setup_grade": minimum_setup_grade,
         "b_plus_min_rr": b_plus_min_rr,
         "require_clear_confirmation_context": require_clear_confirmation_context,
     }
-    confirmation_rejections: list[Setup] = []
-    if not confirmation_breakouts:
-        confirmation_rejections = detect_sr_bounce(confirmation_candles, confirmation_zones)
-        if confirmation_rejections:
-            rejected = confirmation_rejections[0]
-            market_context["m30_bias"] = (
-                "BULLISH" if rejected.direction == "BUY" else "BEARISH"
-            )
-            market_context["m30_context"] = "REJECTION"
-            market_context["m30_rejection"] = _setup_to_dict(rejected)
-            market_context["confirmation_bias"] = market_context["m30_bias"]
-            market_context["confirmation_context"] = market_context["m30_context"]
 
     def make_telemetry(
         decision_stage: str,
@@ -497,13 +573,16 @@ def analyze_playbook(
         confirmation_direction = "BUY"
     elif market_context["m30_bias"] == "BEARISH":
         confirmation_direction = "SELL"
+    timing_direction = _direction_from_context(timing_context)
 
+    primary_context_timeframe = governing_timeframes[0] if governing_timeframes else confirmation_timeframe
+    entry_reference_zones = zones_by_tf.get(primary_context_timeframe, [])
     candidate_setups = _unique_setups(
         [
-            *detect_breakouts(entry_candles, confirmation_zones),
+            *detect_breakouts(entry_candles, entry_reference_zones),
             *detect_break_and_retest(
                 entry_candles,
-                confirmation_zones,
+                entry_reference_zones,
                 direction=confirmation_direction,
             ),
             *detect_sr_bounce(entry_candles, zones),
@@ -548,11 +627,13 @@ def analyze_playbook(
     for index, setup in enumerate(candidate_setups):
         candidate_checklist = dict(checklist)
         candidate_checklist["playbook_setup"] = PASS
-        if confirmation_direction == setup.direction or (
+        context_allows = confirmation_direction == setup.direction or (
             independent_direction
             and confirmation_direction is None
             and not require_clear_confirmation_context
-        ):
+        )
+        timing_allows = timing_direction is None or timing_direction == setup.direction
+        if context_allows and timing_allows:
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL

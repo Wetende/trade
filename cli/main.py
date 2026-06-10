@@ -659,6 +659,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 "timeframe": profile.timeframe,
                 "confirmation_timeframe": profile.confirmation_timeframe,
                 "zone_timeframes": profile.zone_timeframes,
+                "governing_timeframes": profile.governing_timeframes,
                 "activation_window_minutes": profile.activation_window_minutes,
                 "independent_direction": profile.independent_direction,
                 "fast_counter_bias_minimum_grade": profile.counter_bias_minimum_grade,
@@ -669,6 +670,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                     dict.fromkeys(
                         (
                             *profile.zone_timeframes,
+                            *profile.governing_timeframes,
                             profile.timeframe,
                             profile.confirmation_timeframe,
                         )
