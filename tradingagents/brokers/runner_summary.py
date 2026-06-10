@@ -75,6 +75,16 @@ def categorize_hold_reason(
     return "other"
 
 
+def _latest_market_health(
+    telemetry_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    for telemetry in reversed(telemetry_sources):
+        market_health = telemetry.get("market_health")
+        if isinstance(market_health, dict):
+            return market_health
+    return {}
+
+
 class RunnerSummaryStore:
     """Write one JSON summary and one JSONL cycle log for MT5 runner checks."""
 
@@ -100,6 +110,9 @@ class RunnerSummaryStore:
             "execution_skip_counts": {},
             "candidate_strategy_counts": {},
             "approved_candidate_strategy_counts": {},
+            "candidate_rejection_reason_counts": {},
+            "market_state_counts": {},
+            "market_health_reason_counts": {},
             "data_health": {
                 "healthy_checks": 0,
                 "unhealthy_checks": 0,
@@ -196,6 +209,13 @@ class RunnerSummaryStore:
         approved_candidate_counts = Counter(
             summary.get("approved_candidate_strategy_counts", {})
         )
+        rejection_reason_counts = Counter(
+            summary.get("candidate_rejection_reason_counts", {})
+        )
+        market_state_counts = Counter(summary.get("market_state_counts", {}))
+        market_health_reason_counts = Counter(
+            summary.get("market_health_reason_counts", {})
+        )
         for telemetry_source in telemetry_sources:
             for item in telemetry_source.get("candidate_evaluations") or []:
                 setup = item.get("setup") or {}
@@ -203,8 +223,24 @@ class RunnerSummaryStore:
                 candidate_counts[setup_name] += 1
                 if item.get("approved") is True:
                     approved_candidate_counts[setup_name] += 1
+                else:
+                    reason = str(item.get("rejection_reason") or "UNKNOWN")
+                    rejection_reason_counts[reason] += 1
+            for timeframe, state in (telemetry_source.get("market_state") or {}).items():
+                if not isinstance(state, dict):
+                    continue
+                trend = str(state.get("trend_state") or "UNKNOWN")
+                direction = str(state.get("direction") or "NEUTRAL")
+                market_state_counts[f"{timeframe}:{trend}:{direction}"] += 1
+            market_health = telemetry_source.get("market_health") or {}
+            if market_health.get("passed") is False:
+                for reason in market_health.get("reasons") or ["market_health_failed"]:
+                    market_health_reason_counts[str(reason)] += 1
         summary["candidate_strategy_counts"] = dict(candidate_counts)
         summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
+        summary["candidate_rejection_reason_counts"] = dict(rejection_reason_counts)
+        summary["market_state_counts"] = dict(market_state_counts)
+        summary["market_health_reason_counts"] = dict(market_health_reason_counts)
 
         if countable_check and status == "NO_TRADE":
             hold_counts = Counter(summary.get("hold_reason_counts", {}))
@@ -247,6 +283,7 @@ class RunnerSummaryStore:
                 "error": execution.get("error"),
                 "retcode": broker_result.get("retcode"),
                 "comment": broker_result.get("comment"),
+                "order_check": execution.get("order_check_result") or {},
                 "request_type": request.get("type"),
                 "order": execution.get("order"),
                 "setup_name": execution_proposal.get("setup_name"),
@@ -298,6 +335,7 @@ class RunnerSummaryStore:
             "mode_decision": result.get("mode_decision"),
             "mode_rejection_reason": result.get("mode_rejection_reason"),
             "health_gate": result.get("health_gate") or {},
+            "market_health": _latest_market_health(telemetry_sources),
             "account_safety": result.get("account_safety") or {},
         }
         self._append_cycle(result)

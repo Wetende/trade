@@ -153,6 +153,45 @@ def test_runner_summary_counts_execution_skips_and_latest_order_context(tmp_path
     assert summary["latest_execution"]["setup_name"] == "Breakout"
 
 
+def test_runner_summary_records_candidate_rejections_and_market_state(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "analysis": {
+                "telemetry": {
+                    "market_state": {
+                        "30m": {"trend_state": "TRENDING", "direction": "SELL"},
+                        "15m": {"trend_state": "RANGING", "direction": None},
+                    },
+                    "market_health": {
+                        "passed": False,
+                        "reasons": ["spread_too_wide"],
+                    },
+                    "candidate_evaluations": [
+                        {
+                            "approved": False,
+                            "rejection_reason": "Clean range is below minimum risk-to-reward",
+                            "setup": {"name": "Breakout"},
+                        }
+                    ],
+                },
+                "data_status": {"healthy": True},
+            },
+            "proposal": {"reason": "Market health failed: spread_too_wide"},
+        }
+    )
+
+    assert summary["candidate_rejection_reason_counts"] == {
+        "Clean range is below minimum risk-to-reward": 1
+    }
+    assert summary["market_state_counts"]["30m:TRENDING:SELL"] == 1
+    assert summary["market_state_counts"]["15m:RANGING:NEUTRAL"] == 1
+    assert summary["market_health_reason_counts"]["spread_too_wide"] == 1
+    assert summary["latest_cycle"]["market_health"]["passed"] is False
+
+
 def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 
@@ -187,6 +226,25 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     assert summary["latest_execution"]["side"] == "BUY"
     assert summary["latest_execution"]["as_of"] == "2026-06-01 10:15"
     assert summary["latest_execution"]["heartbeat_utc"] == "2026-06-01T14:15:00+00:00"
+
+
+def test_runner_summary_records_latest_order_check_context(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "ORDER_NOT_PLACED",
+            "execution": {
+                "status": "SKIPPED_ORDER_CHECK",
+                "reason": "ORDER_CHECK_FAILED",
+                "order_check_result": {"ok": False, "retcode": 10030},
+                "proposal": {"setup_name": "Breakout"},
+            },
+        }
+    )
+
+    assert summary["latest_execution"]["status"] == "SKIPPED_ORDER_CHECK"
+    assert summary["latest_execution"]["order_check"]["retcode"] == 10030
 
 
 def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):

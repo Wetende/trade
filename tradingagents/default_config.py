@@ -42,6 +42,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
     "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
     "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
+    "TRADINGAGENTS_MAX_ENTRY_SPREAD_PRICE": "max_entry_spread_price",
+    "TRADINGAGENTS_MAX_TICK_AGE_SECONDS": "max_tick_age_seconds",
     "TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS": "exit_scalp_profit_points",
     "TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS": "exit_early_loss_points",
     "TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS": "exit_break_even_trigger_points",
@@ -141,6 +143,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_counter_bias_minimum_grade": "A_PLUS",
     "minimum_stop_distance_price": 0.35,
     "minimum_stop_spread_multiple": 1.2,
+    "max_entry_spread_price": 0.75,
+    "max_tick_age_seconds": 120,
     "exit_scalp_profit_points": 1.5,
     "exit_early_loss_points": 1.5,
     "exit_break_even_trigger_points": 1.0,
@@ -182,4 +186,10 @@ DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] = DEFAULT_CONFIG[
 ]
 DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] = DEFAULT_CONFIG[
     "minimum_stop_spread_multiple"
+]
+DEFAULT_CONFIG["price_action"]["max_entry_spread_price"] = DEFAULT_CONFIG[
+    "max_entry_spread_price"
+]
+DEFAULT_CONFIG["price_action"]["max_tick_age_seconds"] = DEFAULT_CONFIG[
+    "max_tick_age_seconds"
 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from tradingagents.agents.price_action.candles import parse_ohlcv_text, resample_candles
@@ -23,6 +23,7 @@ TIMEFRAME_FETCHES = {
 class PriceActionSnapshot:
     candles: dict[str, list[Candle]]
     data_status: dict[str, Any]
+    market_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _fetch_candles(symbol: str, period: str, interval: str) -> list[Candle]:

@@ -37,8 +37,12 @@ def fetch_mt5_price_action_snapshot(
     as_of: str,
     market_timezone: str = "America/New_York",
 ) -> PriceActionSnapshot:
+    fetch_closed_rates = getattr(broker, "fetch_closed_rates", None)
+    if not callable(fetch_closed_rates):
+        raise AttributeError("broker must provide fetch_closed_rates for MT5 analysis")
+
     candles_by_timeframe = {
-        timeframe: [_to_candle(row) for row in broker.fetch_rates(timeframe, count)]
+        timeframe: [_to_candle(row) for row in fetch_closed_rates(timeframe, count)]
         for timeframe, count in MT5_TIMEFRAME_COUNTS.items()
     }
     candles_by_timeframe["4h"] = resample_candles(candles_by_timeframe["1h"], "4h")
@@ -62,4 +66,16 @@ def fetch_mt5_price_action_snapshot(
             trading_timeframe="15m",
             confirmation_timeframe="30m",
         ),
+        market_metadata=_market_metadata(broker),
     )
+
+
+def _market_metadata(broker: Any) -> dict[str, Any]:
+    snapshot = getattr(broker, "current_symbol_snapshot", None)
+    if not callable(snapshot):
+        return {}
+    try:
+        data = snapshot()
+    except Exception as exc:  # pragma: no cover - defensive telemetry only
+        return {"error": str(exc)}
+    return data if isinstance(data, dict) else {}

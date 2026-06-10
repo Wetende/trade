@@ -77,6 +77,8 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
         "TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE": "minimum_stop_distance_price",
         "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
+        "TRADINGAGENTS_MAX_ENTRY_SPREAD_PRICE": "max_entry_spread_price",
+        "TRADINGAGENTS_MAX_TICK_AGE_SECONDS": "max_tick_age_seconds",
         "TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS": "exit_scalp_profit_points",
         "TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS": "exit_early_loss_points",
         "TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS": "exit_break_even_trigger_points",
@@ -133,6 +135,12 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] = DEFAULT_CONFIG[
         "minimum_stop_spread_multiple"
+    ]
+    DEFAULT_CONFIG["price_action"]["max_entry_spread_price"] = DEFAULT_CONFIG[
+        "max_entry_spread_price"
+    ]
+    DEFAULT_CONFIG["price_action"]["max_tick_age_seconds"] = DEFAULT_CONFIG[
+        "max_tick_age_seconds"
     ]
 
 
@@ -659,6 +667,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 "timeframe": profile.timeframe,
                 "confirmation_timeframe": profile.confirmation_timeframe,
                 "zone_timeframes": profile.zone_timeframes,
+                "context_timeframes": profile.context_timeframes,
                 "governing_timeframes": profile.governing_timeframes,
                 "activation_window_minutes": profile.activation_window_minutes,
                 "independent_direction": profile.independent_direction,
@@ -670,6 +679,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                     dict.fromkeys(
                         (
                             *profile.zone_timeframes,
+                            *profile.context_timeframes,
                             *profile.governing_timeframes,
                             profile.timeframe,
                             profile.confirmation_timeframe,
@@ -678,6 +688,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                 )
                 profile_snapshot = PriceActionSnapshot(
                     candles=snapshot.candles,
+                    market_metadata=snapshot.market_metadata,
                     data_status=build_data_status(
                         snapshot.candles,
                         profile_as_of,

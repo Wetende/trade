@@ -567,6 +567,64 @@ class MT5Broker:
             },
         }
 
+    def current_symbol_snapshot(self) -> dict[str, Any]:
+        """Read current symbol and tick metadata from MT5.
+
+        Closed candles drive analysis; this live snapshot drives spread/tick
+        health gates and execution journaling.
+        """
+        self._assert_active_session()
+        mt5 = self._module()
+        symbol_info = _asdict(mt5.symbol_info(self.config.symbol))
+        if not symbol_info:
+            raise MT5BrokerError(
+                f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
+            )
+        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        if not tick:
+            raise MT5BrokerError(
+                f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
+            )
+        terminal_info = {}
+        terminal_info_func = getattr(mt5, "terminal_info", None)
+        if callable(terminal_info_func):
+            terminal_info = _asdict(terminal_info_func())
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        raw_tick_time = tick.get("time")
+        tick_time_utc = None
+        if raw_tick_time not in (None, ""):
+            tick_time_utc = datetime.fromtimestamp(
+                int(raw_tick_time) - server_time_offset_seconds,
+                tz=timezone.utc,
+            ).isoformat()
+        bid = tick.get("bid", symbol_info.get("bid"))
+        ask = tick.get("ask", symbol_info.get("ask"))
+        spread_price = None
+        if bid not in (None, "") and ask not in (None, ""):
+            spread_price = float(ask) - float(bid)
+        return {
+            "symbol": {
+                "name": self.config.symbol,
+                "description": symbol_info.get("description"),
+                "digits": symbol_info.get("digits"),
+                "point": symbol_info.get("point"),
+                "spread": symbol_info.get("spread"),
+                "spread_price": spread_price,
+                "trade_contract_size": symbol_info.get("trade_contract_size"),
+                "trade_tick_size": symbol_info.get("trade_tick_size"),
+                "trade_tick_value": symbol_info.get("trade_tick_value"),
+                "trade_stops_level": symbol_info.get("trade_stops_level"),
+                "trade_freeze_level": symbol_info.get("trade_freeze_level"),
+                "bid": bid,
+                "ask": ask,
+            },
+            "tick": {
+                **tick,
+                "time_utc": tick_time_utc,
+            },
+            "terminal": terminal_info,
+        }
+
     def _assert_expected_account(self, account: dict[str, Any]) -> None:
         login = account.get("login")
         server = account.get("server")
@@ -721,6 +779,35 @@ class MT5Broker:
     def place_pending_order(self, request: dict[str, Any]) -> dict[str, Any]:
         validated = self._validate_pending_order_request(request)
         return self._send(self._materialize_request(validated))
+
+    def check_order(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Preflight a pending order request with MT5 ``order_check``."""
+        self._assert_order_send_allowed()
+        mt5 = self._module()
+        order_check = getattr(mt5, "order_check", None)
+        if not callable(order_check):
+            raise MT5BrokerError("MT5 order_check is unavailable")
+        validated = self._validate_pending_order_request(request)
+        materialized = self._materialize_request(validated)
+        result = order_check(materialized)
+        result_data = _asdict(result)
+        ok_retcode = self._success_retcodes_for_action(materialized.get("action"))
+        retcode = result_data.get("retcode")
+        ok = retcode in ok_retcode or retcode == 0
+        echoed_request = _asdict(result_data.get("request")) or dict(materialized)
+        response = {
+            "ok": ok,
+            "retcode": retcode,
+            "comment": result_data.get("comment"),
+            "balance": result_data.get("balance"),
+            "equity": result_data.get("equity"),
+            "margin": result_data.get("margin"),
+            "margin_free": result_data.get("margin_free"),
+            "request": echoed_request,
+        }
+        if not ok:
+            response["last_error"] = mt5.last_error()
+        return response
 
     def _validate_pending_order_request(
         self, request: dict[str, Any]
@@ -1022,9 +1109,29 @@ class MT5Broker:
         return normalized
 
     def fetch_rates(self, timeframe: str, count: int) -> list[dict[str, Any]]:
-        """Fetch normalized OHLCV candles for the configured MT5 symbol."""
+        """Fetch normalized OHLCV bars including MT5 bar 0, the forming bar."""
+        return self._fetch_rates_from_pos(timeframe, count, start_pos=0)
+
+    def fetch_closed_rates(self, timeframe: str, count: int) -> list[dict[str, Any]]:
+        """Fetch normalized closed OHLCV bars.
+
+        The official MT5 Python API defines ``copy_rates_from_pos`` position
+        ``0`` as the current, still-forming bar. Analysis must start at
+        position ``1`` so setup detection only reads completed candles.
+        """
+        return self._fetch_rates_from_pos(timeframe, count, start_pos=1)
+
+    def _fetch_rates_from_pos(
+        self,
+        timeframe: str,
+        count: int,
+        *,
+        start_pos: int,
+    ) -> list[dict[str, Any]]:
         self._assert_active_session()
         rate_count = self._positive_count(count)
+        if isinstance(start_pos, bool) or not isinstance(start_pos, Integral) or start_pos < 0:
+            raise MT5BrokerError("MT5 rate start_pos must be a non-negative integer")
 
         mt5 = self._module()
         timeframe_constants = {
@@ -1042,38 +1149,42 @@ class MT5Broker:
         rates = mt5.copy_rates_from_pos(
             self.config.symbol,
             mt5_timeframe,
-            0,
+            int(start_pos),
             rate_count,
         )
         if rates is None:
             raise MT5BrokerError(f"MT5 copy_rates_from_pos failed: {mt5.last_error()}")
 
         server_time_offset_seconds = self._server_time_offset_seconds(mt5)
-        candles: list[dict[str, Any]] = []
-        for rate in rates:
-            item = _asdict(rate)
-            raw_timestamp = int(self._rate_value(rate, item, "time"))
-            candles.append(
-                {
-                    "timestamp": datetime.fromtimestamp(
-                        raw_timestamp - server_time_offset_seconds,
-                        tz=timezone.utc,
-                    ).isoformat(),
-                    "open": float(self._rate_value(rate, item, "open")),
-                    "high": float(self._rate_value(rate, item, "high")),
-                    "low": float(self._rate_value(rate, item, "low")),
-                    "close": float(self._rate_value(rate, item, "close")),
-                    "volume": float(
-                        self._rate_value(
-                            rate,
-                            item,
-                            "tick_volume",
-                            self._rate_value(rate, item, "real_volume", 0),
-                        )
-                    ),
-                }
-            )
-        return candles
+        return [self._normalize_rate(rate, server_time_offset_seconds) for rate in rates]
+
+    def _normalize_rate(
+        self,
+        rate: Any,
+        server_time_offset_seconds: int,
+    ) -> dict[str, Any]:
+        item = _asdict(rate)
+        raw_timestamp = int(self._rate_value(rate, item, "time"))
+        return {
+            "timestamp": datetime.fromtimestamp(
+                raw_timestamp - server_time_offset_seconds,
+                tz=timezone.utc,
+            ).isoformat(),
+            "open": float(self._rate_value(rate, item, "open")),
+            "high": float(self._rate_value(rate, item, "high")),
+            "low": float(self._rate_value(rate, item, "low")),
+            "close": float(self._rate_value(rate, item, "close")),
+            "volume": float(
+                self._rate_value(
+                    rate,
+                    item,
+                    "tick_volume",
+                    self._rate_value(rate, item, "real_volume", 0),
+                )
+            ),
+            "spread": float(self._rate_value(rate, item, "spread", 0)),
+            "real_volume": float(self._rate_value(rate, item, "real_volume", 0)),
+        }
 
     def _server_time_offset_seconds(
         self,

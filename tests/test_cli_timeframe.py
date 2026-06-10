@@ -28,7 +28,13 @@ def test_timeframe_to_minutes():
 @pytest.mark.unit
 def test_last_closed_candle_uses_market_timezone():
     now = datetime(2026, 5, 17, 10, 22, tzinfo=ZoneInfo("America/New_York"))
-    assert last_closed_candle("15m", "America/New_York", now=now) == "2026-05-17 10:15"
+    assert last_closed_candle("15m", "America/New_York", now=now) == "2026-05-17 10:00"
+
+
+@pytest.mark.unit
+def test_last_closed_candle_at_exact_boundary_returns_previous_bucket():
+    now = datetime(2026, 5, 17, 10, 15, tzinfo=ZoneInfo("America/New_York"))
+    assert last_closed_candle("15m", "America/New_York", now=now) == "2026-05-17 10:00"
 
 
 @pytest.mark.unit

@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -75,7 +75,8 @@ def last_closed_candle(
     tz = ZoneInfo(market_timezone)
     local_now = (now or datetime.now(tz)).astimezone(tz)
     bucket_minute = (local_now.minute // minutes) * minutes
-    closed = local_now.replace(minute=bucket_minute, second=0, microsecond=0)
+    current_bucket = local_now.replace(minute=bucket_minute, second=0, microsecond=0)
+    closed = current_bucket - timedelta(minutes=minutes)
     return closed.strftime("%Y-%m-%d %H:%M")
 
 

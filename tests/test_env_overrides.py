@@ -152,6 +152,8 @@ def test_fast_risk_env_updates_price_action_config(monkeypatch):
         TRADINGAGENTS_FAST_ENTRIES_ENABLED="true",
         TRADINGAGENTS_MIN_STOP_DISTANCE_PRICE="2.5",
         TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE="4",
+        TRADINGAGENTS_MAX_ENTRY_SPREAD_PRICE="0.6",
+        TRADINGAGENTS_MAX_TICK_AGE_SECONDS="90",
     )
 
     assert dc.DEFAULT_CONFIG["fast_entries_enabled"] is True
@@ -159,8 +161,12 @@ def test_fast_risk_env_updates_price_action_config(monkeypatch):
     assert dc.DEFAULT_CONFIG["fast_activation_window_minutes"] == 6
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 2.5
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 4.0
+    assert dc.DEFAULT_CONFIG["max_entry_spread_price"] == 0.6
+    assert dc.DEFAULT_CONFIG["max_tick_age_seconds"] == 90
     assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_distance_price"] == 2.5
     assert dc.DEFAULT_CONFIG["price_action"]["minimum_stop_spread_multiple"] == 4.0
+    assert dc.DEFAULT_CONFIG["price_action"]["max_entry_spread_price"] == 0.6
+    assert dc.DEFAULT_CONFIG["price_action"]["max_tick_age_seconds"] == 90
 
 
 def test_exit_management_env_updates_runner_config(monkeypatch):

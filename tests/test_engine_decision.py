@@ -134,6 +134,48 @@ def test_engine_decision_returns_data_health_hold_when_data_is_unhealthy(
     assert "15m" in state["price_action_report"]
 
 
+def test_engine_decision_returns_market_health_hold_for_wide_spread(
+    monkeypatch,
+    tmp_path,
+):
+    snapshot = PriceActionSnapshot(
+        candles=_candles(),
+        data_status=_healthy_status(),
+        market_metadata={
+            "symbol": {
+                "name": "XAUUSD",
+                "bid": 4500.0,
+                "ask": 4501.0,
+                "spread_price": 1.0,
+            },
+            "tick": {"bid": 4500.0, "ask": 4501.0},
+        },
+    )
+
+    def fail_analyze(*args, **kwargs):
+        raise AssertionError("wide live spread should not reach analyze_playbook")
+
+    monkeypatch.setattr(decision, "analyze_playbook", fail_analyze)
+
+    state = decision.run_engine_decision(
+        "XAUUSD",
+        broker_symbol="XAUUSD",
+        as_of="2026-06-01 08:15",
+        results_dir=tmp_path,
+        snapshot=snapshot,
+        session_config={
+            "max_entry_spread_price": 0.5,
+            "max_tick_age_seconds": 0,
+        },
+    )
+
+    payload = state["engine_payload"]
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    assert payload["telemetry"]["decision_stage"] == "market_health"
+    assert payload["market_health"]["reasons"] == ["spread_too_wide"]
+
+
 def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
     unhealthy = _healthy_status()
     unhealthy["healthy"] = False

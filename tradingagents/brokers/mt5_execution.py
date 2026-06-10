@@ -157,6 +157,23 @@ class MT5Executor:
             return result
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
+        order_check_result = None
+        check_order = getattr(self.broker, "check_order", None)
+        if callable(check_order):
+            order_check_result = check_order(request)
+            self.journal.append("ORDER_CHECKED", order_check_result)
+            if order_check_result.get("ok") is False:
+                result = {
+                    "status": "SKIPPED_ORDER_CHECK",
+                    "reason": "ORDER_CHECK_FAILED",
+                    "proposal": proposal.model_dump(mode="json"),
+                    "request": request,
+                    "order_check_result": order_check_result,
+                    "account_safety": account_safety,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+
         broker_result = self.broker.place_pending_order(request)
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
@@ -168,6 +185,7 @@ class MT5Executor:
             "status": "PLACED" if ok else "REJECTED",
             "order": broker_result.get("order"),
             "broker_result": broker_result,
+            "order_check_result": order_check_result,
             "account_safety": account_safety,
         }
 

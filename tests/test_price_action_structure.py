@@ -1,5 +1,6 @@
 from tradingagents.agents.price_action.models import Candle, Zone
 from tradingagents.agents.price_action.structure import (
+    classify_market_state,
     classify_timeframe_structure,
     determine_m30_bias,
     evaluate_higher_timeframe_permission,
@@ -154,6 +155,25 @@ def test_classify_timeframe_structure_detects_bullish_higher_highs_and_lows():
 
     assert result["classification"] == "BULLISH_STRUCTURE"
     assert result["permission"] == "BUY_ALLOWED"
+
+
+def test_classify_market_state_labels_trend_direction_and_volatility():
+    candles = [
+        _c("1", 100, 101, 99.5, 100.5),
+        _c("2", 100.5, 101.5, 100, 101),
+        _c("3", 101, 102, 100.5, 101.5),
+        _c("4", 101.5, 103, 101, 102.5),
+        _c("5", 102.5, 104, 102, 103.5),
+        _c("6", 103.5, 108, 103, 107.5),
+        _c("7", 107.5, 112, 107, 111.5),
+        _c("8", 111.5, 116, 111, 115.5),
+    ]
+
+    result = classify_market_state(candles, [], "30m")
+
+    assert result["trend_state"] in {"TRENDING", "EXPANDING"}
+    assert result["direction"] == "BUY"
+    assert result["volatility_state"] == "EXPANDING"
 
 
 def test_classify_timeframe_structure_detects_bearish_structure():

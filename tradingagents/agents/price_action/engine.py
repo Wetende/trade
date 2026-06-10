@@ -15,6 +15,7 @@ from tradingagents.agents.price_action.setups import (
     detect_sr_bounce,
 )
 from tradingagents.agents.price_action.structure import (
+    classify_market_state,
     classify_timeframe_structure,
     determine_m30_bias,
     evaluate_higher_timeframe_permission,
@@ -107,6 +108,16 @@ def _zone_counts(zones_by_tf: dict[str, list[Zone]]) -> dict[str, int]:
     return {tf: len(zones_by_tf.get(tf, [])) for tf in _ordered_timeframes(zones_by_tf)}
 
 
+def _entry_reference_zones(
+    zones_by_tf: dict[str, list[Zone]],
+    zone_timeframes: tuple[str, ...],
+) -> list[Zone]:
+    zones: list[Zone] = []
+    for timeframe in zone_timeframes:
+        zones.extend(zones_by_tf.get(timeframe, []))
+    return sorted(zones, key=lambda zone: zone.score, reverse=True)
+
+
 def _direction_from_context(context: dict[str, Any]) -> str | None:
     bias = str(context.get("m30_bias") or "").strip().upper()
     if bias == "BULLISH":
@@ -129,7 +140,17 @@ def _timeframe_context(
 
     rejections = detect_sr_bounce(candles, zones)
     if not rejections:
-        return context
+        market_state = classify_market_state(candles, zones, timeframe)
+        direction = _direction_from_bias(market_state.get("direction"))
+        if direction is None:
+            context["market_state"] = market_state
+            return context
+        return {
+            "m30_bias": "BULLISH" if direction == "BUY" else "BEARISH",
+            "m30_context": "STRUCTURE",
+            "m30_structure": market_state,
+            "source_timeframe": timeframe,
+        }
     rejected = rejections[0]
     return {
         "m30_bias": "BULLISH" if rejected.direction == "BUY" else "BEARISH",
@@ -212,6 +233,7 @@ def _telemetry(
             "bias": market_context.get("m30_bias"),
             "context": market_context.get("m30_context"),
         },
+        "market_state": market_context.get("market_state", {}),
         "candidate_setup_count": len(candidate_setups or []),
         "approved_candidate_count": sum(1 for item in evaluations if item.get("approved")),
         "candidate_evaluations": evaluations,
@@ -394,7 +416,14 @@ def analyze_playbook(
         str(tf)
         for tf in profile_config.get(
             "zone_timeframes",
-            ("1d", "4h", "1h", confirmation_timeframe),
+            (confirmation_timeframe,),
+        )
+    )
+    context_timeframes = tuple(
+        str(tf)
+        for tf in profile_config.get(
+            "context_timeframes",
+            ("1d", "4h", "1h"),
         )
     )
     governing_timeframes = tuple(
@@ -447,7 +476,14 @@ def analyze_playbook(
     zones: list[Zone] = []
     zones_by_tf: dict[str, list[Zone]] = {}
     zone_lookup_timeframes = tuple(
-        dict.fromkeys((*zone_timeframes, *governing_timeframes, confirmation_timeframe))
+        dict.fromkeys(
+            (
+                *zone_timeframes,
+                *governing_timeframes,
+                *context_timeframes,
+                confirmation_timeframe,
+            )
+        )
     )
     for tf in zone_lookup_timeframes:
         tf_zones = calculate_support_resistance(candles_by_tf.get(tf, []), timeframe=tf)
@@ -455,6 +491,15 @@ def analyze_playbook(
         if tf in zone_timeframes:
             zones.extend(tf_zones)
     zones = sorted(zones, key=lambda zone: zone.score, reverse=True)
+    target_zones = sorted(
+        [
+            zone
+            for timeframe in zone_lookup_timeframes
+            for zone in zones_by_tf.get(timeframe, [])
+        ],
+        key=lambda zone: zone.score,
+        reverse=True,
+    )
 
     timing_zones = zones_by_tf.get(confirmation_timeframe, [])
     timing_breakouts = detect_breakouts(confirmation_candles, timing_zones)
@@ -478,15 +523,23 @@ def analyze_playbook(
     )
     h1_structure = classify_timeframe_structure(
         candles_by_tf.get("1h", []),
-        [],
+        zones_by_tf.get("1h", []),
         "1H",
     )
+    market_state = {
+        tf: classify_market_state(candles_by_tf.get(tf, []), zones_by_tf.get(tf, []), tf)
+        for tf in _ordered_timeframes(
+            {*context_timeframes, *governing_timeframes, confirmation_timeframe, entry_timeframe}
+        )
+    }
     market_context = {
         **governing_context,
         "entry_profile": profile_name,
         "timeframe": entry_timeframe,
         "confirmation_timeframe": confirmation_timeframe,
+        "context_timeframes": context_timeframes,
         "governing_timeframes": governing_timeframes,
+        "target_zone_timeframes": zone_lookup_timeframes,
         "activation_window_minutes": activation_window_minutes,
         "independent_direction": independent_direction,
         "confirmation_bias": governing_context.get("m30_bias"),
@@ -499,6 +552,9 @@ def analyze_playbook(
         "h4_permission": h4_structure["permission"],
         "h1_permission": h1_structure["permission"],
         "range": classify_range(confirmation_candles, timing_zones),
+        "market_state": market_state,
+        "entry_market_state": market_state.get(entry_timeframe, {}),
+        "confirmation_market_state": market_state.get(confirmation_timeframe, {}),
         "time_filter_mode": time_filter_mode,
         "minimum_setup_grade": minimum_setup_grade,
         "b_plus_min_rr": b_plus_min_rr,
@@ -575,8 +631,7 @@ def analyze_playbook(
         confirmation_direction = "SELL"
     timing_direction = _direction_from_context(timing_context)
 
-    primary_context_timeframe = governing_timeframes[0] if governing_timeframes else confirmation_timeframe
-    entry_reference_zones = zones_by_tf.get(primary_context_timeframe, [])
+    entry_reference_zones = _entry_reference_zones(zones_by_tf, zone_timeframes)
     candidate_setups = _unique_setups(
         [
             *detect_breakouts(entry_candles, entry_reference_zones),
@@ -585,7 +640,7 @@ def analyze_playbook(
                 entry_reference_zones,
                 direction=confirmation_direction,
             ),
-            *detect_sr_bounce(entry_candles, zones),
+            *detect_sr_bounce(entry_candles, entry_reference_zones),
         ]
     )
 
@@ -650,7 +705,11 @@ def analyze_playbook(
             PASS if _has_stop_wick(setup.confirmation_candle, setup.direction) else FAIL
         )
 
-        target_zone = nearest_target_zone(zones, setup.direction, setup.entry_price)
+        target_zone = nearest_target_zone(
+            target_zones,
+            setup.direction,
+            setup.entry_price,
+        )
         b_plus_risk = approve_risk(
             setup,
             target_zone,

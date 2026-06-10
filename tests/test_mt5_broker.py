@@ -49,6 +49,7 @@ class FakeMT5:
         self.rates = []
         self.copy_rates_calls = []
         self.order_retcode = self.TRADE_RETCODE_DONE
+        self.order_check_retcode = self.TRADE_RETCODE_DONE
         self.account = SimpleNamespace(
             login=123456789,
             server="ExampleBroker-Demo",
@@ -57,9 +58,11 @@ class FakeMT5:
         self.terminal_connected = True
         self.result_request = None
         self.order_send_returns_none = False
+        self.order_check_returns_none = False
         self.deal_results_by_filling = {}
         self.history_deals = []
         self.history_deals_calls = []
+        self.checked_requests = []
         self.orders = [
             SimpleNamespace(ticket=111222, symbol="XAUUSD", price_open=2450.12)
         ]
@@ -176,6 +179,20 @@ class FakeMT5:
             deal=0,
             comment=comment,
             request=result_request,
+        )
+
+    def order_check(self, request):
+        self.checked_requests.append(request)
+        if self.order_check_returns_none:
+            return None
+        return SimpleNamespace(
+            retcode=self.order_check_retcode,
+            balance=100000.0,
+            equity=100000.0,
+            margin=1000.0,
+            margin_free=99000.0,
+            comment="check ok",
+            request=SimpleNamespace(**request),
         )
 
     def shutdown(self):
@@ -688,6 +705,8 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "low": 4499.50,
             "close": 4500.80,
             "tick_volume": 123,
+            "spread": 3,
+            "real_volume": 0,
         },
         {
             "time": 1779614100,
@@ -696,6 +715,8 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "low": 4500.40,
             "close": 4501.60,
             "tick_volume": 140,
+            "spread": 4,
+            "real_volume": 0,
         },
     ]
     broker = MT5Broker(
@@ -720,6 +741,8 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "low": 4499.50,
             "close": 4500.80,
             "volume": 123.0,
+            "spread": 3.0,
+            "real_volume": 0.0,
         },
         {
             "timestamp": "2026-05-24T09:15:00+00:00",
@@ -728,8 +751,53 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
             "low": 4500.40,
             "close": 4501.60,
             "volume": 140.0,
+            "spread": 4.0,
+            "real_volume": 0.0,
         },
     ]
+
+
+def test_mt5_broker_fetch_closed_rates_skips_current_bar():
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1779613200,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+            "spread": 3,
+            "real_volume": 0,
+        },
+        {
+            "time": 1779614100,
+            "open": 4500.80,
+            "high": 4502.00,
+            "low": 4500.40,
+            "close": 4501.60,
+            "tick_volume": 140,
+            "spread": 4,
+            "real_volume": 0,
+        },
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    candles = broker.fetch_closed_rates("15m", count=2)
+
+    assert fake.copy_rates_calls == [("XAUUSD", fake.TIMEFRAME_M15, 1, 2)]
+    assert len(candles) == 2
+    assert candles[0]["spread"] == 3.0
+    assert candles[0]["real_volume"] == 0.0
 
 
 def test_mt5_broker_fetch_rates_supports_one_and_three_minute_timeframes():
@@ -806,6 +874,8 @@ def test_mt5_broker_fetch_rates_supports_named_field_rows():
             "low": 4499.50,
             "close": 4500.80,
             "volume": 456.0,
+            "spread": 0.0,
+            "real_volume": 456.0,
         }
     ]
 
@@ -1010,6 +1080,50 @@ def test_mt5_broker_sends_pending_order_request():
     assert isinstance(result["request"]["price"], float)
     assert isinstance(result["request"]["sl"], float)
     assert isinstance(result["request"]["tp"], float)
+
+
+def test_mt5_broker_order_check_materializes_pending_request():
+    fake_mt5 = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake_mt5,
+    )
+    broker.connect()
+
+    result = broker.check_order(_valid_pending_request())
+
+    assert result["ok"] is True
+    assert fake_mt5.checked_requests[0]["action"] == FakeMT5.TRADE_ACTION_PENDING
+    assert fake_mt5.checked_requests[0]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+    assert result["request"]["action"] == FakeMT5.TRADE_ACTION_PENDING
+    assert result["request"]["type"] == FakeMT5.ORDER_TYPE_BUY_LIMIT
+
+
+def test_mt5_broker_order_check_reports_rejected_request():
+    fake_mt5 = FakeMT5()
+    fake_mt5.order_check_retcode = 10030
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake_mt5,
+    )
+    broker.connect()
+
+    result = broker.check_order(_valid_pending_request())
+
+    assert result["ok"] is False
+    assert result["retcode"] == 10030
+    assert result["last_error"] == (0, "ok")
+    assert fake_mt5.sent_requests == []
 
 
 def test_mt5_broker_materializes_buy_stop_order():

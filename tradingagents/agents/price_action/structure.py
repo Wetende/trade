@@ -124,6 +124,73 @@ def _recent_structure_direction(candles: list[Candle | dict[str, Any]]) -> str:
     return "UNCLEAR"
 
 
+def _average_range(candles: list[Candle | dict[str, Any]]) -> float:
+    if not candles:
+        return 0.0
+    ranges = [
+        max(_candle_value(candle, "high") - _candle_value(candle, "low"), 0.0)
+        for candle in candles
+    ]
+    return sum(ranges) / len(ranges)
+
+
+def _volatility_state(candles: list[Candle | dict[str, Any]]) -> str:
+    if len(candles) < 6:
+        return "UNKNOWN"
+    recent = candles[-3:]
+    baseline = candles[-12:-3] or candles[:-3]
+    recent_range = _average_range(recent)
+    baseline_range = _average_range(baseline)
+    if baseline_range <= 0:
+        return "UNKNOWN"
+    ratio = recent_range / baseline_range
+    if ratio >= 1.5:
+        return "EXPANDING"
+    if ratio <= 0.55:
+        return "DEAD"
+    return "NORMAL"
+
+
+def _direction_for_permission(permission: str) -> str | None:
+    normalized = _permission_value(permission)
+    if normalized == "BUY_ALLOWED":
+        return "BUY"
+    if normalized == "SELL_ALLOWED":
+        return "SELL"
+    return None
+
+
+def classify_market_state(
+    candles: list[Candle | dict[str, Any]],
+    zones: list[Zone | dict[str, Any]],
+    timeframe: str,
+) -> dict[str, Any]:
+    """Describe market state before setup detection.
+
+    This is journaling and deterministic context, not an order trigger. A trade
+    still needs a playbook setup, invalidation, and risk approval.
+    """
+    structure = classify_timeframe_structure(candles, zones, timeframe)
+    classification = _classification_value(structure)
+    if classification in {"RANGE", "NEAR_MAJOR_SUPPORT", "NEAR_MAJOR_RESISTANCE"}:
+        trend_state = "RANGING"
+    elif classification in {"BULLISH_STRUCTURE", "BEARISH_STRUCTURE"}:
+        trend_state = "TRENDING"
+    elif classification.startswith("BREAK_OF_STRUCTURE"):
+        trend_state = "EXPANDING"
+    else:
+        trend_state = "UNCLEAR"
+    return {
+        "timeframe": str(timeframe).strip() or "unknown",
+        "trend_state": trend_state,
+        "direction": _direction_for_permission(structure.get("permission")),
+        "structure": structure,
+        "volatility_state": _volatility_state(candles),
+        "latest_close": structure.get("latest_close"),
+        "rows": len(candles),
+    }
+
+
 def classify_timeframe_structure(
     candles: list[Candle | dict[str, Any]],
     zones: list[Zone | dict[str, Any]],

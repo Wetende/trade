@@ -21,7 +21,8 @@ def test_entry_profiles_use_configured_timeframes_and_windows():
     assert normal.name == "normal"
     assert normal.timeframe == "15m"
     assert normal.confirmation_timeframe == "30m"
-    assert normal.zone_timeframes == ("1d", "4h", "1h", "30m")
+    assert normal.zone_timeframes == ("30m",)
+    assert normal.context_timeframes == ("1d", "4h", "1h")
     assert normal.governing_timeframes == ("30m",)
     assert normal.activation_window_minutes == 30
     assert normal.independent_direction is False
@@ -29,6 +30,7 @@ def test_entry_profiles_use_configured_timeframes_and_windows():
     assert fast.timeframe == "1m"
     assert fast.confirmation_timeframe == "3m"
     assert fast.zone_timeframes == ("30m", "15m")
+    assert fast.context_timeframes == ("30m", "15m")
     assert fast.governing_timeframes == ("30m", "15m")
     assert fast.activation_window_minutes == 6
     assert fast.independent_direction is True

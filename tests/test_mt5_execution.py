@@ -440,6 +440,8 @@ class FakeBroker:
         self.closed_positions = []
         self.history_deals_result = []
         self.history_deals_calls = []
+        self.checked_requests = []
+        self.check_result = {"ok": True, "retcode": 10009, "comment": "check ok"}
         self.place_result = {
             "ok": True,
             "order": 111222,
@@ -465,6 +467,10 @@ class FakeBroker:
     def place_pending_order(self, request):
         self.placed_requests.append(request)
         return dict(self.place_result)
+
+    def check_order(self, request):
+        self.checked_requests.append(dict(request))
+        return dict(self.check_result)
 
     def cancel_order(self, ticket):
         self.cancelled.append(ticket)
@@ -523,8 +529,28 @@ def test_executor_places_pending_order_when_no_active_trade(tmp_path):
 
     assert result["status"] == "PLACED"
     assert result["order"] == 111222
+    assert len(broker.checked_requests) == 1
     assert len(broker.placed_requests) == 1
     assert broker.placed_requests[0]["type"] == "BUY_LIMIT"
+    assert result["order_check_result"]["ok"] is True
+
+
+def test_executor_skips_when_order_check_fails(tmp_path):
+    broker = FakeBroker()
+    broker.check_result = {
+        "ok": False,
+        "retcode": 10030,
+        "comment": "invalid stops",
+    }
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_proposal(_proposal())
+
+    assert result["status"] == "SKIPPED_ORDER_CHECK"
+    assert result["reason"] == "ORDER_CHECK_FAILED"
+    assert result["order_check_result"]["retcode"] == 10030
+    assert broker.checked_requests
+    assert broker.placed_requests == []
 
 
 def test_executor_result_and_journal_include_account_safety(tmp_path):
@@ -658,7 +684,12 @@ def test_executor_journals_connection_request_and_order_result(tmp_path):
         json.loads(line)["event_type"]
         for line in journal_path.read_text(encoding="utf-8").splitlines()
     ]
-    assert event_types == ["CONNECTED", "ORDER_REQUEST_BUILT", "ORDER_PLACED"]
+    assert event_types == [
+        "CONNECTED",
+        "ORDER_REQUEST_BUILT",
+        "ORDER_CHECKED",
+        "ORDER_PLACED",
+    ]
 
 
 def test_executor_records_active_order_state(tmp_path):

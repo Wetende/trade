@@ -698,6 +698,107 @@ def test_fast_engine_requires_a_plus_when_counter_higher_timeframe_bias(monkeypa
     assert payload["telemetry"]["candidate_evaluations"][0]["setup_grade"] == "B_PLUS"
 
 
+def test_engine_uses_state_aware_confirmation_when_no_event_context(monkeypatch):
+    data = {
+        **aligned_buy_setup_data(),
+        "30m": candles(
+            "2026-06-09 12:00:00,100,103,99,102,1000\n"
+            "2026-06-09 12:30:00,102,105,101,104,1000\n"
+            "2026-06-09 13:00:00,104,107,103,106,1000\n"
+            "2026-06-09 13:30:00,106,109,105,108,1000\n"
+            "2026-06-09 14:00:00,108,112,107,111,1000"
+        ),
+        "15m": candles(
+            "2026-06-09 13:30:00,108,109,107,108.5,1000\n"
+            "2026-06-09 13:45:00,108.5,110,108,109.5,1000\n"
+            "2026-06-09 14:00:00,109.5,113,109,112,1000"
+        ),
+    }
+    zone = Zone("resistance", "30m", 100.0, 101.0, 100.5, 3, 20, "test")
+    setup = Setup("Breakout", "BUY", zone, 112.0, 109.0, data["15m"][-1])
+
+    monkeypatch.setattr(
+        engine,
+        "calculate_support_resistance",
+        lambda _candles, timeframe: [zone] if timeframe == "30m" else [],
+    )
+    monkeypatch.setattr(
+        engine,
+        "detect_breakouts",
+        lambda raw_candles, _zones: [setup] if raw_candles == data["15m"] else [],
+    )
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "_is_overextended", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(engine, "nearest_target_zone", lambda *_args, **_kwargs: {"midpoint": 118.0})
+    monkeypatch.setattr(
+        engine,
+        "approve_risk",
+        lambda *_args, **_kwargs: {
+            "approved": True,
+            "take_profit": 118.0,
+            "risk_distance": 3.0,
+            "reward_distance": 6.0,
+            "risk_reward": 2.0,
+            "available_risk_reward": 2.0,
+        },
+    )
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-09 14:15",
+        data,
+        market_timezone="America/New_York",
+        session_config={"time_filter_mode": "allow"},
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["market_context"]["m30_context"] == "STRUCTURE"
+    assert payload["market_context"]["market_state"]["30m"]["direction"] == "BUY"
+    assert payload["checklist"]["confirmation_context_clear"] == "passed"
+
+
+def test_engine_uses_profile_zones_for_entry_triggers_not_context_zones(monkeypatch):
+    data = aligned_buy_setup_data()
+    captured_entry_zone_timeframes = []
+    m30_zone = Zone("support", "30m", 100.0, 101.0, 100.5, 3, 20, "m30")
+    daily_zone = Zone("support", "1d", 90.0, 91.0, 90.5, 3, 30, "daily")
+
+    def fake_zones(_candles, timeframe):
+        if timeframe == "30m":
+            return [m30_zone]
+        if timeframe == "1d":
+            return [daily_zone]
+        return []
+
+    def fake_sr_bounce(raw_candles, zones):
+        if raw_candles == data["15m"]:
+            captured_entry_zone_timeframes.extend(zone.timeframe for zone in zones)
+        return []
+
+    monkeypatch.setattr(engine, "calculate_support_resistance", fake_zones)
+    monkeypatch.setattr(engine, "detect_breakouts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(engine, "detect_sr_bounce", fake_sr_bounce)
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-05-18 08:30",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "zone_timeframes": ("30m",),
+            "context_timeframes": ("1d", "4h", "1h"),
+        },
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert captured_entry_zone_timeframes == ["30m"]
+    assert payload["market_context"]["context_timeframes"] == ("1d", "4h", "1h")
+
+
 def test_engine_rejects_candidate_below_minimum_stop_distance(monkeypatch):
     data = aligned_buy_setup_data()
     zone = Zone(

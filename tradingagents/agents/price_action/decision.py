@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,95 @@ def _m30_label(payload: dict[str, Any]) -> str:
         or "UNCLEAR"
     )
     return f"{bias} {context}".strip()
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _market_health(
+    market_metadata: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    now_utc: datetime | None = None,
+) -> dict[str, Any]:
+    """Evaluate live MT5 tick/symbol metadata before setup analysis."""
+    if not market_metadata:
+        return {"passed": True, "reasons": [], "metadata_available": False}
+    if market_metadata.get("error"):
+        return {
+            "passed": False,
+            "reasons": ["market_metadata_error"],
+            "error": str(market_metadata["error"]),
+            "metadata_available": True,
+        }
+
+    symbol = market_metadata.get("symbol") or {}
+    tick = market_metadata.get("tick") or {}
+    bid = _as_float(tick.get("bid", symbol.get("bid")))
+    ask = _as_float(tick.get("ask", symbol.get("ask")))
+    spread_price = _as_float(symbol.get("spread_price"))
+    if spread_price is None and bid is not None and ask is not None:
+        spread_price = ask - bid
+
+    reasons: list[str] = []
+    if bid is None or ask is None or spread_price is None or spread_price < 0:
+        reasons.append("live_tick_missing_or_invalid")
+
+    max_spread = _as_float(config.get("max_entry_spread_price"))
+    if (
+        max_spread is not None
+        and max_spread > 0
+        and spread_price is not None
+        and spread_price > max_spread
+    ):
+        reasons.append("spread_too_wide")
+
+    tick_age_seconds = None
+    max_tick_age = _as_float(config.get("max_tick_age_seconds"))
+    tick_time = _parse_utc_datetime(tick.get("time_utc"))
+    if max_tick_age is not None and max_tick_age > 0:
+        if tick_time is None:
+            reasons.append("tick_time_missing")
+        else:
+            current = now_utc or datetime.now(timezone.utc)
+            tick_age_seconds = max(
+                (current.astimezone(timezone.utc) - tick_time).total_seconds(),
+                0.0,
+            )
+            if tick_age_seconds > max_tick_age:
+                reasons.append("tick_stale")
+
+    return {
+        "passed": not reasons,
+        "reasons": reasons,
+        "metadata_available": True,
+        "bid": bid,
+        "ask": ask,
+        "spread_price": spread_price,
+        "max_entry_spread_price": max_spread,
+        "tick_age_seconds": tick_age_seconds,
+        "max_tick_age_seconds": max_tick_age,
+    }
 
 
 def render_engine_decision_report(payload: dict[str, Any]) -> str:
@@ -140,6 +230,37 @@ def _data_health_payload(
     return payload
 
 
+def _market_health_payload(
+    symbol: str,
+    as_of: str,
+    timeframe: str,
+    confirmation_timeframe: str,
+    data_status: dict[str, Any],
+    market_health: dict[str, Any],
+    market_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    reasons = market_health.get("reasons") or ["market_health_failed"]
+    payload = build_no_setup_payload(
+        symbol,
+        as_of,
+        timeframe,
+        confirmation_timeframe,
+        data_status=data_status,
+    )
+    payload["message"] = "Market health failed: " + ", ".join(map(str, reasons))
+    payload["market_health"] = market_health
+    payload["market_metadata"] = market_metadata
+    payload["telemetry"] = {
+        "decision_stage": "market_health",
+        "primary_hold_reason": payload["message"],
+        "timeframe_rows": _timeframe_rows(data_status),
+        "candidate_setup_count": 0,
+        "m30_context": {"bias": "UNCLEAR", "context": "UNCLEAR"},
+        "market_health": market_health,
+    }
+    return payload
+
+
 def run_engine_decision(
     symbol: str,
     *,
@@ -161,6 +282,8 @@ def run_engine_decision(
             market_timezone=market_timezone,
         )
     data_status = snapshot.data_status
+    market_metadata = getattr(snapshot, "market_metadata", {}) or {}
+    market_health = _market_health(market_metadata, profile_config)
 
     if not data_is_healthy(data_status):
         payload = _data_health_payload(
@@ -169,6 +292,18 @@ def run_engine_decision(
             timeframe,
             confirmation_timeframe,
             data_status,
+        )
+        payload["market_metadata"] = market_metadata
+        payload["market_health"] = market_health
+    elif not market_health["passed"]:
+        payload = _market_health_payload(
+            symbol,
+            as_of,
+            timeframe,
+            confirmation_timeframe,
+            data_status,
+            market_health,
+            market_metadata,
         )
     else:
         payload = analyze_playbook(
@@ -181,6 +316,9 @@ def run_engine_decision(
         payload["timeframe"] = timeframe
         payload["confirmation_timeframe"] = confirmation_timeframe
         payload["data_status"] = data_status
+        payload["market_metadata"] = market_metadata
+        payload["market_health"] = market_health
+        payload.setdefault("telemetry", {})["market_health"] = market_health
 
     if profile_config.get("entry_profile"):
         payload["entry_profile"] = str(profile_config["entry_profile"])
