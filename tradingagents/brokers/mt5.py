@@ -477,9 +477,9 @@ def _mt5_history_datetime(
     server_time_offset_seconds: int = 0,
 ) -> datetime:
     if value.tzinfo is None:
-        current = value
+        current = value.replace(tzinfo=timezone.utc)
     else:
-        current = value.astimezone(timezone.utc).replace(tzinfo=None)
+        current = value.astimezone(timezone.utc)
     if server_time_offset_seconds:
         current = current + timedelta(seconds=int(server_time_offset_seconds))
     return current
