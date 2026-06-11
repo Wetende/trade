@@ -1027,6 +1027,11 @@ def analyze_playbook(
         activation_window_minutes = int(
             profile_config.get("normal_activation_window_minutes", 30)
         )
+    control_label = (
+        f"{entry_timeframe} execution with {confirmation_timeframe} context window"
+        if profile_name == "fast"
+        else "M30/M15 checklist"
+    )
     entry_label = _display_timeframe(entry_timeframe)
     confirmation_label = _display_timeframe(confirmation_timeframe)
     candles_by_tf = {
@@ -1415,6 +1420,7 @@ def analyze_playbook(
             market_context["h4_structure"],
             market_context["h1_structure"],
             setup.direction,
+            control_label=control_label,
         )
         higher_timeframe_bias = _direction_from_bias(
             profile_config.get("higher_timeframe_bias")

@@ -231,8 +231,10 @@ def evaluate_higher_timeframe_permission(
     h4: Any,
     h1: Any,
     planned_direction: str,
+    *,
+    control_label: str = "M30/M15 checklist",
 ) -> dict[str, str]:
-    """Describe Daily, H4, and H1 as context without blocking M30/M15 entries."""
+    """Describe Daily, H4, and H1 as context without blocking entries."""
     direction = str(planned_direction).strip().upper()
     daily_permission = _permission_value(daily)
     h4_permission = _permission_value(h4)
@@ -250,7 +252,10 @@ def evaluate_higher_timeframe_permission(
         "daily_classification": daily_classification,
         "h4_classification": h4_classification,
         "h1_classification": h1_classification,
-        "reason": "Daily/4H/1H structure is recorded for context; M30/M15 checklist controls approval.",
+        "reason": (
+            "Daily/4H/1H structure is recorded for context; "
+            f"{control_label} controls approval."
+        ),
     }
 
 

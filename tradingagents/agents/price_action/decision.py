@@ -45,6 +45,13 @@ def _m30_label(payload: dict[str, Any]) -> str:
     return f"{bias} {context}".strip()
 
 
+def _context_heading(payload: dict[str, Any]) -> str:
+    timeframe = str(payload.get("confirmation_timeframe") or "30m").strip()
+    if timeframe.lower() == "30m":
+        return "M30 Context"
+    return f"{timeframe} Context"
+
+
 def _as_float(value: Any) -> float | None:
     try:
         number = float(value)
@@ -149,7 +156,7 @@ def render_engine_decision_report(payload: dict[str, Any]) -> str:
         f"**As of:** {payload.get('as_of', '')}",
         f"**Status:** {payload.get('status', '')}",
         f"**Final Action: {action}**",
-        f"**M30 Context:** {_m30_label(payload)}",
+        f"**{_context_heading(payload)}:** {_m30_label(payload)}",
         f"**Candidate Setups:** {telemetry.get('candidate_setup_count', len(setups))}",
         "",
         "## Decision Reason",

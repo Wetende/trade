@@ -251,3 +251,23 @@ def test_higher_timeframe_context_records_unclear_1h():
 
     assert result["permission"] == "CONTEXT_ONLY"
     assert result["h1_classification"] == "UNCLEAR"
+
+
+def test_higher_timeframe_context_reason_can_name_fast_model_control():
+    daily = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "Daily neutral"}
+    h4 = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "4H neutral"}
+    h1 = {"permission": "NEUTRAL", "classification": "RANGE", "reason": "1H neutral"}
+
+    result = evaluate_higher_timeframe_permission(
+        daily,
+        h4,
+        h1,
+        "SELL",
+        control_label="1m execution with 3m context window",
+    )
+
+    assert result["permission"] == "CONTEXT_ONLY"
+    assert result["reason"] == (
+        "Daily/4H/1H structure is recorded for context; "
+        "1m execution with 3m context window controls approval."
+    )

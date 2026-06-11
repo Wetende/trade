@@ -208,6 +208,26 @@ def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
     assert telemetry_path.exists()
 
 
+def test_render_engine_decision_report_labels_fast_context_timeframe():
+    report = decision.render_engine_decision_report(
+        {
+            "symbol": "XAUUSD.vx",
+            "as_of": "2026-06-11 13:53",
+            "status": "SETUP_FOUND",
+            "recommendation": "SELL",
+            "confirmation_timeframe": "3m",
+            "market_context": {"m30_bias": "BEARISH", "m30_context": "BREAKOUT"},
+            "telemetry": {
+                "candidate_setup_count": 1,
+                "m30_context": {"bias": "BEARISH", "context": "BREAKOUT"},
+            },
+        }
+    )
+
+    assert "**3m Context:** BEARISH BREAKOUT" in report
+    assert "M30 Context" not in report
+
+
 def test_run_engine_decision_accepts_prebuilt_snapshot(monkeypatch, tmp_path):
     unhealthy = _healthy_status()
     unhealthy["healthy"] = False
