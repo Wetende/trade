@@ -976,7 +976,7 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     assert calls[1]["timeframe"] == "1m"
     assert calls[0]["session_config"]["entry_profile"] == "normal"
     assert calls[1]["session_config"]["entry_profile"] == "fast"
-    assert calls[1]["session_config"]["governing_timeframes"] == ("30m", "15m")
+    assert calls[1]["session_config"]["governing_timeframes"] == ("3m",)
 
 
 def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):

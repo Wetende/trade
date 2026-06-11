@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from tradingagents.agents.price_action.candles import candle_range, normalize_candles
+from tradingagents.agents.price_action.candles import (
+    candle_range,
+    is_bearish,
+    is_bullish,
+    lower_wick,
+    normalize_candles,
+    upper_wick,
+    wick_ratio,
+)
 from tradingagents.agents.price_action.models import Candle, Setup, Zone
 from tradingagents.agents.price_action.risk import approve_risk
 from tradingagents.agents.price_action.sessions import evaluate_time_filters
@@ -31,6 +39,7 @@ from tradingagents.agents.price_action.zones import (
 PASS = "passed"
 FAIL = "failed"
 UNKNOWN = "unknown"
+FAST_MICRO_SETUP_NAMES = {"Aggressive Respect", "Confirmed Break"}
 
 
 def _base_checklist(time_checks: dict[str, str]) -> dict[str, str]:
@@ -325,6 +334,10 @@ def _candidate_rejection_reason(
         return "The entry market state opposes the setup direction. Default to HOLD."
     if "confirmation_context_clear" in failed_rules:
         return "The confirmation context is unclear. Default to HOLD."
+    if "timeframe_correlation" in failed_rules and checklist.get(
+        "timeframe_correlation_reason"
+    ):
+        return str(checklist["timeframe_correlation_reason"])
     if checklist.get("clean_range_to_fill") == FAIL and risk.get("reason"):
         return str(risk["reason"])
     return "Required checklist rules failed: " + ", ".join(failed_rules)
@@ -388,6 +401,407 @@ def _direction_from_bias(value: Any) -> str | None:
     if normalized in {"SELL", "BEARISH"}:
         return "SELL"
     return None
+
+
+def _is_fast_profile(profile_name: str, entry_timeframe: str) -> bool:
+    return (
+        str(profile_name).strip().lower() == "fast"
+        and str(entry_timeframe).strip().lower() in {"1m", "m1"}
+    )
+
+
+def _clear_fast_window_direction(market_state: dict[str, Any]) -> str | None:
+    direction = _direction_from_bias(market_state.get("direction"))
+    if direction is None:
+        return None
+    try:
+        rows = int(market_state.get("rows") or 0)
+    except (TypeError, ValueError):
+        rows = 0
+    trend_state = str(market_state.get("trend_state") or "").strip().upper()
+    if rows < 4 or trend_state not in {"TRENDING", "EXPANDING"}:
+        return None
+    return direction
+
+
+def _micro_tolerance(candles: list[Candle]) -> float:
+    recent = candles[-12:] if len(candles) > 12 else candles
+    ranges = [candle_range(candle) for candle in recent if candle_range(candle) > 0]
+    if not ranges:
+        return 0.2
+    ranges = sorted(ranges)
+    median = ranges[len(ranges) // 2]
+    return max(0.2, median * 0.20)
+
+
+def _micro_zone(
+    *,
+    direction: str,
+    timeframe: str,
+    low: float,
+    high: float,
+    touches: int,
+    source: str,
+    zone_type: str | None = None,
+) -> Zone:
+    resolved_zone_type = zone_type or (
+        "support" if direction == "BUY" else "resistance"
+    )
+    return Zone(
+        type=resolved_zone_type,
+        timeframe=timeframe,
+        low=round(float(low), 4),
+        high=round(float(high), 4),
+        midpoint=round((float(low) + float(high)) / 2, 4),
+        touches=touches,
+        score=18.0 + touches,
+        source=source,
+    )
+
+
+def _micro_stop_buffer(candles: list[Candle]) -> float:
+    recent = candles[-8:] if len(candles) > 8 else candles
+    ranges = [candle_range(candle) for candle in recent if candle_range(candle) > 0]
+    average_range = sum(ranges) / len(ranges) if ranges else 0.0
+    return max(0.15, average_range * 0.15)
+
+
+def _micro_setup(
+    *,
+    name: str,
+    direction: str,
+    zone: Zone,
+    entry_price: float,
+    stop_loss: float,
+    confirmation_candle: Candle,
+) -> Setup:
+    return Setup(
+        name=name,
+        direction=direction,
+        zone=zone,
+        entry_price=round(float(entry_price), 4),
+        stop_loss=round(float(stop_loss), 4),
+        confirmation_candle=confirmation_candle,
+    )
+
+
+def _find_respected_low(
+    previous_candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, Candle] | None:
+    for index in range(len(previous_candles) - 1, -1, -1):
+        candidate = previous_candles[index]
+        if abs(float(candidate.low) - float(latest.low)) <= tolerance:
+            return index, candidate
+    return None
+
+
+def _find_respected_high(
+    previous_candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, Candle] | None:
+    for index in range(len(previous_candles) - 1, -1, -1):
+        candidate = previous_candles[index]
+        if abs(float(candidate.high) - float(latest.high)) <= tolerance:
+            return index, candidate
+    return None
+
+
+def _find_broken_respected_lows(
+    candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, int, Candle, Candle, float] | None:
+    prior = candles[:-1]
+    for second_index in range(len(prior) - 1, 0, -1):
+        second = prior[second_index]
+        for first_index in range(second_index - 1, -1, -1):
+            first = prior[first_index]
+            if abs(float(first.low) - float(second.low)) > tolerance:
+                continue
+            level = min(float(first.low), float(second.low))
+            if float(latest.close) < level:
+                return first_index, second_index, first, second, level
+    return None
+
+
+def _find_broken_respected_highs(
+    candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, int, Candle, Candle, float] | None:
+    prior = candles[:-1]
+    for second_index in range(len(prior) - 1, 0, -1):
+        second = prior[second_index]
+        for first_index in range(second_index - 1, -1, -1):
+            first = prior[first_index]
+            if abs(float(first.high) - float(second.high)) > tolerance:
+                continue
+            level = max(float(first.high), float(second.high))
+            if float(latest.close) > level:
+                return first_index, second_index, first, second, level
+    return None
+
+
+def _find_confirmed_respected_lows(
+    candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, int, Candle, Candle, float] | None:
+    if len(candles) < 4:
+        return None
+    prior = candles[:-1]
+    for second_index in range(len(prior) - 1, 0, -1):
+        second = prior[second_index]
+        for first_index in range(second_index - 1, -1, -1):
+            first = prior[first_index]
+            if abs(float(first.low) - float(second.low)) > tolerance:
+                continue
+            between = prior[first_index + 1 : second_index]
+            if not between:
+                continue
+            trigger = max(candle.high for candle in between)
+            if float(latest.close) > trigger:
+                return first_index, second_index, first, second, trigger
+    return None
+
+
+def _find_confirmed_respected_highs(
+    candles: list[Candle],
+    latest: Candle,
+    tolerance: float,
+) -> tuple[int, int, Candle, Candle, float] | None:
+    if len(candles) < 4:
+        return None
+    prior = candles[:-1]
+    for second_index in range(len(prior) - 1, 0, -1):
+        second = prior[second_index]
+        for first_index in range(second_index - 1, -1, -1):
+            first = prior[first_index]
+            if abs(float(first.high) - float(second.high)) > tolerance:
+                continue
+            between = prior[first_index + 1 : second_index]
+            if not between:
+                continue
+            trigger = min(candle.low for candle in between)
+            if float(latest.close) < trigger:
+                return first_index, second_index, first, second, trigger
+    return None
+
+
+def _detect_fast_microstructure_setups(
+    candles: list[Candle],
+    *,
+    timeframe: str,
+) -> list[Setup]:
+    if len(candles) < 4:
+        return []
+
+    latest = candles[-1]
+    tolerance = _micro_tolerance(candles)
+    buffer = _micro_stop_buffer(candles)
+    setups: list[Setup] = []
+
+    respected_low = _find_respected_low(candles[:-1], latest, tolerance)
+    if (
+        respected_low is not None
+        and lower_wick(latest) > 0
+        and wick_ratio(latest, "lower") >= 0.20
+        and (
+            is_bullish(latest)
+            or latest.close >= latest.low + candle_range(latest) * 0.60
+        )
+    ):
+        _index, first = respected_low
+        low = min(float(first.low), float(latest.low))
+        high = max(float(first.low), float(latest.low))
+        zone = _micro_zone(
+            direction="BUY",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=2,
+            source="fast_microstructure_respected_low",
+        )
+        setups.append(
+            _micro_setup(
+                name="Aggressive Respect",
+                direction="BUY",
+                zone=zone,
+                entry_price=latest.high,
+                stop_loss=low - buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    respected_high = _find_respected_high(candles[:-1], latest, tolerance)
+    if (
+        respected_high is not None
+        and upper_wick(latest) > 0
+        and wick_ratio(latest, "upper") >= 0.20
+        and (
+            is_bearish(latest)
+            or latest.close <= latest.high - candle_range(latest) * 0.60
+        )
+    ):
+        _index, first = respected_high
+        low = min(float(first.high), float(latest.high))
+        high = max(float(first.high), float(latest.high))
+        zone = _micro_zone(
+            direction="SELL",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=2,
+            source="fast_microstructure_respected_high",
+        )
+        setups.append(
+            _micro_setup(
+                name="Aggressive Respect",
+                direction="SELL",
+                zone=zone,
+                entry_price=latest.low,
+                stop_loss=high + buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    broken_lows = _find_broken_respected_lows(candles, latest, tolerance)
+    if broken_lows is not None:
+        _first_index, _second_index, first, second, level = broken_lows
+        low = min(float(first.low), float(second.low))
+        high = max(float(first.low), float(second.low))
+        zone = _micro_zone(
+            direction="SELL",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=3,
+            source="fast_microstructure_failed_lows",
+            zone_type="support",
+        )
+        setups.append(
+            _micro_setup(
+                name="Confirmed Break",
+                direction="SELL",
+                zone=zone,
+                entry_price=min(float(level), float(latest.close)),
+                stop_loss=high + buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    broken_highs = _find_broken_respected_highs(candles, latest, tolerance)
+    if broken_highs is not None:
+        _first_index, _second_index, first, second, level = broken_highs
+        low = min(float(first.high), float(second.high))
+        high = max(float(first.high), float(second.high))
+        zone = _micro_zone(
+            direction="BUY",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=3,
+            source="fast_microstructure_failed_highs",
+            zone_type="resistance",
+        )
+        setups.append(
+            _micro_setup(
+                name="Confirmed Break",
+                direction="BUY",
+                zone=zone,
+                entry_price=max(float(level), float(latest.close)),
+                stop_loss=low - buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    confirmed_lows = _find_confirmed_respected_lows(candles, latest, tolerance)
+    if confirmed_lows is not None:
+        _first_index, _second_index, first, second, trigger = confirmed_lows
+        low = min(float(first.low), float(second.low))
+        high = max(float(first.low), float(second.low))
+        zone = _micro_zone(
+            direction="BUY",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=2,
+            source="fast_microstructure_confirmed_lows",
+        )
+        setups.append(
+            _micro_setup(
+                name="Confirmed Break",
+                direction="BUY",
+                zone=zone,
+                entry_price=max(float(trigger), float(latest.close)),
+                stop_loss=low - buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    confirmed_highs = _find_confirmed_respected_highs(candles, latest, tolerance)
+    if confirmed_highs is not None:
+        _first_index, _second_index, first, second, trigger = confirmed_highs
+        low = min(float(first.high), float(second.high))
+        high = max(float(first.high), float(second.high))
+        zone = _micro_zone(
+            direction="SELL",
+            timeframe=timeframe,
+            low=low,
+            high=high,
+            touches=2,
+            source="fast_microstructure_confirmed_highs",
+        )
+        setups.append(
+            _micro_setup(
+                name="Confirmed Break",
+                direction="SELL",
+                zone=zone,
+                entry_price=min(float(trigger), float(latest.close)),
+                stop_loss=high + buffer,
+                confirmation_candle=latest,
+            )
+        )
+
+    return sorted(
+        _unique_setups(setups),
+        key=lambda setup: 0 if setup.name == "Confirmed Break" else 1,
+    )
+
+
+def _approve_micro_scalp_risk(
+    setup: Setup,
+    *,
+    minimum_rr: float,
+    preferred_rr: float,
+) -> dict[str, Any]:
+    entry = float(setup.entry_price)
+    stop = float(setup.stop_loss)
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return {"approved": False, "reason": "Invalid stop-loss distance"}
+    reward = risk * float(preferred_rr)
+    take_profit = entry + reward if setup.direction == "BUY" else entry - reward
+    if preferred_rr < minimum_rr:
+        return {
+            "approved": False,
+            "reason": "Micro scalp risk/reward is below minimum",
+            "risk_reward": round(preferred_rr, 2),
+        }
+    return {
+        "approved": True,
+        "entry_price": round(entry, 4),
+        "stop_loss": round(stop, 4),
+        "take_profit": round(take_profit, 4),
+        "risk_distance": round(risk, 4),
+        "reward_distance": round(reward, 4),
+        "risk_reward": round(preferred_rr, 2),
+        "available_risk_reward": round(preferred_rr, 2),
+        "risk_model": "FAST_MICRO_SCALP",
+    }
 
 
 def _candidate_quality(candidate: dict[str, Any]) -> tuple[float, int, float]:
@@ -563,6 +977,14 @@ def analyze_playbook(
         "b_plus_min_rr": b_plus_min_rr,
         "require_clear_confirmation_context": require_clear_confirmation_context,
     }
+    is_fast_micro_profile = _is_fast_profile(profile_name, entry_timeframe)
+    if is_fast_micro_profile:
+        market_context["fast_microstructure"] = {
+            "enabled": True,
+            "entry_timeframe": entry_timeframe,
+            "window_timeframe": confirmation_timeframe,
+            "rules": ["AGGRESSIVE_RESPECT", "CONFIRMED_BREAK"],
+        }
 
     def make_telemetry(
         decision_stage: str,
@@ -635,8 +1057,17 @@ def analyze_playbook(
     timing_direction = _direction_from_context(timing_context)
 
     entry_reference_zones = _entry_reference_zones(zones_by_tf, zone_timeframes)
+    micro_setups = (
+        _detect_fast_microstructure_setups(
+            entry_candles,
+            timeframe=entry_timeframe,
+        )
+        if is_fast_micro_profile
+        else []
+    )
     candidate_setups = _unique_setups(
         [
+            *micro_setups,
             *detect_breakouts(entry_candles, entry_reference_zones),
             *detect_break_and_retest(
                 entry_candles,
@@ -684,18 +1115,30 @@ def analyze_playbook(
 
     candidate_evaluations: list[dict[str, Any]] = []
     for index, setup in enumerate(candidate_setups):
+        is_micro_setup = is_fast_micro_profile and setup.name in FAST_MICRO_SETUP_NAMES
         candidate_checklist = dict(checklist)
         candidate_checklist["playbook_setup"] = PASS
-        context_allows = confirmation_direction == setup.direction or (
-            independent_direction
-            and confirmation_direction is None
-            and not require_clear_confirmation_context
+        clear_window_direction = _clear_fast_window_direction(
+            market_context.get("confirmation_market_state", {})
         )
+        if is_micro_setup:
+            context_allows = clear_window_direction in {None, setup.direction}
+        else:
+            context_allows = confirmation_direction == setup.direction or (
+                independent_direction
+                and confirmation_direction is None
+                and not require_clear_confirmation_context
+            )
         timing_allows = timing_direction is None or timing_direction == setup.direction
         if context_allows and timing_allows:
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL
+            if is_micro_setup and clear_window_direction not in {None, setup.direction}:
+                candidate_checklist["timeframe_correlation_reason"] = (
+                    f"The {confirmation_timeframe} window opposes the fast "
+                    "microstructure setup. Default to HOLD."
+                )
         entry_state_direction = _direction_from_bias(
             market_context.get("entry_market_state", {}).get("direction")
         )
@@ -705,7 +1148,16 @@ def analyze_playbook(
             else FAIL
         )
         candidate_checklist["confirmation_context_clear"] = (
-            PASS if confirmation_direction is not None else FAIL
+            PASS
+            if (
+                confirmation_direction is not None
+                or (
+                    is_micro_setup
+                    and clear_window_direction in {None, setup.direction}
+                    and timing_direction in {None, setup.direction}
+                )
+            )
+            else FAIL
         )
         candidate_checklist["not_overextended"] = (
             FAIL if _is_overextended(entry_candles) else PASS
@@ -722,12 +1174,20 @@ def analyze_playbook(
             setup.direction,
             setup.entry_price,
         )
-        b_plus_risk = approve_risk(
-            setup,
-            target_zone,
-            minimum_rr=b_plus_min_rr,
-            preferred_rr=3.0,
-        )
+        if is_micro_setup:
+            micro_preferred_rr = 1.5 if setup.name == "Confirmed Break" else 1.2
+            b_plus_risk = _approve_micro_scalp_risk(
+                setup,
+                minimum_rr=b_plus_min_rr,
+                preferred_rr=micro_preferred_rr,
+            )
+        else:
+            b_plus_risk = approve_risk(
+                setup,
+                target_zone,
+                minimum_rr=b_plus_min_rr,
+                preferred_rr=3.0,
+            )
         try:
             minimum_stop_distance = float(
                 profile_config.get("minimum_stop_distance_price", 0.0)
@@ -749,7 +1209,20 @@ def analyze_playbook(
         risk = b_plus_risk
         setup_grade = "REJECTED"
         if not failed_rules:
-            a_plus_risk = approve_risk(setup, target_zone, minimum_rr=1.5, preferred_rr=3.0)
+            if is_micro_setup:
+                micro_a_plus_rr = 1.5 if setup.name == "Confirmed Break" else 1.2
+                a_plus_risk = _approve_micro_scalp_risk(
+                    setup,
+                    minimum_rr=1.5,
+                    preferred_rr=micro_a_plus_rr,
+                )
+            else:
+                a_plus_risk = approve_risk(
+                    setup,
+                    target_zone,
+                    minimum_rr=1.5,
+                    preferred_rr=3.0,
+                )
             if a_plus_risk.get("approved"):
                 risk = a_plus_risk
                 setup_grade = "A_PLUS"
