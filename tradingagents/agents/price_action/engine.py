@@ -57,6 +57,7 @@ def _base_checklist(time_checks: dict[str, str]) -> dict[str, str]:
         "not_sunday_asian_session": time_checks.get("not_sunday_asian_session", UNKNOWN),
         "confirmation_candle_wicks": UNKNOWN,
         "trading_candle_stop_wick": UNKNOWN,
+        "fast_trigger_quality": PASS,
         "not_activated_last_5_min": PASS,
     }
 
@@ -272,6 +273,133 @@ def _has_stop_wick(candle: Candle, direction: str) -> bool:
     return candle.high > max(candle.open, candle.close)
 
 
+def _close_location(candle: Candle) -> float:
+    span = candle_range(candle)
+    if span <= 0:
+        return 0.5
+    return (float(candle.close) - float(candle.low)) / span
+
+
+def _body_ratio(candle: Candle) -> float:
+    span = candle_range(candle)
+    if span <= 0:
+        return 0.0
+    return abs(float(candle.close) - float(candle.open)) / span
+
+
+def _fast_micro_signal(setup: Setup) -> str:
+    source = str(setup.zone.source or "").strip().lower()
+    if source in {
+        "fast_microstructure_respected_low",
+        "fast_microstructure_confirmed_lows",
+    }:
+        return "TWO_LOWS_RESPECT_BUY"
+    if source in {
+        "fast_microstructure_respected_high",
+        "fast_microstructure_confirmed_highs",
+    }:
+        return "TWO_HIGHS_RESPECT_SELL"
+    if source == "fast_microstructure_failed_lows":
+        return "TWO_LOWS_FAILED_SELL"
+    if source == "fast_microstructure_failed_highs":
+        return "TWO_HIGHS_FAILED_BUY"
+    return f"ONE_MINUTE_{setup.direction}_SETUP"
+
+
+def _fast_trigger_quality(setup: Setup) -> tuple[bool, str | None, dict[str, Any]]:
+    candle = setup.confirmation_candle
+    span = candle_range(candle)
+    metrics = {
+        "microstructure_signal": _fast_micro_signal(setup),
+        "close_location": round(_close_location(candle), 4),
+        "body_ratio": round(_body_ratio(candle), 4),
+        "upper_wick_ratio": round(wick_ratio(candle, "upper"), 4),
+        "lower_wick_ratio": round(wick_ratio(candle, "lower"), 4),
+    }
+    if span <= 0:
+        return False, "1m trigger candle has no range. Default to HOLD.", metrics
+
+    close_location = metrics["close_location"]
+    body = metrics["body_ratio"]
+    upper_rejection = metrics["upper_wick_ratio"]
+    lower_rejection = metrics["lower_wick_ratio"]
+
+    if setup.direction == "BUY":
+        if not is_bullish(candle):
+            return (
+                False,
+                "1m trigger candle rejected the BUY direction with a bearish close. Default to HOLD.",
+                metrics,
+            )
+        if close_location < 0.6 or upper_rejection > 0.35:
+            return (
+                False,
+                "1m trigger candle rejected the BUY direction near the candle high. Default to HOLD.",
+                metrics,
+            )
+    else:
+        if not is_bearish(candle):
+            return (
+                False,
+                "1m trigger candle rejected the SELL direction with a bullish close. Default to HOLD.",
+                metrics,
+            )
+        if close_location > 0.4 or lower_rejection > 0.35:
+            return (
+                False,
+                "1m trigger candle rejected the SELL direction near the candle low. Default to HOLD.",
+                metrics,
+            )
+
+    if body < 0.15:
+        return (
+            False,
+            "1m trigger candle body is too weak for a fast entry. Default to HOLD.",
+            metrics,
+        )
+    return True, None, metrics
+
+
+def _fast_micro_confidence(setup: Setup, quality: dict[str, Any]) -> str:
+    strong_buy_close = (
+        setup.direction == "BUY" and quality.get("close_location", 0.0) >= 0.75
+    )
+    strong_sell_close = (
+        setup.direction == "SELL" and quality.get("close_location", 1.0) <= 0.25
+    )
+    clean_rejection = (
+        quality.get("upper_wick_ratio", 1.0) <= 0.25
+        if setup.direction == "BUY"
+        else quality.get("lower_wick_ratio", 1.0) <= 0.25
+    )
+    meaningful_body = quality.get("body_ratio", 0.0) >= 0.20
+    repeated_level = int(setup.zone.touches or 0) >= 2
+    if (
+        repeated_level
+        and meaningful_body
+        and clean_rejection
+        and (strong_buy_close or strong_sell_close)
+    ):
+        return "HIGH"
+    return "NORMAL"
+
+
+def _dynamic_fast_exit_settings(risk_distance: float) -> dict[str, float]:
+    break_even_trigger = max(0.4, min(1.2, risk_distance * 0.60))
+    partial_first = max(break_even_trigger, min(1.5, risk_distance * 0.75))
+    partial_second = max(partial_first + 0.1, min(2.5, risk_distance * 1.25))
+    return {
+        "break_even_trigger_points": round(break_even_trigger, 2),
+        "break_even_lock_points": round(max(0.05, min(0.25, risk_distance * 0.12)), 2),
+        "partial_first_trigger_points": round(partial_first, 2),
+        "partial_first_target_volume": 1.0,
+        "partial_second_trigger_points": round(partial_second, 2),
+        "partial_second_target_volume": 0.4,
+        "trailing_trigger_points": round(partial_second, 2),
+        "trailing_distance_points": round(max(0.3, min(1.2, risk_distance * 0.40)), 2),
+    }
+
+
 def _setup_to_dict(
     setup: Setup,
     risk: dict[str, Any] | None = None,
@@ -292,7 +420,22 @@ def _setup_to_dict(
                 "risk_reward": risk["risk_reward"],
             }
         )
-        for key in ("volume", "volume_multiplier", "position_lifecycle"):
+        for key in (
+            "volume",
+            "volume_multiplier",
+            "position_lifecycle",
+            "microstructure_signal",
+            "microstructure_confidence",
+            "fast_trigger_quality",
+            "break_even_trigger_points",
+            "break_even_lock_points",
+            "partial_first_trigger_points",
+            "partial_first_target_volume",
+            "partial_second_trigger_points",
+            "partial_second_target_volume",
+            "trailing_trigger_points",
+            "trailing_distance_points",
+        ):
             if key in risk:
                 result[key] = risk[key]
     return result
@@ -341,6 +484,10 @@ def _candidate_rejection_reason(
         "timeframe_correlation_reason"
     ):
         return str(checklist["timeframe_correlation_reason"])
+    if "fast_trigger_quality" in failed_rules and checklist.get(
+        "fast_trigger_quality_reason"
+    ):
+        return str(checklist["fast_trigger_quality_reason"])
     if checklist.get("clean_range_to_fill") == FAIL and risk.get("reason"):
         return str(risk["reason"])
     return "Required checklist rules failed: " + ", ".join(failed_rules)
@@ -788,13 +935,15 @@ def _approve_micro_scalp_risk(
         return {"approved": False, "reason": "Invalid stop-loss distance"}
     reward = risk * float(preferred_rr)
     take_profit = entry + reward if setup.direction == "BUY" else entry - reward
+    trigger_ok, _trigger_reason, trigger_quality = _fast_trigger_quality(setup)
+    confidence = _fast_micro_confidence(setup, trigger_quality) if trigger_ok else "REJECTED"
     if preferred_rr < minimum_rr:
         return {
             "approved": False,
             "reason": "Micro scalp risk/reward is below minimum",
             "risk_reward": round(preferred_rr, 2),
         }
-    return {
+    result = {
         "approved": True,
         "entry_price": round(entry, 4),
         "stop_loss": round(stop, 4),
@@ -804,9 +953,19 @@ def _approve_micro_scalp_risk(
         "risk_reward": round(preferred_rr, 2),
         "available_risk_reward": round(preferred_rr, 2),
         "risk_model": "FAST_MICRO_SCALP",
-        "volume_multiplier": 1.5,
-        "position_lifecycle": "FAST_PARTIAL_SCALE",
+        "microstructure_signal": _fast_micro_signal(setup),
+        "microstructure_confidence": confidence,
+        "fast_trigger_quality": trigger_quality,
     }
+    if confidence == "HIGH":
+        result.update(
+            {
+                "volume_multiplier": 1.5,
+                "position_lifecycle": "FAST_PARTIAL_SCALE",
+                **_dynamic_fast_exit_settings(risk),
+            }
+        )
+    return result
 
 
 def _candidate_quality(candidate: dict[str, Any]) -> tuple[float, int, float]:
@@ -1115,6 +1274,7 @@ def analyze_playbook(
         "not_sunday_asian_session",
         "confirmation_candle_wicks",
         "trading_candle_stop_wick",
+        "fast_trigger_quality",
         "not_activated_last_5_min",
     ]
 
@@ -1127,14 +1287,18 @@ def analyze_playbook(
             market_context.get("confirmation_market_state", {})
         )
         if is_micro_setup:
-            context_allows = clear_window_direction in {None, setup.direction}
+            context_allows = True
         else:
             context_allows = confirmation_direction == setup.direction or (
                 independent_direction
                 and confirmation_direction is None
                 and not require_clear_confirmation_context
             )
-        timing_allows = timing_direction is None or timing_direction == setup.direction
+        timing_allows = (
+            True
+            if is_micro_setup
+            else timing_direction is None or timing_direction == setup.direction
+        )
         if context_allows and timing_allows:
             candidate_checklist["timeframe_correlation"] = PASS
         else:
@@ -1155,11 +1319,12 @@ def analyze_playbook(
         candidate_checklist["confirmation_context_clear"] = (
             PASS
             if (
+                is_micro_setup
+                or
                 confirmation_direction is not None
                 or (
-                    is_micro_setup
-                    and clear_window_direction in {None, setup.direction}
-                    and timing_direction in {None, setup.direction}
+                    independent_direction
+                    and not require_clear_confirmation_context
                 )
             )
             else FAIL
@@ -1173,6 +1338,14 @@ def analyze_playbook(
         candidate_checklist["trading_candle_stop_wick"] = (
             PASS if _has_stop_wick(setup.confirmation_candle, setup.direction) else FAIL
         )
+        if is_micro_setup:
+            trigger_ok, trigger_reason, trigger_metrics = _fast_trigger_quality(setup)
+            candidate_checklist["fast_trigger_quality"] = PASS if trigger_ok else FAIL
+            candidate_checklist["fast_trigger_quality_metrics"] = trigger_metrics
+            if trigger_reason:
+                candidate_checklist["fast_trigger_quality_reason"] = trigger_reason
+        else:
+            candidate_checklist["fast_trigger_quality"] = PASS
 
         target_zone = nearest_target_zone(
             target_zones,

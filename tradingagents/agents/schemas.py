@@ -96,6 +96,14 @@ class OrderProposal(BaseModel):
     volume: Optional[float] = None
     volume_multiplier: Optional[float] = None
     position_lifecycle: Optional[str] = None
+    break_even_trigger_points: Optional[float] = None
+    break_even_lock_points: Optional[float] = None
+    trailing_trigger_points: Optional[float] = None
+    trailing_distance_points: Optional[float] = None
+    partial_first_trigger_points: Optional[float] = None
+    partial_first_target_volume: Optional[float] = None
+    partial_second_trigger_points: Optional[float] = None
+    partial_second_target_volume: Optional[float] = None
     timeframe: str = "15m"
     confirmation_timeframe: str = "30m"
     valid_until: str
@@ -112,6 +120,19 @@ class OrderProposal(BaseModel):
             value = getattr(self, field_name)
             if value is not None and value <= 0:
                 raise ValueError(f"{field_name} must be positive when provided")
+        for field_name in (
+            "break_even_trigger_points",
+            "break_even_lock_points",
+            "trailing_trigger_points",
+            "trailing_distance_points",
+            "partial_first_trigger_points",
+            "partial_first_target_volume",
+            "partial_second_trigger_points",
+            "partial_second_target_volume",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and value < 0:
+                raise ValueError(f"{field_name} must be non-negative when provided")
         return self
 
 
@@ -158,6 +179,18 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         parts.extend(["", f"**Volume Multiplier**: {proposal.volume_multiplier}"])
     if proposal.position_lifecycle:
         parts.extend(["", f"**Position Lifecycle**: {proposal.position_lifecycle}"])
+    for label, value in (
+        ("Break Even Trigger Points", proposal.break_even_trigger_points),
+        ("Break Even Lock Points", proposal.break_even_lock_points),
+        ("Trailing Trigger Points", proposal.trailing_trigger_points),
+        ("Trailing Distance Points", proposal.trailing_distance_points),
+        ("Partial First Trigger Points", proposal.partial_first_trigger_points),
+        ("Partial First Target Volume", proposal.partial_first_target_volume),
+        ("Partial Second Trigger Points", proposal.partial_second_trigger_points),
+        ("Partial Second Target Volume", proposal.partial_second_target_volume),
+    ):
+        if value is not None:
+            parts.extend(["", f"**{label}**: {value}"])
     if proposal.activation_window_minutes is not None:
         parts.extend(
             [

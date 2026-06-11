@@ -285,6 +285,8 @@ class MT5Executor:
                 partial_second_trigger_points=0.0,
                 partial_second_target_volume=0.0,
             )
+        elif exit_management is None:
+            management = self._proposal_exit_management(management)
         if not management.enabled:
             return {
                 "status": "NO_POSITION_ACTION",
@@ -326,6 +328,37 @@ class MT5Executor:
             "actions": actions,
             "account_safety": account_safety,
         }
+
+    def _proposal_exit_management(
+        self, management: MT5ExitManagementConfig
+    ) -> MT5ExitManagementConfig:
+        proposal = self.state.load().get("proposal") or {}
+        fields = (
+            "break_even_trigger_points",
+            "break_even_lock_points",
+            "trailing_trigger_points",
+            "trailing_distance_points",
+            "min_stop_update_points",
+            "early_loss_exit_points",
+            "scalp_profit_points",
+            "partial_first_trigger_points",
+            "partial_first_target_volume",
+            "partial_second_trigger_points",
+            "partial_second_target_volume",
+        )
+        overrides: dict[str, float] = {}
+        for field in fields:
+            if field not in proposal or proposal[field] is None:
+                continue
+            try:
+                overrides[field] = float(proposal[field])
+            except (TypeError, ValueError):
+                continue
+        if not overrides:
+            return management
+        values = {field: getattr(management, field) for field in fields}
+        values.update(overrides)
+        return MT5ExitManagementConfig(enabled=management.enabled, **values)
 
     def _manage_position(
         self,

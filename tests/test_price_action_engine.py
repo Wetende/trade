@@ -599,7 +599,85 @@ def test_fast_microstructure_confirmed_break_sell_when_two_lows_fail():
     assert payload["risk"]["approved"] is True
 
 
-def test_fast_microstructure_blocks_when_three_minute_window_opposes(monkeypatch):
+def test_one_minute_microstructure_rejects_buy_after_upper_wick_rejection():
+    data = {
+        "3m": candles(
+            "2026-06-10 10:00:00,100.0,102.0,99.0,100.8,1000\n"
+            "2026-06-10 10:03:00,100.8,102.4,99.4,101.0,1000\n"
+            "2026-06-10 10:06:00,101.0,103.2,100.0,101.2,1000"
+        ),
+        "1m": candles(
+            "2026-06-10 10:02:00,100.1,101.00,99.0,100.2,1000\n"
+            "2026-06-10 10:03:00,100.2,101.05,99.4,100.0,1000\n"
+            "2026-06-10 10:04:00,100.0,101.0,99.3,100.4,1000\n"
+            "2026-06-10 10:05:00,100.4,102.8,100.2,102.4,1000\n"
+            "2026-06-10 10:06:00,102.4,103.0,101.1,101.2,1000"
+        ),
+    }
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-10 10:07",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "3m",
+            "zone_timeframes": ("3m",),
+            "context_timeframes": ("3m",),
+            "governing_timeframes": ("3m",),
+            "minimum_setup_grade": "B_PLUS",
+            "minimum_stop_distance_price": 0.3,
+        },
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["fast_trigger_quality"] == "failed"
+    assert "1m trigger candle rejected the BUY direction" in payload["message"]
+
+
+def test_one_minute_microstructure_rejects_sell_after_lower_wick_rejection():
+    data = {
+        "3m": candles(
+            "2026-06-10 11:00:00,100.0,101.5,98.8,99.9,1000\n"
+            "2026-06-10 11:03:00,99.9,101.0,98.6,99.7,1000\n"
+            "2026-06-10 11:06:00,99.7,100.5,97.2,99.0,1000"
+        ),
+        "1m": candles(
+            "2026-06-10 11:02:00,100.2,101.0,99.00,99.6,1000\n"
+            "2026-06-10 11:03:00,99.6,100.4,98.95,100.0,1000\n"
+            "2026-06-10 11:04:00,100.0,100.7,99.2,99.5,1000\n"
+            "2026-06-10 11:05:00,99.5,100.0,98.4,98.6,1000\n"
+            "2026-06-10 11:06:00,98.2,99.3,96.8,98.8,1000"
+        ),
+    }
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-10 11:07",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "3m",
+            "zone_timeframes": ("3m",),
+            "context_timeframes": ("3m",),
+            "governing_timeframes": ("3m",),
+            "minimum_setup_grade": "B_PLUS",
+            "minimum_stop_distance_price": 0.3,
+        },
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["fast_trigger_quality"] == "failed"
+    assert "1m trigger candle rejected the SELL direction" in payload["message"]
+
+
+def test_fast_microstructure_records_three_minute_window_without_blocking(monkeypatch):
     data = {
         "3m": candles(
             "2026-06-10 09:45:00,2000.0,2002.0,1998.6,2000.4,1000\n"
@@ -654,9 +732,11 @@ def test_fast_microstructure_blocks_when_three_minute_window_opposes(monkeypatch
         },
     )
 
-    assert payload["status"] == "NO_SETUP"
-    assert payload["checklist"]["timeframe_correlation"] == "failed"
-    assert "3m window opposes" in payload["telemetry"]["primary_hold_reason"]
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["checklist"]["timeframe_correlation"] == "passed"
+    assert payload["market_context"]["fast_microstructure"]["window_timeframe"] == "3m"
+    assert payload["telemetry"]["market_state"]["3m"]["direction"] == "SELL"
 
 
 def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):

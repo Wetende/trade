@@ -1106,6 +1106,60 @@ def test_executor_partially_closes_boosted_position_and_moves_stop_to_break_even
     assert broker.modified_stops[0]["stop_loss"] == 2450.2
 
 
+def test_executor_uses_proposal_dynamic_partial_thresholds(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777013,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.5,
+            "entry_price": 2450.0,
+            "stop_loss": 2452.0,
+            "take_profit": 2447.0,
+            "current_price": 2448.9,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=5.0,
+            break_even_lock_points=0.0,
+            partial_first_trigger_points=5.0,
+            partial_first_target_volume=1.0,
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={
+                    "position_lifecycle": "FAST_PARTIAL_SCALE",
+                    "break_even_trigger_points": 0.8,
+                    "break_even_lock_points": 0.1,
+                    "partial_first_trigger_points": 1.0,
+                    "partial_first_target_volume": 1.0,
+                }
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "PARTIAL_1_AND_BREAK_EVEN"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA partial 1",
+        0.5,
+    )
+    assert broker.modified_stops[0]["position_ticket"] == 777013
+    assert broker.modified_stops[0]["stop_loss"] == 2449.9
+
+
 def test_executor_second_partial_closes_to_runner_volume_and_trails_stop(tmp_path):
     broker = FakeBroker()
     broker.positions = [

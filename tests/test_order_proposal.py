@@ -241,6 +241,12 @@ def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
                 "volume_multiplier": 1.5,
                 "position_lifecycle": "FAST_PARTIAL_SCALE",
             },
+            "telemetry": {
+                "decision_stage": "setup_found",
+                "primary_hold_reason": "Fast microstructure setup passed.",
+                "candidate_setup_count": 1,
+                "m30_context": {"bias": "BEARISH", "context": "BREAKOUT"},
+            },
         },
     }
 
@@ -249,6 +255,62 @@ def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
 
     assert proposal["volume_multiplier"] == 1.5
     assert proposal["position_lifecycle"] == "FAST_PARTIAL_SCALE"
+    assert "3m" in proposal["reason"]
+    assert "M30" not in proposal["reason"]
+
+
+@pytest.mark.unit
+def test_engine_order_proposal_carries_dynamic_fast_exit_settings(tmp_path):
+    state = {
+        "company_of_interest": "XAUUSD.vx",
+        "broker_symbol": "XAUUSD.vx",
+        "as_of": "2026-06-03 08:15",
+        "timeframe": "1m",
+        "confirmation_timeframe": "3m",
+        "market_timezone": "America/New_York",
+        "engine_payload": {
+            "status": "SETUP_FOUND",
+            "recommendation": "SELL",
+            "entry_profile": "fast",
+            "activation_window_minutes": 6,
+            "message": "Fast microstructure setup passed.",
+            "setups": [
+                {
+                    "name": "Confirmed Break",
+                    "direction": "SELL",
+                    "entry_price": 4075.17,
+                    "stop_loss": 4076.82,
+                    "take_profit": 4072.70,
+                    "setup_grade": "A_PLUS",
+                }
+            ],
+            "risk": {
+                "take_profit": 4072.70,
+                "volume_multiplier": 1.5,
+                "position_lifecycle": "FAST_PARTIAL_SCALE",
+                "break_even_trigger_points": 0.82,
+                "break_even_lock_points": 0.16,
+                "partial_first_trigger_points": 1.24,
+                "partial_first_target_volume": 1.0,
+                "partial_second_trigger_points": 2.06,
+                "partial_second_target_volume": 0.4,
+                "trailing_trigger_points": 2.06,
+                "trailing_distance_points": 0.66,
+            },
+        },
+    }
+
+    proposal_state = create_order_proposal_executor({"results_dir": tmp_path})(state)
+    proposal = json.loads(Path(proposal_state["order_proposal_path"]).read_text())
+
+    assert proposal["break_even_trigger_points"] == 0.82
+    assert proposal["break_even_lock_points"] == 0.16
+    assert proposal["partial_first_trigger_points"] == 1.24
+    assert proposal["partial_first_target_volume"] == 1.0
+    assert proposal["partial_second_trigger_points"] == 2.06
+    assert proposal["partial_second_target_volume"] == 0.4
+    assert proposal["trailing_trigger_points"] == 2.06
+    assert proposal["trailing_distance_points"] == 0.66
 
 
 @pytest.mark.unit

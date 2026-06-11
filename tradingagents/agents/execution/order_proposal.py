@@ -107,7 +107,19 @@ def _telemetry_reason(state: dict) -> str | None:
         else "No trade."
     ]
     if m30_label:
-        parts.append(f"M30 {m30_label}.")
+        confirmation_timeframe = str(
+            state.get("confirmation_timeframe")
+            or payload.get("confirmation_timeframe")
+            or telemetry.get("confirmation_timeframe")
+            or "30m"
+        ).strip()
+        entry_profile = str(
+            state.get("entry_profile") or payload.get("entry_profile") or ""
+        ).strip().lower()
+        context_label = confirmation_timeframe
+        if entry_profile != "fast" and confirmation_timeframe.lower() == "30m":
+            context_label = "M30"
+        parts.append(f"{context_label} {m30_label}.")
     if candidate_count is not None:
         parts.append(f"Candidate setups: {candidate_count}.")
     if primary:
@@ -193,6 +205,16 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     volume = None
     volume_multiplier = None
     position_lifecycle = None
+    dynamic_exit_fields: dict[str, float | None] = {
+        "break_even_trigger_points": None,
+        "break_even_lock_points": None,
+        "trailing_trigger_points": None,
+        "trailing_distance_points": None,
+        "partial_first_trigger_points": None,
+        "partial_first_target_volume": None,
+        "partial_second_trigger_points": None,
+        "partial_second_target_volume": None,
+    }
     reason = _telemetry_reason(state) or str(payload.get("message") or "No engine reason supplied.")
 
     if payload_status == "SETUP_FOUND" and recommendation in {"BUY", "SELL"}:
@@ -211,6 +233,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         position_lifecycle = (
             str(raw_lifecycle).strip() if raw_lifecycle not in (None, "") else None
         )
+        dynamic_exit_fields = {
+            key: _float_value(risk.get(key)) for key in dynamic_exit_fields
+        }
         if entry is not None and stop is not None and target is not None:
             status = OrderStatus.PROPOSED
         else:
@@ -237,6 +262,7 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         volume=volume,
         volume_multiplier=volume_multiplier,
         position_lifecycle=position_lifecycle,
+        **dynamic_exit_fields,
         timeframe=timeframe,
         confirmation_timeframe=confirmation_timeframe,
         valid_until=_valid_until(as_of, timeframe, market_timezone),
