@@ -86,6 +86,10 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_EXIT_TRAILING_TRIGGER_POINTS": "exit_trailing_trigger_points",
         "TRADINGAGENTS_EXIT_TRAILING_DISTANCE_POINTS": "exit_trailing_distance_points",
         "TRADINGAGENTS_EXIT_MIN_STOP_UPDATE_POINTS": "exit_min_stop_update_points",
+        "TRADINGAGENTS_EXIT_PARTIAL_FIRST_TRIGGER_POINTS": "exit_partial_first_trigger_points",
+        "TRADINGAGENTS_EXIT_PARTIAL_FIRST_TARGET_VOLUME": "exit_partial_first_target_volume",
+        "TRADINGAGENTS_EXIT_PARTIAL_SECOND_TRIGGER_POINTS": "exit_partial_second_trigger_points",
+        "TRADINGAGENTS_EXIT_PARTIAL_SECOND_TARGET_VOLUME": "exit_partial_second_target_volume",
     }
     for env_var, key in env_overrides.items():
         raw = os.environ.get(env_var)
@@ -524,6 +528,18 @@ def _mt5_exit_management_config():
         ),
         min_stop_update_points=float(
             DEFAULT_CONFIG.get("exit_min_stop_update_points", 0.0)
+        ),
+        partial_first_trigger_points=float(
+            DEFAULT_CONFIG.get("exit_partial_first_trigger_points", 0.0)
+        ),
+        partial_first_target_volume=float(
+            DEFAULT_CONFIG.get("exit_partial_first_target_volume", 0.0)
+        ),
+        partial_second_trigger_points=float(
+            DEFAULT_CONFIG.get("exit_partial_second_trigger_points", 0.0)
+        ),
+        partial_second_target_volume=float(
+            DEFAULT_CONFIG.get("exit_partial_second_target_volume", 0.0)
         ),
     )
 

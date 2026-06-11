@@ -93,6 +93,9 @@ class OrderProposal(BaseModel):
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    volume: Optional[float] = None
+    volume_multiplier: Optional[float] = None
+    position_lifecycle: Optional[str] = None
     timeframe: str = "15m"
     confirmation_timeframe: str = "30m"
     valid_until: str
@@ -105,6 +108,10 @@ class OrderProposal(BaseModel):
     def default_broker_symbol(self) -> "OrderProposal":
         if self.broker_symbol is None:
             self.broker_symbol = self.symbol
+        for field_name in ("volume", "volume_multiplier"):
+            value = getattr(self, field_name)
+            if value is not None and value <= 0:
+                raise ValueError(f"{field_name} must be positive when provided")
         return self
 
 
@@ -145,6 +152,12 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     if proposal.take_profit is not None:
         parts.extend(["", f"**Take Profit**: {proposal.take_profit}"])
+    if proposal.volume is not None:
+        parts.extend(["", f"**Volume**: {proposal.volume}"])
+    if proposal.volume_multiplier is not None:
+        parts.extend(["", f"**Volume Multiplier**: {proposal.volume_multiplier}"])
+    if proposal.position_lifecycle:
+        parts.extend(["", f"**Position Lifecycle**: {proposal.position_lifecycle}"])
     if proposal.activation_window_minutes is not None:
         parts.extend(
             [

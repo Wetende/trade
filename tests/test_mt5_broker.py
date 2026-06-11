@@ -1747,7 +1747,7 @@ def test_mt5_broker_rejects_pending_order_guard_mismatch(
     assert fake_mt5.sent_requests == []
 
 
-def test_mt5_broker_rejects_pending_order_volume_mismatch():
+def test_mt5_broker_allows_dynamic_pending_order_volume():
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(
         login=123456789,
@@ -1757,12 +1757,40 @@ def test_mt5_broker_rejects_pending_order_volume_mismatch():
         volume=0.02,
     )
     broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
 
-    with pytest.raises(MT5BrokerError, match="volume must match configured MT5 volume"):
-        broker.place_pending_order(_valid_pending_request())
+    result = broker.place_pending_order(_valid_pending_request())
 
-    assert fake_mt5.sent_requests == []
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.01
 
+
+def test_mt5_broker_closes_partial_position_volume():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.5,
+        },
+        comment="TA partial 1",
+        volume=0.5,
+    )
+
+    assert result["ok"] is True
+    assert fake_mt5.sent_requests[-1]["position"] == 333444
+    assert fake_mt5.sent_requests[-1]["volume"] == 0.5
+    assert fake_mt5.sent_requests[-1]["comment"] == "TA partial 1"
 
 def test_mt5_broker_accepts_placed_retcode():
     fake_mt5 = FakeMT5()

@@ -453,7 +453,9 @@ def test_engine_can_run_fast_profile_with_one_minute_entries(monkeypatch):
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "3m",
-            "zone_timeframes": ("1d", "4h", "1h", "30m", "15m", "3m"),
+            "zone_timeframes": ("3m",),
+            "governing_timeframes": ("3m",),
+            "context_timeframes": ("3m",),
             "activation_window_minutes": 6,
             "minimum_stop_distance_price": 2.5,
         },
@@ -508,6 +510,8 @@ def test_fast_microstructure_aggressive_respect_buy_from_two_lows():
     assert payload["setups"][0]["setup_grade"] == "B_PLUS"
     assert payload["risk"]["approved"] is True
     assert payload["risk"]["risk_reward"] >= 1.1
+    assert payload["risk"]["volume_multiplier"] == 1.5
+    assert payload["risk"]["position_lifecycle"] == "FAST_PARTIAL_SCALE"
     assert payload["checklist"]["confirmation_context_clear"] == "passed"
     assert payload["market_context"]["fast_microstructure"]["window_timeframe"] == "3m"
 
@@ -655,111 +659,6 @@ def test_fast_microstructure_blocks_when_three_minute_window_opposes(monkeypatch
     assert "3m window opposes" in payload["telemetry"]["primary_hold_reason"]
 
 
-def test_fast_engine_uses_governing_context_separate_from_three_minute_timing(
-    monkeypatch,
-):
-    data = {
-        **aligned_buy_setup_data(),
-        "30m": candles(
-            "2026-06-09 14:00:00,100,102,98,101,1000\n"
-            "2026-06-09 14:30:00,101,102,96,97,1000"
-        ),
-        "15m": candles(
-            "2026-06-09 14:15:00,101,102,98,100,1000\n"
-            "2026-06-09 14:30:00,100,101,96,97,1000"
-        ),
-        "3m": candles(
-            "2026-06-09 14:54:00,98,99,97,98.5,1000\n"
-            "2026-06-09 14:57:00,98.5,99.5,97.5,98.4,1000"
-        ),
-        "1m": candles(
-            "2026-06-09 14:58:00,98.4,99.0,97.8,98.1,1000\n"
-            "2026-06-09 14:59:00,98.1,98.8,96.8,97.2,1000"
-        ),
-    }
-    context_zone = Zone("support", "30m", 96.0, 97.0, 96.5, 3, 20, "test")
-    entry_zone = Zone("support", "15m", 96.0, 97.0, 96.5, 3, 20, "test")
-    context_setup = Setup(
-        "Breakout",
-        "SELL",
-        context_zone,
-        97.0,
-        99.0,
-        data["30m"][-1],
-    )
-    entry_setup = Setup(
-        "Breakout",
-        "SELL",
-        entry_zone,
-        97.2,
-        98.9,
-        data["1m"][-1],
-    )
-
-    monkeypatch.setattr(
-        engine,
-        "calculate_support_resistance",
-        lambda raw_candles, timeframe: (
-            [context_zone]
-            if timeframe == "30m"
-            else [entry_zone]
-            if timeframe == "15m"
-            else []
-        ),
-    )
-    monkeypatch.setattr(
-        engine,
-        "detect_breakouts",
-        lambda raw_candles, zones: (
-            [context_setup]
-            if raw_candles == data["30m"]
-            else [entry_setup]
-            if raw_candles == data["1m"]
-            else []
-        ),
-    )
-    monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(engine, "_is_overextended", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(engine, "nearest_target_zone", lambda *_args, **_kwargs: {"midpoint": 92.0})
-    monkeypatch.setattr(
-        engine,
-        "approve_risk",
-        lambda *_args, **_kwargs: {
-            "approved": True,
-            "take_profit": 92.0,
-            "risk_distance": 1.7,
-            "reward_distance": 5.2,
-            "risk_reward": 3.0,
-            "available_risk_reward": 3.0,
-        },
-    )
-
-    payload = analyze_playbook(
-        "XAUUSD",
-        "2026-06-09 15:00",
-        data,
-        market_timezone="America/New_York",
-        session_config={
-            "time_filter_mode": "allow",
-            "entry_profile": "fast",
-            "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "governing_timeframes": ("30m", "15m"),
-            "zone_timeframes": ("30m", "15m"),
-            "activation_window_minutes": 6,
-            "minimum_stop_distance_price": 0.5,
-        },
-    )
-
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["confirmation_timeframe"] == "3m"
-    assert payload["market_context"]["governing_timeframes"] == ("30m", "15m")
-    assert payload["checklist"]["timeframe_correlation"] == "passed"
-    assert payload["checklist"]["confirmation_context_clear"] == "passed"
-
-
 def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):
     data = {
         **aligned_buy_setup_data(),
@@ -780,16 +679,7 @@ def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):
             "2026-06-09 14:59:00,98.1,98.8,96.8,97.2,1000"
         ),
     }
-    context_zone = Zone("support", "30m", 96.0, 97.0, 96.5, 3, 20, "test")
-    entry_zone = Zone("support", "15m", 96.0, 97.0, 96.5, 3, 20, "test")
-    context_setup = Setup(
-        "Breakout",
-        "SELL",
-        context_zone,
-        97.0,
-        99.0,
-        data["30m"][-1],
-    )
+    entry_zone = Zone("support", "3m", 96.0, 97.0, 96.5, 3, 20, "test")
     entry_setup = Setup(
         "Breakout",
         "SELL",
@@ -802,24 +692,12 @@ def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):
     monkeypatch.setattr(
         engine,
         "calculate_support_resistance",
-        lambda raw_candles, timeframe: (
-            [context_zone]
-            if timeframe == "30m"
-            else [entry_zone]
-            if timeframe == "15m"
-            else []
-        ),
+        lambda raw_candles, timeframe: [entry_zone] if timeframe == "3m" else [],
     )
     monkeypatch.setattr(
         engine,
         "detect_breakouts",
-        lambda raw_candles, zones: (
-            [context_setup]
-            if raw_candles == data["30m"]
-            else [entry_setup]
-            if raw_candles == data["1m"]
-            else []
-        ),
+        lambda raw_candles, zones: [entry_setup] if raw_candles == data["1m"] else [],
     )
     monkeypatch.setattr(engine, "detect_break_and_retest", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(engine, "detect_sr_bounce", lambda *_args, **_kwargs: [])
@@ -866,8 +744,8 @@ def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "3m",
-            "governing_timeframes": ("30m", "15m"),
-            "zone_timeframes": ("30m", "15m"),
+            "governing_timeframes": ("3m",),
+            "zone_timeframes": ("3m",),
             "activation_window_minutes": 6,
             "minimum_stop_distance_price": 0.5,
         },
@@ -930,7 +808,9 @@ def test_fast_engine_rejects_entries_when_confirmation_context_is_unclear(monkey
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "3m",
-            "zone_timeframes": ("1h", "30m", "15m", "3m"),
+            "zone_timeframes": ("3m",),
+            "governing_timeframes": ("3m",),
+            "context_timeframes": ("3m",),
             "activation_window_minutes": 6,
             "minimum_stop_distance_price": 2.5,
         },

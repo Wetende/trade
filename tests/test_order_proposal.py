@@ -212,6 +212,46 @@ def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
 
 
 @pytest.mark.unit
+def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
+    state = {
+        "company_of_interest": "XAUUSD.vx",
+        "broker_symbol": "XAUUSD.vx",
+        "as_of": "2026-06-03 08:15",
+        "timeframe": "1m",
+        "confirmation_timeframe": "3m",
+        "market_timezone": "America/New_York",
+        "engine_payload": {
+            "status": "SETUP_FOUND",
+            "recommendation": "SELL",
+            "entry_profile": "fast",
+            "activation_window_minutes": 6,
+            "message": "Fast microstructure setup passed.",
+            "setups": [
+                {
+                    "name": "Confirmed Break",
+                    "direction": "SELL",
+                    "entry_price": 4075.17,
+                    "stop_loss": 4076.82,
+                    "take_profit": 4072.70,
+                    "setup_grade": "A_PLUS",
+                }
+            ],
+            "risk": {
+                "take_profit": 4072.70,
+                "volume_multiplier": 1.5,
+                "position_lifecycle": "FAST_PARTIAL_SCALE",
+            },
+        },
+    }
+
+    proposal_state = create_order_proposal_executor({"results_dir": tmp_path})(state)
+    proposal = json.loads(Path(proposal_state["order_proposal_path"]).read_text())
+
+    assert proposal["volume_multiplier"] == 1.5
+    assert proposal["position_lifecycle"] == "FAST_PARTIAL_SCALE"
+
+
+@pytest.mark.unit
 def test_engine_no_setup_overrides_llm_buy_text(tmp_path):
     state = _state(
         "**Action**: BUY\n\n"

@@ -292,6 +292,9 @@ def _setup_to_dict(
                 "risk_reward": risk["risk_reward"],
             }
         )
+        for key in ("volume", "volume_multiplier", "position_lifecycle"):
+            if key in risk:
+                result[key] = risk[key]
     return result
 
 
@@ -801,6 +804,8 @@ def _approve_micro_scalp_risk(
         "risk_reward": round(preferred_rr, 2),
         "available_risk_reward": round(preferred_rr, 2),
         "risk_model": "FAST_MICRO_SCALP",
+        "volume_multiplier": 1.5,
+        "position_lifecycle": "FAST_PARTIAL_SCALE",
     }
 
 

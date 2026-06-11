@@ -190,6 +190,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     setup_name = None
     setup_grade = None
     strategy_type = None
+    volume = None
+    volume_multiplier = None
+    position_lifecycle = None
     reason = _telemetry_reason(state) or str(payload.get("message") or "No engine reason supplied.")
 
     if payload_status == "SETUP_FOUND" and recommendation in {"BUY", "SELL"}:
@@ -202,6 +205,12 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         entry = _float_value(setup.get("entry_price"))
         stop = _float_value(setup.get("stop_loss"))
         target = _float_value(setup.get("take_profit") or risk.get("take_profit"))
+        volume = _float_value(risk.get("volume"))
+        volume_multiplier = _float_value(risk.get("volume_multiplier"))
+        raw_lifecycle = risk.get("position_lifecycle")
+        position_lifecycle = (
+            str(raw_lifecycle).strip() if raw_lifecycle not in (None, "") else None
+        )
         if entry is not None and stop is not None and target is not None:
             status = OrderStatus.PROPOSED
         else:
@@ -225,6 +234,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         entry_price=entry,
         stop_loss=stop,
         take_profit=target,
+        volume=volume,
+        volume_multiplier=volume_multiplier,
+        position_lifecycle=position_lifecycle,
         timeframe=timeframe,
         confirmation_timeframe=confirmation_timeframe,
         valid_until=_valid_until(as_of, timeframe, market_timezone),

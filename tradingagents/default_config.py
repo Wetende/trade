@@ -51,6 +51,10 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_EXIT_TRAILING_TRIGGER_POINTS": "exit_trailing_trigger_points",
     "TRADINGAGENTS_EXIT_TRAILING_DISTANCE_POINTS": "exit_trailing_distance_points",
     "TRADINGAGENTS_EXIT_MIN_STOP_UPDATE_POINTS": "exit_min_stop_update_points",
+    "TRADINGAGENTS_EXIT_PARTIAL_FIRST_TRIGGER_POINTS": "exit_partial_first_trigger_points",
+    "TRADINGAGENTS_EXIT_PARTIAL_FIRST_TARGET_VOLUME": "exit_partial_first_target_volume",
+    "TRADINGAGENTS_EXIT_PARTIAL_SECOND_TRIGGER_POINTS": "exit_partial_second_trigger_points",
+    "TRADINGAGENTS_EXIT_PARTIAL_SECOND_TARGET_VOLUME": "exit_partial_second_target_volume",
 }
 
 
@@ -152,6 +156,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "exit_trailing_trigger_points": 3.0,
     "exit_trailing_distance_points": 1.2,
     "exit_min_stop_update_points": 0.3,
+    "exit_partial_first_trigger_points": 1.5,
+    "exit_partial_first_target_volume": 1.0,
+    "exit_partial_second_trigger_points": 2.5,
+    "exit_partial_second_target_volume": 0.4,
     "price_action": dict(DEFAULT_SESSION_CONFIG),
     "max_recur_limit": 20,
     # Data vendor configuration: keep only core OHLC fetching for now.

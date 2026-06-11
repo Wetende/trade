@@ -32,6 +32,10 @@ class MT5ExitManagementConfig:
     min_stop_update_points: float = 0.0
     early_loss_exit_points: float = 0.0
     scalp_profit_points: float = 0.0
+    partial_first_trigger_points: float = 0.0
+    partial_first_target_volume: float = 0.0
+    partial_second_trigger_points: float = 0.0
+    partial_second_target_volume: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -44,6 +48,10 @@ class MT5ExitManagementConfig:
             "min_stop_update_points",
             "early_loss_exit_points",
             "scalp_profit_points",
+            "partial_first_trigger_points",
+            "partial_first_target_volume",
+            "partial_second_trigger_points",
+            "partial_second_target_volume",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < 0:
@@ -272,6 +280,10 @@ class MT5Executor:
                 min_stop_update_points=0.0,
                 early_loss_exit_points=0.0,
                 scalp_profit_points=0.0,
+                partial_first_trigger_points=0.0,
+                partial_first_target_volume=0.0,
+                partial_second_trigger_points=0.0,
+                partial_second_target_volume=0.0,
             )
         if not management.enabled:
             return {
@@ -283,6 +295,7 @@ class MT5Executor:
         actions = []
         closed = False
         closed_scalp = False
+        partial = False
         moved = False
         for position in positions:
             action = self._manage_position(position, management)
@@ -293,10 +306,13 @@ class MT5Executor:
             actions.append(action)
             closed = closed or action.get("action") == "CLOSE_POSITION"
             closed_scalp = closed_scalp or action.get("reason") == "SCALP_PROFIT_EXIT"
+            partial = partial or action.get("action") == "PARTIAL_CLOSE"
             moved = moved or action.get("action") == "MODIFY_STOP"
 
         if legacy_mode:
             status = "MANAGED" if actions else "NO_POSITION_ACTION"
+        elif partial:
+            status = "POSITION_PARTIALLY_CLOSED"
         elif closed_scalp:
             status = "POSITION_CLOSED_SCALP"
         elif closed:
@@ -325,6 +341,23 @@ class MT5Executor:
             return None
 
         favorable_points = current - entry if side == "BUY" else entry - current
+        target = _first_float(position, "take_profit", "tp")
+        stop = _first_float(position, "stop_loss", "sl")
+        ticket = position.get("ticket")
+        partial_action = self._partial_close_action(
+            position,
+            side,
+            entry,
+            current,
+            favorable_points,
+            management,
+            target,
+            stop,
+            ticket,
+        )
+        if partial_action is not None:
+            return partial_action
+
         if (
             management.scalp_profit_points > 0
             and favorable_points >= management.scalp_profit_points
@@ -361,9 +394,6 @@ class MT5Executor:
             self.journal.append("POSITION_CLOSED_EARLY", action)
             return action
 
-        target = _first_float(position, "take_profit", "tp")
-        stop = _first_float(position, "stop_loss", "sl")
-        ticket = position.get("ticket")
         if target is None or stop is None or ticket in (None, ""):
             return None
 
@@ -405,6 +435,132 @@ class MT5Executor:
         }
         self.journal.append("POSITION_STOP_MOVED", action)
         return action
+
+    def _partial_close_action(
+        self,
+        position: dict[str, Any],
+        side: str,
+        entry: float,
+        current: float,
+        favorable_points: float,
+        management: MT5ExitManagementConfig,
+        target: float | None,
+        stop: float | None,
+        ticket: Any,
+    ) -> dict[str, Any] | None:
+        if not self._partial_scale_lifecycle_enabled():
+            return None
+        volume = _first_float(position, "volume", "volume_current")
+        if volume is None:
+            return None
+
+        stages = (
+            (
+                management.partial_first_trigger_points,
+                management.partial_first_target_volume,
+                "TA partial 1",
+                "PARTIAL_1_AND_BREAK_EVEN",
+            ),
+            (
+                management.partial_second_trigger_points,
+                management.partial_second_target_volume,
+                "TA partial 2",
+                "PARTIAL_2_AND_TRAIL",
+            ),
+        )
+        for trigger_points, target_volume, comment, reason in stages:
+            if trigger_points <= 0 or target_volume <= 0:
+                continue
+            if favorable_points < trigger_points or volume <= target_volume:
+                continue
+
+            close_volume = round(volume - target_volume, 8)
+            if close_volume <= 0:
+                continue
+            close_result = self.broker.close_position(
+                position,
+                comment=comment,
+                volume=close_volume,
+            )
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "PARTIAL_CLOSE",
+                "reason": reason,
+                "closed_volume": close_volume,
+                "remaining_volume": target_volume,
+                "favorable_points": round(favorable_points, 2),
+                "result": close_result,
+            }
+            stop_result = self._move_stop_after_partial(
+                side,
+                entry,
+                current,
+                favorable_points,
+                management,
+                target,
+                stop,
+                ticket,
+            )
+            if stop_result is not None:
+                action.update(stop_result)
+            self.journal.append("POSITION_PARTIALLY_CLOSED", action)
+            return action
+        return None
+
+    def _partial_scale_lifecycle_enabled(self) -> bool:
+        proposal = self.state.load().get("proposal") or {}
+        lifecycle = str(proposal.get("position_lifecycle") or "").strip().upper()
+        return lifecycle == "FAST_PARTIAL_SCALE"
+
+    def _move_stop_after_partial(
+        self,
+        side: str,
+        entry: float,
+        current: float,
+        favorable_points: float,
+        management: MT5ExitManagementConfig,
+        target: float | None,
+        stop: float | None,
+        ticket: Any,
+    ) -> dict[str, Any] | None:
+        if target is None or stop is None or ticket in (None, ""):
+            return None
+        candidate, stop_reason = _managed_stop_candidate(
+            side,
+            entry,
+            current,
+            favorable_points,
+            management,
+        )
+        if candidate is None or stop_reason is None:
+            return None
+
+        connection = self.broker.connect()
+        symbol_info = connection["symbol"]
+        rounded_stop = self.builder._round_price(candidate, symbol_info)
+        rounded_target = self.builder._round_price(target, symbol_info)
+        if not _is_valid_managed_stop(side, rounded_stop, current):
+            return None
+        improvement = _stop_improvement_points(side, rounded_stop, stop)
+        if improvement <= 0 or improvement < management.min_stop_update_points:
+            return None
+
+        result = self.broker.modify_position_stops(
+            int(ticket),
+            rounded_stop,
+            rounded_target,
+        )
+        return {
+            "stop_management_action": (
+                "MOVE_TO_BREAK_EVEN"
+                if stop_reason == "BREAK_EVEN"
+                else "TRAIL_STOP"
+            ),
+            "stop_reason": stop_reason,
+            "stop_loss": rounded_stop,
+            "take_profit": rounded_target,
+            "stop_result": result,
+        }
 
     def reconcile_trade_history(
         self,

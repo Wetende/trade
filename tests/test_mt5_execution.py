@@ -76,6 +76,30 @@ def test_build_buy_limit_request_rounds_prices():
     }
 
 
+def test_build_request_uses_proposal_volume_multiplier():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        volume=1.0,
+        deviation=20,
+        magic=150015,
+    )
+    builder = MT5OrderRequestBuilder(config)
+    proposal = _proposal().model_copy(update={"volume_multiplier": 1.5})
+    symbol = {
+        "name": "XAUUSD",
+        "digits": 2,
+        "point": 0.01,
+        "trade_tick_size": 0.01,
+    }
+
+    request = builder.build_pending_limit_request(proposal, symbol)
+
+    assert request["volume"] == 1.5
+
+
 def test_build_request_uses_broker_symbol_when_analysis_symbol_differs():
     config = MT5ConnectionConfig(
         login=123456789,
@@ -486,8 +510,14 @@ class FakeBroker:
         )
         return {"ok": True, "position": position_ticket, "retcode": 10009}
 
-    def close_position(self, position, *, comment="TradingAgents close"):
-        self.closed_positions.append((dict(position), comment))
+    def close_position(
+        self,
+        position,
+        *,
+        comment="TradingAgents close",
+        volume=None,
+    ):
+        self.closed_positions.append((dict(position), comment, volume))
         return {"ok": True, "position": position.get("ticket"), "retcode": 10009}
 
     def history_deals(self, symbol, start_utc, end_utc):
@@ -1023,7 +1053,137 @@ def test_executor_closes_scalp_profit_before_break_even(tmp_path):
     assert result["actions"][0]["reason"] == "SCALP_PROFIT_EXIT"
     assert broker.closed_positions[0][0]["ticket"] == 777001
     assert broker.closed_positions[0][1] == "TA scalp exit"
+    assert broker.closed_positions[0][2] is None
     assert broker.modified_stops == []
+
+
+def test_executor_partially_closes_boosted_position_and_moves_stop_to_break_even(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777010,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.5,
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2451.6,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            scalp_profit_points=1.5,
+            break_even_trigger_points=1.0,
+            break_even_lock_points=0.2,
+            partial_first_trigger_points=1.5,
+            partial_first_target_volume=1.0,
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": _proposal().model_copy(
+                update={"position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "PARTIAL_1_AND_BREAK_EVEN"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA partial 1",
+        0.5,
+    )
+    assert broker.modified_stops[0]["position_ticket"] == 777010
+    assert broker.modified_stops[0]["stop_loss"] == 2450.2
+
+
+def test_executor_second_partial_closes_to_runner_volume_and_trails_stop(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777011,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2450.2,
+            "take_profit": 2456.0,
+            "current_price": 2452.7,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            trailing_trigger_points=2.5,
+            trailing_distance_points=0.8,
+            min_stop_update_points=0.2,
+            partial_second_trigger_points=2.5,
+            partial_second_target_volume=0.4,
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": _proposal().model_copy(
+                update={"position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "PARTIAL_2_AND_TRAIL"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA partial 2",
+        0.6,
+    )
+    assert broker.modified_stops[0]["position_ticket"] == 777011
+    assert broker.modified_stops[0]["stop_loss"] == 2451.9
+
+
+def test_executor_does_not_partial_close_base_position_without_partial_lifecycle(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777012,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2452.7,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=0.0,
+            partial_second_trigger_points=2.5,
+            partial_second_target_volume=0.4,
+        ),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
 
 
 def test_executor_closes_early_adverse_position(tmp_path):

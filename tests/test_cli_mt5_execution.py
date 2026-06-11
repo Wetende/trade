@@ -105,6 +105,10 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_trailing_trigger_points", 3.0)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_trailing_distance_points", 1.2)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_min_stop_update_points", 0.3)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_first_trigger_points", 1.5)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_first_target_volume", 1.0)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_second_trigger_points", 2.5)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_second_target_volume", 0.4)
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
@@ -132,6 +136,10 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     assert calls["executor_exit_management"].trailing_trigger_points == 3.0
     assert calls["executor_exit_management"].trailing_distance_points == 1.2
     assert calls["executor_exit_management"].min_stop_update_points == 0.3
+    assert calls["executor_exit_management"].partial_first_trigger_points == 1.5
+    assert calls["executor_exit_management"].partial_first_target_volume == 1.0
+    assert calls["executor_exit_management"].partial_second_trigger_points == 2.5
+    assert calls["executor_exit_management"].partial_second_target_volume == 0.4
     assert calls["runner_config"].blocked_strategy_rules == (
         "SUPPORT_RESISTANCE_BOUNCE:SELL",
     )

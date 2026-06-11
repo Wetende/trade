@@ -201,6 +201,20 @@ class MT5OrderRequestBuilder:
             price = round(price / tick_size) * tick_size
         return round(price, digits)
 
+    def _request_volume(self, proposal: OrderProposal) -> float:
+        raw_volume = getattr(proposal, "volume", None)
+        if raw_volume in (None, ""):
+            multiplier = getattr(proposal, "volume_multiplier", None)
+            raw_volume = (
+                self.config.volume
+                if multiplier in (None, "")
+                else float(self.config.volume) * float(multiplier)
+            )
+        volume = float(raw_volume)
+        if not math.isfinite(volume) or volume <= 0:
+            raise ValueError("MT5 volume must be positive and finite")
+        return volume
+
     def _legacy_limit_order_type(self, side: Any) -> str:
         side_value = str(getattr(side, "value", side)).upper()
         if side_value == "BUY":
@@ -369,7 +383,7 @@ class MT5OrderRequestBuilder:
         return {
             "action": "TRADE_ACTION_PENDING",
             "symbol": self.config.symbol,
-            "volume": self.config.volume,
+            "volume": self._request_volume(proposal),
             "type": request_type,
             "price": entry,
             "sl": stop,
@@ -862,13 +876,6 @@ class MT5Broker:
             field: self._positive_float(request[field], field)
             for field in ("volume", "price", "sl", "tp")
         }
-        if not math.isclose(
-            numbers["volume"],
-            self.config.volume,
-            rel_tol=0.0,
-            abs_tol=1e-12,
-        ):
-            raise MT5BrokerError("volume must match configured MT5 volume")
         if request["type"] in {"BUY_LIMIT", "BUY_STOP"} and not (
             numbers["sl"] < numbers["price"] < numbers["tp"]
         ):
@@ -964,6 +971,7 @@ class MT5Broker:
         position: dict[str, Any],
         *,
         comment: str = "TradingAgents close",
+        volume: float | None = None,
     ) -> dict[str, Any]:
         item = _asdict(position)
         ticket = self._positive_ticket(item.get("ticket"), "position")
@@ -976,7 +984,14 @@ class MT5Broker:
         side = str(item.get("side") or "").upper()
         if side not in {"BUY", "SELL"}:
             raise MT5BrokerError("position side must be BUY or SELL")
-        volume = self._positive_float(item.get("volume"), "volume")
+        open_volume = self._positive_float(item.get("volume"), "volume")
+        close_volume = (
+            open_volume
+            if volume in (None, "")
+            else self._positive_float(volume, "close volume")
+        )
+        if close_volume - open_volume > 1e-12:
+            raise MT5BrokerError("close volume cannot exceed open position volume")
 
         self._assert_active_session()
         mt5 = self._module()
@@ -991,7 +1006,7 @@ class MT5Broker:
         base_request = {
             "action": "TRADE_ACTION_DEAL",
             "symbol": self.config.symbol,
-            "volume": volume,
+            "volume": close_volume,
             "type": close_type,
             "position": ticket,
             "price": price,
