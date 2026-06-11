@@ -1028,7 +1028,7 @@ def analyze_playbook(
             profile_config.get("normal_activation_window_minutes", 30)
         )
     control_label = (
-        f"{entry_timeframe} execution with {confirmation_timeframe} context window"
+        "1m candle reader"
         if profile_name == "fast"
         else "M30/M15 checklist"
     )

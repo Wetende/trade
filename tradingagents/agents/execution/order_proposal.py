@@ -116,7 +116,7 @@ def _telemetry_reason(state: dict) -> str | None:
         entry_profile = str(
             state.get("entry_profile") or payload.get("entry_profile") or ""
         ).strip().lower()
-        context_label = confirmation_timeframe
+        context_label = "1m history" if entry_profile == "fast" else confirmation_timeframe
         if entry_profile != "fast" and confirmation_timeframe.lower() == "30m":
             context_label = "M30"
         parts.append(f"{context_label} {m30_label}.")

@@ -36,10 +36,19 @@ class MT5ExitManagementConfig:
     partial_first_target_volume: float = 0.0
     partial_second_trigger_points: float = 0.0
     partial_second_target_volume: float = 0.0
+    candle_rejection_exit_enabled: bool = True
+    candle_rejection_timeframe: str = "1m"
+    candle_rejection_partial_fraction: float = 0.5
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be a boolean")
+        if not isinstance(self.candle_rejection_exit_enabled, bool):
+            raise ValueError("candle_rejection_exit_enabled must be a boolean")
+        timeframe = str(self.candle_rejection_timeframe or "").strip().lower()
+        if not timeframe:
+            raise ValueError("candle_rejection_timeframe must be non-empty")
+        object.__setattr__(self, "candle_rejection_timeframe", timeframe)
         for name in (
             "break_even_trigger_points",
             "break_even_lock_points",
@@ -52,17 +61,35 @@ class MT5ExitManagementConfig:
             "partial_first_target_volume",
             "partial_second_trigger_points",
             "partial_second_target_volume",
+            "candle_rejection_partial_fraction",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be a finite non-negative number")
             object.__setattr__(self, name, value)
+        if self.candle_rejection_partial_fraction > 1:
+            raise ValueError("candle_rejection_partial_fraction must be <= 1")
 
 
 def load_order_proposal(path: str | Path) -> OrderProposal:
     """Load an order proposal JSON artifact from disk."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return OrderProposal.model_validate(data)
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class MT5Executor:
@@ -297,6 +324,7 @@ class MT5Executor:
         actions = []
         closed = False
         closed_scalp = False
+        closed_rejection = False
         partial = False
         moved = False
         for position in positions:
@@ -308,6 +336,9 @@ class MT5Executor:
             actions.append(action)
             closed = closed or action.get("action") == "CLOSE_POSITION"
             closed_scalp = closed_scalp or action.get("reason") == "SCALP_PROFIT_EXIT"
+            closed_rejection = closed_rejection or action.get("reason") == (
+                "CANDLE_REJECTION_FULL_EXIT"
+            )
             partial = partial or action.get("action") == "PARTIAL_CLOSE"
             moved = moved or action.get("action") == "MODIFY_STOP"
 
@@ -315,6 +346,8 @@ class MT5Executor:
             status = "MANAGED" if actions else "NO_POSITION_ACTION"
         elif partial:
             status = "POSITION_PARTIALLY_CLOSED"
+        elif closed_rejection:
+            status = "POSITION_CLOSED_REJECTION"
         elif closed_scalp:
             status = "POSITION_CLOSED_SCALP"
         elif closed:
@@ -377,6 +410,10 @@ class MT5Executor:
         target = _first_float(position, "take_profit", "tp")
         stop = _first_float(position, "stop_loss", "sl")
         ticket = position.get("ticket")
+        rejection_action = self._candle_rejection_action(position, side, management)
+        if rejection_action is not None:
+            return rejection_action
+
         partial_action = self._partial_close_action(
             position,
             side,
@@ -468,6 +505,160 @@ class MT5Executor:
         }
         self.journal.append("POSITION_STOP_MOVED", action)
         return action
+
+    def _candle_rejection_action(
+        self,
+        position: dict[str, Any],
+        side: str,
+        management: MT5ExitManagementConfig,
+    ) -> dict[str, Any] | None:
+        if not management.candle_rejection_exit_enabled:
+            return None
+        state = self.state.load()
+        proposal = state.get("proposal") or {}
+        if not self._one_minute_rejection_lifecycle_enabled(proposal):
+            return None
+
+        candle = self._latest_rejection_candle(side, management, state)
+        if candle is None:
+            return None
+
+        position_key = self._position_state_key(position)
+        if position_key is None:
+            return None
+        candle_timestamp = str(candle["timestamp"])
+        rejection_state = state.setdefault("rejection_exit_state", {})
+        position_state = dict(rejection_state.get(position_key) or {})
+        if position_state.get("last_candle_timestamp") == candle_timestamp:
+            return None
+
+        volume = _first_float(position, "volume", "volume_current")
+        if volume is None or volume <= 0:
+            return None
+
+        if position_state.get("stage") == "PARTIAL":
+            close_result = self.broker.close_position(
+                position,
+                comment="TA candle rejection exit",
+            )
+            position_state.update(
+                {
+                    "stage": "CLOSED",
+                    "last_candle_timestamp": candle_timestamp,
+                    "side": side,
+                }
+            )
+            rejection_state[position_key] = position_state
+            self.state.save(state)
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "CLOSE_POSITION",
+                "reason": "CANDLE_REJECTION_FULL_EXIT",
+                "candle": candle,
+                "result": close_result,
+            }
+            self.journal.append("POSITION_CLOSED_REJECTION", action)
+            return action
+
+        close_volume = round(volume * management.candle_rejection_partial_fraction, 8)
+        if close_volume <= 0:
+            return None
+        if close_volume >= volume:
+            close_volume = volume
+        close_result = self.broker.close_position(
+            position,
+            comment="TA candle rejection partial",
+            volume=close_volume,
+        )
+        position_state.update(
+            {
+                "stage": "PARTIAL",
+                "last_candle_timestamp": candle_timestamp,
+                "side": side,
+                "closed_volume": close_volume,
+            }
+        )
+        rejection_state[position_key] = position_state
+        self.state.save(state)
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "PARTIAL_CLOSE",
+            "reason": "CANDLE_REJECTION_PARTIAL_EXIT",
+            "closed_volume": close_volume,
+            "remaining_volume": round(volume - close_volume, 8),
+            "candle": candle,
+            "result": close_result,
+        }
+        self.journal.append("POSITION_PARTIALLY_CLOSED", action)
+        return action
+
+    def _latest_rejection_candle(
+        self,
+        side: str,
+        management: MT5ExitManagementConfig,
+        state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        fetch_rates = getattr(self.broker, "fetch_closed_rates", None)
+        if not callable(fetch_rates):
+            return None
+        try:
+            candles = fetch_rates(management.candle_rejection_timeframe, 3)
+        except Exception as exc:  # pragma: no cover - defensive live guard
+            self.journal.append(
+                "CANDLE_REJECTION_CHECK_FAILED",
+                {"reason": str(exc), "timeframe": management.candle_rejection_timeframe},
+            )
+            return None
+        ordered = sorted(
+            (candle for candle in candles if isinstance(candle, dict)),
+            key=lambda candle: str(candle.get("timestamp") or ""),
+        )
+        if not ordered:
+            return None
+        latest = ordered[-1]
+        candle_time = _parse_utc_datetime(latest.get("timestamp"))
+        placed_at = _parse_utc_datetime(state.get("placed_at_utc"))
+        if candle_time is None or placed_at is None or candle_time <= placed_at:
+            return None
+        if not self._closed_candle_rejects_side(latest, side):
+            return None
+        return {
+            "timestamp": latest.get("timestamp"),
+            "open": _first_float(latest, "open"),
+            "high": _first_float(latest, "high"),
+            "low": _first_float(latest, "low"),
+            "close": _first_float(latest, "close"),
+            "timeframe": management.candle_rejection_timeframe,
+        }
+
+    @staticmethod
+    def _closed_candle_rejects_side(candle: dict[str, Any], side: str) -> bool:
+        open_price = _first_float(candle, "open")
+        close_price = _first_float(candle, "close")
+        if open_price is None or close_price is None or close_price == open_price:
+            return False
+        if side == "SELL":
+            return close_price > open_price
+        if side == "BUY":
+            return close_price < open_price
+        return False
+
+    @staticmethod
+    def _position_state_key(position: dict[str, Any]) -> str | None:
+        value = (
+            position.get("identifier")
+            or position.get("position_id")
+            or position.get("ticket")
+        )
+        if value in (None, ""):
+            return None
+        return str(value)
+
+    @staticmethod
+    def _one_minute_rejection_lifecycle_enabled(proposal: dict[str, Any]) -> bool:
+        timeframe = str(proposal.get("timeframe") or "").strip().lower()
+        lifecycle = str(proposal.get("position_lifecycle") or "").strip().upper()
+        return timeframe == "1m" and lifecycle == "FAST_PARTIAL_SCALE"
 
     def _partial_close_action(
         self,

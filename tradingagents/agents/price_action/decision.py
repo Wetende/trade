@@ -49,7 +49,7 @@ def _context_heading(payload: dict[str, Any]) -> str:
     timeframe = str(payload.get("confirmation_timeframe") or "30m").strip()
     if timeframe.lower() == "30m":
         return "M30 Context"
-    return f"{timeframe} Context"
+    return "1m History"
 
 
 def _as_float(value: Any) -> float | None:

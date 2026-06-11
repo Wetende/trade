@@ -155,12 +155,17 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         parts.extend(["", f"**Setup Grade**: {proposal.setup_grade}"])
     if proposal.strategy_type:
         parts.extend(["", f"**Strategy Type**: {proposal.strategy_type}"])
+    secondary_timeframe_label = (
+        "History Window"
+        if str(proposal.timeframe).strip().lower() == "1m"
+        else "Confirmation Timeframe"
+    )
     parts.extend(
         [
             "",
             f"**Timeframe**: {proposal.timeframe}",
             "",
-            f"**Confirmation Timeframe**: {proposal.confirmation_timeframe}",
+            f"**{secondary_timeframe_label}**: {proposal.confirmation_timeframe}",
             "",
             f"**Valid Until**: {proposal.valid_until}",
             "",

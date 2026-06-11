@@ -212,6 +212,25 @@ def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
 
 
 @pytest.mark.unit
+def test_fast_order_proposal_renders_history_window_not_confirmation_label():
+    proposal = OrderProposal(
+        symbol="XAUUSD.vx",
+        side=TradeAction.BUY,
+        order_type="AUTO",
+        timeframe="1m",
+        confirmation_timeframe="3m",
+        valid_until="2026-06-03 08:15 EDT",
+        status=OrderStatus.PROPOSED,
+        reason="Fast setup passed.",
+    )
+
+    rendered = render_order_proposal(proposal)
+
+    assert "**History Window**: 3m" in rendered
+    assert "Confirmation Timeframe" not in rendered
+
+
+@pytest.mark.unit
 def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
     state = {
         "company_of_interest": "XAUUSD.vx",
@@ -255,7 +274,8 @@ def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
 
     assert proposal["volume_multiplier"] == 1.5
     assert proposal["position_lifecycle"] == "FAST_PARTIAL_SCALE"
-    assert "3m" in proposal["reason"]
+    assert "1m history" in proposal["reason"]
+    assert "3m" not in proposal["reason"]
     assert "M30" not in proposal["reason"]
 
 

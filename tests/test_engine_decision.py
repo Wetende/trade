@@ -208,7 +208,7 @@ def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
     assert telemetry_path.exists()
 
 
-def test_render_engine_decision_report_labels_fast_context_timeframe():
+def test_render_engine_decision_report_labels_fast_history_window():
     report = decision.render_engine_decision_report(
         {
             "symbol": "XAUUSD.vx",
@@ -224,7 +224,8 @@ def test_render_engine_decision_report_labels_fast_context_timeframe():
         }
     )
 
-    assert "**3m Context:** BEARISH BREAKOUT" in report
+    assert "**1m History:** BEARISH BREAKOUT" in report
+    assert "3m Context" not in report
     assert "M30 Context" not in report
 
 

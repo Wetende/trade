@@ -464,6 +464,8 @@ class FakeBroker:
         self.closed_positions = []
         self.history_deals_result = []
         self.history_deals_calls = []
+        self.closed_rates = []
+        self.closed_rate_calls = []
         self.checked_requests = []
         self.check_result = {"ok": True, "retcode": 10009, "comment": "check ok"}
         self.place_result = {
@@ -523,6 +525,10 @@ class FakeBroker:
     def history_deals(self, symbol, start_utc, end_utc):
         self.history_deals_calls.append((symbol, start_utc, end_utc))
         return list(self.history_deals_result)
+
+    def fetch_closed_rates(self, timeframe, count):
+        self.closed_rate_calls.append((timeframe, count))
+        return list(self.closed_rates)
 
 
 def _config() -> MT5ConnectionConfig:
@@ -1158,6 +1164,202 @@ def test_executor_uses_proposal_dynamic_partial_thresholds(tmp_path):
     )
     assert broker.modified_stops[0]["position_ticket"] == 777013
     assert broker.modified_stops[0]["stop_loss"] == 2449.9
+
+
+def test_executor_partially_closes_sell_on_closed_bullish_rejection_candle(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777014,
+            "identifier": 777014,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.5,
+            "entry_price": 2450.0,
+            "stop_loss": 2453.0,
+            "take_profit": 2445.0,
+            "current_price": 2450.4,
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-06-11T12:01:00+00:00",
+            "open": 2449.8,
+            "high": 2450.7,
+            "low": 2449.5,
+            "close": 2450.5,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-06-11T12:00:10+00:00",
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "CANDLE_REJECTION_PARTIAL_EXIT"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA candle rejection partial",
+        0.75,
+    )
+    state = executor.state.load()
+    assert state["rejection_exit_state"]["777014"]["stage"] == "PARTIAL"
+    assert state["rejection_exit_state"]["777014"]["last_candle_timestamp"] == (
+        "2026-06-11T12:01:00+00:00"
+    )
+
+
+def test_executor_closes_remaining_sell_on_second_closed_bullish_rejection_candle(
+    tmp_path,
+):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777015,
+            "identifier": 777015,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 0.75,
+            "entry_price": 2450.0,
+            "stop_loss": 2453.0,
+            "take_profit": 2445.0,
+            "current_price": 2451.0,
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-06-11T12:02:00+00:00",
+            "open": 2450.2,
+            "high": 2451.2,
+            "low": 2450.1,
+            "close": 2451.0,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-06-11T12:00:10+00:00",
+            "rejection_exit_state": {
+                "777015": {
+                    "stage": "PARTIAL",
+                    "last_candle_timestamp": "2026-06-11T12:01:00+00:00",
+                }
+            },
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_CLOSED_REJECTION"
+    assert result["actions"][0]["reason"] == "CANDLE_REJECTION_FULL_EXIT"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA candle rejection exit",
+        None,
+    )
+
+
+def test_executor_partially_closes_buy_on_closed_bearish_rejection_candle(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777016,
+            "identifier": 777016,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2449.6,
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-06-11T12:01:00+00:00",
+            "open": 2450.1,
+            "high": 2450.2,
+            "low": 2449.3,
+            "close": 2449.5,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-06-11T12:00:10+00:00",
+            "proposal": _proposal(TradeAction.BUY).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "CANDLE_REJECTION_PARTIAL_EXIT"
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA candle rejection partial",
+        0.5,
+    )
+
+
+def test_executor_ignores_rejection_candle_before_fast_order_was_placed(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777017,
+            "identifier": 777017,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.5,
+            "entry_price": 2450.0,
+            "stop_loss": 2453.0,
+            "take_profit": 2445.0,
+            "current_price": 2450.4,
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-06-11T11:59:00+00:00",
+            "open": 2449.8,
+            "high": 2450.7,
+            "low": 2449.5,
+            "close": 2450.5,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-06-11T12:00:10+00:00",
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
 
 
 def test_executor_second_partial_closes_to_runner_volume_and_trails_stop(tmp_path):
