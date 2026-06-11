@@ -682,11 +682,11 @@ def test_mt5_broker_reads_history_deals_for_symbol():
     assert queried_start.tzinfo is None
     assert queried_end.tzinfo is None
     assert queried_start == datetime.fromtimestamp(
-        1779609900,
+        1779609900 + 3 * 3600,
         tz=timezone.utc,
     ).replace(tzinfo=None)
     assert queried_end == datetime.fromtimestamp(
-        1779610400,
+        1779610400 + 3 * 3600,
         tz=timezone.utc,
     ).replace(tzinfo=None)
     assert [deal["ticket"] for deal in deals] == [555, 556]
