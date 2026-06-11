@@ -38,6 +38,7 @@ def _base_checklist(time_checks: dict[str, str]) -> dict[str, str]:
         "volume_time": time_checks.get("volume_time", UNKNOWN),
         "playbook_setup": FAIL,
         "timeframe_correlation": UNKNOWN,
+        "entry_market_state_aligned": UNKNOWN,
         "confirmation_context_clear": UNKNOWN,
         "clean_range_to_fill": UNKNOWN,
         "candle_closed": UNKNOWN,
@@ -320,6 +321,8 @@ def _candidate_rejection_reason(
 ) -> str | None:
     if not failed_rules:
         return None
+    if "entry_market_state_aligned" in failed_rules:
+        return "The entry market state opposes the setup direction. Default to HOLD."
     if "confirmation_context_clear" in failed_rules:
         return "The confirmation context is unclear. Default to HOLD."
     if checklist.get("clean_range_to_fill") == FAIL and risk.get("reason"):
@@ -666,6 +669,7 @@ def analyze_playbook(
         "volume_time",
         "playbook_setup",
         "timeframe_correlation",
+        "entry_market_state_aligned",
         "confirmation_context_clear",
         "clean_range_to_fill",
         "candle_closed",
@@ -692,6 +696,14 @@ def analyze_playbook(
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL
+        entry_state_direction = _direction_from_bias(
+            market_context.get("entry_market_state", {}).get("direction")
+        )
+        candidate_checklist["entry_market_state_aligned"] = (
+            PASS
+            if entry_state_direction is None or entry_state_direction == setup.direction
+            else FAIL
+        )
         candidate_checklist["confirmation_context_clear"] = (
             PASS if confirmation_direction is not None else FAIL
         )
