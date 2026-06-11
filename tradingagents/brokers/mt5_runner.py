@@ -25,6 +25,8 @@ class MT5RunnerConfig:
     max_session_loss: float = 0.0
     post_close_cooldown_seconds: int = 0
     loss_cooldown_seconds: int = 0
+    loss_streak_cooldown_count: int = 0
+    loss_streak_cooldown_seconds: int = 0
     blocked_strategy_rules: tuple[str, ...] = ()
     trading_mode: str = TradingMode.ENTRY_ONLY.value
 
@@ -40,6 +42,14 @@ class MT5RunnerConfig:
         loss_cooldown_seconds = _nonnegative_int(
             self.loss_cooldown_seconds,
             "loss_cooldown_seconds",
+        )
+        loss_streak_cooldown_count = _nonnegative_int(
+            self.loss_streak_cooldown_count,
+            "loss_streak_cooldown_count",
+        )
+        loss_streak_cooldown_seconds = _nonnegative_int(
+            self.loss_streak_cooldown_seconds,
+            "loss_streak_cooldown_seconds",
         )
         trading_mode = mode_value(self.trading_mode)
         if poll_seconds < 5:
@@ -60,6 +70,16 @@ class MT5RunnerConfig:
             post_close_cooldown_seconds,
         )
         object.__setattr__(self, "loss_cooldown_seconds", loss_cooldown_seconds)
+        object.__setattr__(
+            self,
+            "loss_streak_cooldown_count",
+            loss_streak_cooldown_count,
+        )
+        object.__setattr__(
+            self,
+            "loss_streak_cooldown_seconds",
+            loss_streak_cooldown_seconds,
+        )
         object.__setattr__(self, "trading_mode", trading_mode)
         object.__setattr__(
             self,
@@ -399,11 +419,19 @@ class MT5Runner:
             return None
 
         profit = _closed_trade_profit(latest)
+        loss_streak = _closed_loss_streak(history_reconciliation)
         seconds = self.config.post_close_cooldown_seconds
         reason = "POST_CLOSE_COOLDOWN"
         if profit is not None and profit < 0 and self.config.loss_cooldown_seconds > 0:
             seconds = self.config.loss_cooldown_seconds
             reason = "LOSS_COOLDOWN"
+        if (
+            self.config.loss_streak_cooldown_count > 0
+            and self.config.loss_streak_cooldown_seconds > 0
+            and loss_streak >= self.config.loss_streak_cooldown_count
+        ):
+            seconds = self.config.loss_streak_cooldown_seconds
+            reason = "LOSS_STREAK_COOLDOWN"
         if seconds <= 0:
             state["entry_cooldown_exit_ticket"] = exit_ticket
             state["entry_cooldown_profit"] = profit
@@ -428,6 +456,7 @@ class MT5Runner:
             "cooldown_until_utc": cooldown_until.isoformat(),
             "exit_ticket": exit_ticket,
             "profit": profit,
+            "loss_streak": loss_streak,
         }
 
     def _load_history_since_utc(self) -> datetime:
@@ -652,6 +681,36 @@ def _closed_trade_profit(trade: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return profit if math.isfinite(profit) else None
+
+
+def _closed_loss_streak(history_reconciliation: dict) -> int:
+    trades = [
+        trade
+        for trade in history_reconciliation.get("closed_trades") or []
+        if isinstance(trade, dict)
+    ]
+    latest = history_reconciliation.get("latest_closed_trade")
+    if not trades and isinstance(latest, dict) and latest:
+        trades = [latest]
+    if not trades:
+        return 0
+
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    indexed = list(enumerate(trades))
+    ordered = sorted(
+        indexed,
+        key=lambda item: (
+            _parse_utc_datetime(item[1].get("closed_at_utc")) or epoch,
+            item[0],
+        ),
+    )
+    streak = 0
+    for _index, trade in reversed(ordered):
+        profit = _closed_trade_profit(trade)
+        if profit is None or profit >= 0:
+            break
+        streak += 1
+    return streak
 
 
 def _parse_utc_datetime(value: Any) -> datetime | None:

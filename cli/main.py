@@ -62,6 +62,8 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
         "TRADINGAGENTS_RUNNER_POST_CLOSE_COOLDOWN_SECONDS": "runner_post_close_cooldown_seconds",
         "TRADINGAGENTS_RUNNER_LOSS_COOLDOWN_SECONDS": "runner_loss_cooldown_seconds",
+        "TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_COUNT": "runner_loss_streak_cooldown_count",
+        "TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_SECONDS": "runner_loss_streak_cooldown_seconds",
         "TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES": "runner_blocked_strategy_rules",
         "TRADINGAGENTS_TRADING_MODE": "trading_mode",
         "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "require_demo_account",
@@ -911,6 +913,18 @@ def mt5_run(
                     ),
                     "loss_cooldown_seconds": int(
                         DEFAULT_CONFIG.get("runner_loss_cooldown_seconds", 0)
+                    ),
+                    "loss_streak_cooldown_count": int(
+                        DEFAULT_CONFIG.get(
+                            "runner_loss_streak_cooldown_count",
+                            0,
+                        )
+                    ),
+                    "loss_streak_cooldown_seconds": int(
+                        DEFAULT_CONFIG.get(
+                            "runner_loss_streak_cooldown_seconds",
+                            0,
+                        )
                     ),
                 }
             )

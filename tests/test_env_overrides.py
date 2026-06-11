@@ -35,6 +35,8 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["runner_max_cycles"] == 0
     assert dc.DEFAULT_CONFIG["runner_post_close_cooldown_seconds"] == 0
     assert dc.DEFAULT_CONFIG["runner_loss_cooldown_seconds"] == 0
+    assert dc.DEFAULT_CONFIG["runner_loss_streak_cooldown_count"] == 0
+    assert dc.DEFAULT_CONFIG["runner_loss_streak_cooldown_seconds"] == 0
     assert dc.DEFAULT_CONFIG["minimum_setup_grade"] == "B_PLUS"
     assert dc.DEFAULT_CONFIG["b_plus_min_rr"] == 1.1
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 0.35
@@ -91,6 +93,8 @@ def test_runner_int_overrides(monkeypatch):
         TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS="250.5",
         TRADINGAGENTS_RUNNER_POST_CLOSE_COOLDOWN_SECONDS="90",
         TRADINGAGENTS_RUNNER_LOSS_COOLDOWN_SECONDS="600",
+        TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_COUNT="2",
+        TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_SECONDS="900",
     )
 
     assert dc.DEFAULT_CONFIG["runner_poll_seconds"] == 45
@@ -98,6 +102,8 @@ def test_runner_int_overrides(monkeypatch):
     assert dc.DEFAULT_CONFIG["runner_max_session_loss"] == 250.5
     assert dc.DEFAULT_CONFIG["runner_post_close_cooldown_seconds"] == 90
     assert dc.DEFAULT_CONFIG["runner_loss_cooldown_seconds"] == 600
+    assert dc.DEFAULT_CONFIG["runner_loss_streak_cooldown_count"] == 2
+    assert dc.DEFAULT_CONFIG["runner_loss_streak_cooldown_seconds"] == 900
 
 
 def test_runner_blocked_strategy_rules_env_override(monkeypatch):

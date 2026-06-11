@@ -85,6 +85,59 @@ def _latest_market_health(
     return {}
 
 
+def _trade_profit(trade: dict[str, Any]) -> float:
+    try:
+        return float(trade.get("profit") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _closed_trade_identity(trade: dict[str, Any]) -> str | None:
+    position_id = trade.get("position_id")
+    if position_id not in (None, ""):
+        return f"position:{position_id}"
+    entry_ticket = trade.get("entry_deal_ticket")
+    if entry_ticket not in (None, ""):
+        return f"entry:{entry_ticket}"
+    return None
+
+
+def _closed_exit_key(trade: dict[str, Any]) -> str:
+    return str(
+        trade.get("exit_deal_ticket")
+        or f"position:{trade.get('position_id')}:exit"
+    )
+
+
+def _apply_closed_trade_stats(
+    history: dict[str, Any],
+    profit: float,
+    multiplier: int,
+) -> None:
+    history["closed_trade_count"] = max(
+        0,
+        int(history["closed_trade_count"]) + multiplier,
+    )
+    history["net_profit"] = round(
+        float(history["net_profit"]) + (profit * multiplier),
+        2,
+    )
+    if profit > 0:
+        history["wins"] = max(0, int(history["wins"]) + multiplier)
+        history["gross_profit"] = round(
+            float(history["gross_profit"]) + (profit * multiplier),
+            2,
+        )
+    elif profit < 0:
+        history["losses"] = max(0, int(history["losses"]) + multiplier)
+        history["gross_loss"] = round(
+            float(history["gross_loss"]) + (profit * multiplier),
+            2,
+        )
+    else:
+        history["break_even"] = max(0, int(history["break_even"]) + multiplier)
+
+
 class RunnerSummaryStore:
     """Write one JSON summary and one JSONL cycle log for MT5 runner checks."""
 
@@ -375,6 +428,11 @@ class RunnerSummaryStore:
         seen_exits = {
             str(ticket) for ticket in history.get("processed_exit_deal_tickets", [])
         }
+        closed_index_by_identity = {
+            identity: index
+            for index, closed_trade in enumerate(history["closed_trades"])
+            if (identity := _closed_trade_identity(closed_trade)) is not None
+        }
 
         for trade in reconciliation.get("filled_trades") or []:
             entry_key = str(
@@ -411,32 +469,36 @@ class RunnerSummaryStore:
                 history["filled_trades"].append(fill_trade)
                 history["latest_filled_trade"] = fill_trade
 
-            exit_key = str(
-                trade.get("exit_deal_ticket")
-                or f"position:{trade.get('position_id')}:exit"
+            exit_key = _closed_exit_key(trade)
+            closed_identity = _closed_trade_identity(trade)
+            existing_index = (
+                closed_index_by_identity.get(closed_identity)
+                if closed_identity is not None
+                else None
             )
-            if exit_key in seen_exits:
+            if exit_key in seen_exits and existing_index is None:
                 continue
-            seen_exits.add(exit_key)
 
-            profit = float(trade.get("profit") or 0.0)
-            history["closed_trade_count"] = int(history["closed_trade_count"]) + 1
-            history["net_profit"] = round(float(history["net_profit"]) + profit, 2)
-            if profit > 0:
-                history["wins"] = int(history["wins"]) + 1
-                history["gross_profit"] = round(
-                    float(history["gross_profit"]) + profit,
-                    2,
+            profit = _trade_profit(trade)
+            if existing_index is not None:
+                existing_trade = history["closed_trades"][existing_index]
+                if _closed_exit_key(existing_trade) == exit_key:
+                    continue
+                _apply_closed_trade_stats(
+                    history,
+                    _trade_profit(existing_trade),
+                    -1,
                 )
-            elif profit < 0:
-                history["losses"] = int(history["losses"]) + 1
-                history["gross_loss"] = round(
-                    float(history["gross_loss"]) + profit,
-                    2,
-                )
+                history["closed_trades"][existing_index] = trade
+                _apply_closed_trade_stats(history, profit, 1)
             else:
-                history["break_even"] = int(history["break_even"]) + 1
-            history["closed_trades"].append(trade)
+                history["closed_trades"].append(trade)
+                _apply_closed_trade_stats(history, profit, 1)
+                if closed_identity is not None:
+                    closed_index_by_identity[closed_identity] = (
+                        len(history["closed_trades"]) - 1
+                    )
+            seen_exits.add(exit_key)
             history["latest_closed_trade"] = trade
 
         history["processed_entry_deal_tickets"] = sorted(seen_entries)

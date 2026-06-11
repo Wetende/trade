@@ -473,9 +473,11 @@ def test_engine_can_run_fast_profile_with_one_minute_entries(monkeypatch):
 def test_fast_microstructure_aggressive_respect_buy_from_two_lows():
     data = {
         "3m": candles(
-            "2026-06-10 09:45:00,2000.0,2002.0,1998.6,2000.4,1000\n"
-            "2026-06-10 09:48:00,2000.4,2001.2,1998.4,1999.7,1000\n"
-            "2026-06-10 09:51:00,1999.7,2001.4,1998.0,2000.2,1000"
+            "2026-06-10 09:39:00,1996.0,1998.0,1995.5,1997.0,1000\n"
+            "2026-06-10 09:42:00,1997.0,1999.0,1996.5,1998.5,1000\n"
+            "2026-06-10 09:45:00,1998.5,2000.8,1998.0,2000.0,1000\n"
+            "2026-06-10 09:48:00,2000.0,2001.2,1999.4,2000.8,1000\n"
+            "2026-06-10 09:51:00,2000.8,2002.0,2000.0,2001.4,1000"
         ),
         "1m": candles(
             "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
@@ -677,7 +679,7 @@ def test_one_minute_microstructure_rejects_sell_after_lower_wick_rejection():
     assert "1m trigger candle rejected the SELL direction" in payload["message"]
 
 
-def test_fast_microstructure_records_three_minute_window_without_blocking(monkeypatch):
+def test_fast_microstructure_blocks_when_history_window_opposes_entry(monkeypatch):
     data = {
         "3m": candles(
             "2026-06-10 09:45:00,2000.0,2002.0,1998.6,2000.4,1000\n"
@@ -732,11 +734,68 @@ def test_fast_microstructure_records_three_minute_window_without_blocking(monkey
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "BUY"
-    assert payload["checklist"]["timeframe_correlation"] == "passed"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["timeframe_correlation"] == "failed"
+    assert "history window opposes" in payload["message"]
     assert payload["market_context"]["fast_microstructure"]["window_timeframe"] == "3m"
     assert payload["telemetry"]["market_state"]["3m"]["direction"] == "SELL"
+
+
+def test_fast_microstructure_blocks_when_history_window_is_unclear(monkeypatch):
+    data = {
+        "3m": candles(
+            "2026-06-10 09:45:00,2000.0,2002.0,1998.6,2000.4,1000\n"
+            "2026-06-10 09:48:00,2000.4,2001.2,1998.4,1999.7,1000\n"
+            "2026-06-10 09:51:00,1999.7,2001.4,1998.0,2000.2,1000"
+        ),
+        "1m": candles(
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
+            "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
+        ),
+    }
+
+    def fake_market_state(raw_candles, zones, timeframe):
+        direction = "BUY" if timeframe == "1m" else None
+        classification = "BULLISH_STRUCTURE" if timeframe == "1m" else "UNCLEAR"
+        return {
+            "timeframe": timeframe,
+            "trend_state": "TRENDING" if timeframe == "1m" else "UNCLEAR",
+            "direction": direction,
+            "structure": {
+                "classification": classification,
+                "permission": "BUY_ALLOWED" if direction == "BUY" else "NEUTRAL",
+            },
+            "volatility_state": "NORMAL",
+            "latest_close": raw_candles[-1].close if raw_candles else None,
+            "rows": len(raw_candles),
+        }
+
+    monkeypatch.setattr(engine, "classify_market_state", fake_market_state)
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-10 09:55",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "3m",
+            "zone_timeframes": ("3m",),
+            "context_timeframes": ("3m",),
+            "governing_timeframes": ("3m",),
+            "minimum_setup_grade": "B_PLUS",
+            "minimum_stop_distance_price": 0.3,
+        },
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    assert payload["checklist"]["timeframe_correlation"] == "failed"
+    assert "history window is unclear" in payload["message"]
 
 
 def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):

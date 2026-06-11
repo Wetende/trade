@@ -478,12 +478,12 @@ def _candidate_rejection_reason(
         return None
     if "entry_market_state_aligned" in failed_rules:
         return "The entry market state opposes the setup direction. Default to HOLD."
-    if "confirmation_context_clear" in failed_rules:
-        return "The confirmation context is unclear. Default to HOLD."
     if "timeframe_correlation" in failed_rules and checklist.get(
         "timeframe_correlation_reason"
     ):
         return str(checklist["timeframe_correlation_reason"])
+    if "confirmation_context_clear" in failed_rules:
+        return "The confirmation context is unclear. Default to HOLD."
     if "fast_trigger_quality" in failed_rules and checklist.get(
         "fast_trigger_quality_reason"
     ):
@@ -1291,8 +1291,20 @@ def analyze_playbook(
         clear_window_direction = _clear_fast_window_direction(
             market_context.get("confirmation_market_state", {})
         )
+        fast_history_rejection_reason = None
         if is_micro_setup:
-            context_allows = True
+            if confirmation_direction is None:
+                context_allows = False
+                fast_history_rejection_reason = (
+                    "The fast history window is unclear. Default to HOLD."
+                )
+            else:
+                context_allows = confirmation_direction == setup.direction
+                if not context_allows:
+                    fast_history_rejection_reason = (
+                        "The fast history window opposes the 1m setup direction. "
+                        "Default to HOLD."
+                    )
         else:
             context_allows = confirmation_direction == setup.direction or (
                 independent_direction
@@ -1308,7 +1320,11 @@ def analyze_playbook(
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL
-            if is_micro_setup and clear_window_direction not in {None, setup.direction}:
+            if fast_history_rejection_reason:
+                candidate_checklist["timeframe_correlation_reason"] = (
+                    fast_history_rejection_reason
+                )
+            elif is_micro_setup and clear_window_direction not in {None, setup.direction}:
                 candidate_checklist["timeframe_correlation_reason"] = (
                     f"The {confirmation_timeframe} window opposes the fast "
                     "microstructure setup. Default to HOLD."
@@ -1324,9 +1340,9 @@ def analyze_playbook(
         candidate_checklist["confirmation_context_clear"] = (
             PASS
             if (
-                is_micro_setup
+                (is_micro_setup and confirmation_direction is not None)
                 or
-                confirmation_direction is not None
+                (not is_micro_setup and confirmation_direction is not None)
                 or (
                     independent_direction
                     and not require_clear_confirmation_context

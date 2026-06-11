@@ -305,6 +305,61 @@ def test_runner_uses_longer_loss_cooldown_after_losing_trade(tmp_path):
     assert executor.executed == []
 
 
+def test_runner_starts_loss_streak_cooldown_before_new_analysis(tmp_path):
+    closed_at = datetime.now(timezone.utc)
+    executor = FakeExecutor(active=False)
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trade_count": 2,
+        "net_profit": -185.0,
+        "losses": 2,
+        "closed_trades": [
+            {
+                "position_id": 111225,
+                "exit_deal_ticket": 1005,
+                "profit": -75.0,
+                "closed_at_utc": (closed_at - timedelta(seconds=20)).isoformat(),
+            },
+            {
+                "position_id": 111226,
+                "exit_deal_ticket": 1006,
+                "profit": -110.0,
+                "closed_at_utc": closed_at.isoformat(),
+            },
+        ],
+        "latest_closed_trade": {
+            "position_id": 111226,
+            "exit_deal_ticket": 1006,
+            "profit": -110.0,
+            "closed_at_utc": closed_at.isoformat(),
+        },
+    }
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            loss_streak_cooldown_count=2,
+            loss_streak_cooldown_seconds=600,
+        ),
+        executor=executor,
+        analysis_func=lambda: (_ for _ in ()).throw(
+            AssertionError("analysis should not run during loss streak cooldown")
+        ),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["mode_rejection_reason"] == "LOSS_STREAK_COOLDOWN"
+    assert result["health_gate"] == {"passed": False, "reasons": ["entry_cooldown"]}
+    assert result["entry_cooldown"]["seconds"] == 600
+    assert result["entry_cooldown"]["loss_streak"] == 2
+    assert result["entry_cooldown"]["exit_ticket"] == 1006
+    assert executor.executed == []
+
+
 def test_runner_allows_analysis_after_entry_cooldown_expires(tmp_path):
     proposal = proposed_order()
     executor = FakeExecutor(active=False)

@@ -413,6 +413,69 @@ def test_runner_summary_deduplicates_history_reconciliation(tmp_path):
     assert second["trade_history"]["latest_closed_trade"]["position_id"] == 111222
 
 
+def test_runner_summary_updates_partial_exit_to_final_position_close(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+    partial_close = {
+        "status": "NO_TRADE",
+        "history_reconciliation": {
+            "status": "RECONCILED",
+            "filled_trade_count": 1,
+            "closed_trade_count": 1,
+            "net_profit": -50.25,
+            "wins": 0,
+            "losses": 1,
+            "closed_trades": [
+                {
+                    "position_id": 85384218,
+                    "entry_deal_ticket": 85384218,
+                    "exit_deal_ticket": 85384230,
+                    "side": "BUY",
+                    "volume": 0.5,
+                    "profit": -50.25,
+                    "closed_at_utc": "2026-06-11T20:14:55+00:00",
+                }
+            ],
+        },
+    }
+    final_close = {
+        "status": "NO_TRADE",
+        "history_reconciliation": {
+            "status": "RECONCILED",
+            "filled_trade_count": 1,
+            "closed_trade_count": 1,
+            "net_profit": -104.25,
+            "wins": 0,
+            "losses": 1,
+            "closed_trades": [
+                {
+                    "position_id": 85384218,
+                    "entry_deal_ticket": 85384218,
+                    "exit_deal_ticket": 85384231,
+                    "side": "BUY",
+                    "volume": 1.5,
+                    "profit": -104.25,
+                    "closed_at_utc": "2026-06-11T20:15:05+00:00",
+                }
+            ],
+        },
+    }
+
+    first = store.record_cycle(partial_close)
+    second = store.record_cycle(final_close)
+
+    assert first["trade_history"]["closed_trade_count"] == 1
+    assert second["trade_history"]["closed_trade_count"] == 1
+    assert second["trade_history"]["losses"] == 1
+    assert second["trade_history"]["wins"] == 0
+    assert second["trade_history"]["net_profit"] == -104.25
+    assert second["trade_history"]["gross_loss"] == -104.25
+    assert len(second["trade_history"]["closed_trades"]) == 1
+    assert (
+        second["trade_history"]["latest_closed_trade"]["exit_deal_ticket"]
+        == 85384231
+    )
+
+
 def test_runner_summary_counts_filled_trade_before_close(tmp_path):
     store = RunnerSummaryStore(tmp_path)
     result = {
