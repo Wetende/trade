@@ -42,7 +42,6 @@ UNKNOWN = "unknown"
 FAST_MICRO_SETUP_NAMES = {"Aggressive Respect", "Confirmed Break"}
 DEFAULT_FAST_HISTORY_WINDOW_CANDLES = 60
 DEFAULT_FAST_MIN_TRIGGER_CANDLES = 3
-DEFAULT_FAST_MAX_TRIGGER_CANDLES = 10
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -757,14 +756,12 @@ def _detect_fast_microstructure_setups(
     *,
     timeframe: str,
     min_trigger_candles: int = DEFAULT_FAST_MIN_TRIGGER_CANDLES,
-    max_trigger_candles: int = DEFAULT_FAST_MAX_TRIGGER_CANDLES,
 ) -> list[Setup]:
     min_trigger_candles = max(3, int(min_trigger_candles))
-    max_trigger_candles = max(min_trigger_candles, int(max_trigger_candles))
     if len(candles) < min_trigger_candles:
         return []
 
-    trigger_candles = candles[-max_trigger_candles:]
+    trigger_candles = candles
     latest = trigger_candles[-1]
     tolerance = _micro_tolerance(candles)
     buffer = _micro_stop_buffer(trigger_candles)
@@ -1065,10 +1062,6 @@ def analyze_playbook(
         profile_config.get("fast_min_trigger_candles"),
         DEFAULT_FAST_MIN_TRIGGER_CANDLES,
     )
-    fast_max_trigger_candles = _positive_int(
-        profile_config.get("fast_max_trigger_candles"),
-        DEFAULT_FAST_MAX_TRIGGER_CANDLES,
-    )
     fast_history_candles = (
         entry_candles[-fast_history_window_candles:]
         if is_fast_micro_profile
@@ -1202,11 +1195,8 @@ def analyze_playbook(
             "history_window_candles": fast_history_window_candles,
             "evaluated_history_candles": len(fast_history_candles),
             "trigger_window_min_candles": fast_min_trigger_candles,
-            "trigger_window_max_candles": fast_max_trigger_candles,
-            "trigger_window_evaluated_candles": min(
-                len(fast_history_candles),
-                fast_max_trigger_candles,
-            ),
+            "trigger_selection": "cleanest_recent_story",
+            "trigger_window_evaluated_candles": len(fast_history_candles),
             "rules": ["AGGRESSIVE_RESPECT", "CONFIRMED_BREAK"],
         }
 
@@ -1286,7 +1276,6 @@ def analyze_playbook(
             fast_history_candles,
             timeframe=entry_timeframe,
             min_trigger_candles=fast_min_trigger_candles,
-            max_trigger_candles=fast_max_trigger_candles,
         )
         if is_fast_micro_profile
         else []

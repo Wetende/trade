@@ -25,9 +25,9 @@
 **Files:**
 - Modify: `tradingagents/agents/price_action/engine.py`
 
-- [ ] Add fast window defaults: history `60`, minimum trigger `3`, maximum trigger `10`.
+- [ ] Add fast window defaults: history `60`, minimum trigger `3`, cleanest recent story selection.
 - [ ] Limit micro setup detection to the last 60 closed 1m candles.
-- [ ] Record `history_window_candles`, `trigger_window_min_candles`, and `trigger_window_max_candles` in `market_context["fast_microstructure"]`.
+- [ ] Record `history_window_candles`, `trigger_window_min_candles`, and `trigger_selection` in `market_context["fast_microstructure"]`.
 - [ ] Remove the 3m confirmation/history requirement for fast micro setups.
 - [ ] Keep latest 1m candle quality checks, stop checks, risk checks, and active-trade execution guards unchanged.
 

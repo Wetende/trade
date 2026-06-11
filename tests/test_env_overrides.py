@@ -42,7 +42,6 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["fast_confirmation_timeframe"] == "1m"
     assert dc.DEFAULT_CONFIG["fast_history_window_candles"] == 60
     assert dc.DEFAULT_CONFIG["fast_min_trigger_candles"] == 3
-    assert dc.DEFAULT_CONFIG["fast_max_trigger_candles"] == 10
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 0.35
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 1.2
     assert dc.DEFAULT_CONFIG["trading_mode"] == "OFF"
@@ -129,15 +128,12 @@ def test_fast_one_minute_window_env_overrides(monkeypatch):
         monkeypatch,
         TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES="45",
         TRADINGAGENTS_FAST_MIN_TRIGGER_CANDLES="4",
-        TRADINGAGENTS_FAST_MAX_TRIGGER_CANDLES="9",
     )
 
     assert dc.DEFAULT_CONFIG["fast_history_window_candles"] == 45
     assert dc.DEFAULT_CONFIG["fast_min_trigger_candles"] == 4
-    assert dc.DEFAULT_CONFIG["fast_max_trigger_candles"] == 9
     assert dc.DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] == 45
     assert dc.DEFAULT_CONFIG["price_action"]["fast_min_trigger_candles"] == 4
-    assert dc.DEFAULT_CONFIG["price_action"]["fast_max_trigger_candles"] == 9
 
 
 def test_trading_mode_env_override(monkeypatch):

@@ -41,7 +41,6 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
     "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
     "TRADINGAGENTS_FAST_MIN_TRIGGER_CANDLES": "fast_min_trigger_candles",
-    "TRADINGAGENTS_FAST_MAX_TRIGGER_CANDLES": "fast_max_trigger_candles",
     "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
     "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
     "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
@@ -151,7 +150,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_confirmation_timeframe": "1m",
     "fast_history_window_candles": 60,
     "fast_min_trigger_candles": 3,
-    "fast_max_trigger_candles": 10,
     "normal_activation_window_minutes": 30,
     "fast_activation_window_minutes": 6,
     "fast_counter_bias_minimum_grade": "A_PLUS",
@@ -195,9 +193,6 @@ DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
 ]
 DEFAULT_CONFIG["price_action"]["fast_min_trigger_candles"] = DEFAULT_CONFIG[
     "fast_min_trigger_candles"
-]
-DEFAULT_CONFIG["price_action"]["fast_max_trigger_candles"] = DEFAULT_CONFIG[
-    "fast_max_trigger_candles"
 ]
 DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
     "normal_activation_window_minutes"

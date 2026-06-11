@@ -27,8 +27,8 @@ Within that 60-candle working set:
 - nearby levels come from the last 60 candles
 - structure is inferred from recent 1m price action inside that same set
 - the trigger can use as few as 3 candles when the playbook is clean
-- the trigger can use 6 to 10 candles when a cleaner two-high/two-low pattern is needed
-- no fixed 13-candle trigger window is required
+- the cleanest recent candle story inside the 60-candle history can trigger the trade
+- no fixed 10-candle or 13-candle trigger window is required
 
 The model should not require an external 3m context to approve or reject a 1m entry.
 
@@ -63,7 +63,8 @@ Telemetry and reports should say `1m History`, not `3m Context`, for this fast m
 Each 1m decision should record:
 
 - history window size, default `60`
-- trigger candle count actually used, such as `3`, `5`, `8`, or `10`
+- minimum trigger candle count, default `3`
+- trigger selection mode, `cleanest_recent_story`
 - detected microstructure signal
 - setup direction
 - rejection reason when skipped
@@ -75,7 +76,6 @@ Initial defaults:
 
 - `fast_history_window_candles = 60`
 - `fast_min_trigger_candles = 3`
-- `fast_max_trigger_candles = 10`
 
 These can be hardcoded in the first implementation if that matches existing code style, but environment/config support is preferred if low-risk.
 
@@ -96,7 +96,7 @@ Add tests for:
 
 - Fast 1m entries use the last 60 closed 1m candles as their working history.
 - 3m is not required to approve or reject the 1m model.
-- Triggers are dynamic and can use 3 to 10 candles when the playbook fits.
+- Triggers are dynamic and can use the cleanest recent story inside the 60-candle history when the playbook fits.
 - The latest closed 1m candle must confirm the entry direction.
 - Existing normal 15m/30m behavior remains unchanged.
 - Existing MT5 safety and lifecycle management remain unchanged.

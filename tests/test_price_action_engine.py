@@ -768,7 +768,6 @@ def test_fast_microstructure_uses_one_minute_history_window_without_three_minute
             "governing_timeframes": ("1m",),
             "fast_history_window_candles": 60,
             "fast_min_trigger_candles": 3,
-            "fast_max_trigger_candles": 10,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -780,7 +779,53 @@ def test_fast_microstructure_uses_one_minute_history_window_without_three_minute
     assert fast_meta["window_timeframe"] == "1m"
     assert fast_meta["history_window_candles"] == 60
     assert fast_meta["trigger_window_min_candles"] == 3
-    assert fast_meta["trigger_window_max_candles"] == 10
+    assert fast_meta["trigger_selection"] == "cleanest_recent_story"
+
+
+def test_fast_microstructure_can_trigger_from_clean_story_beyond_ten_candles():
+    data = {
+        "1m": candles(
+            "2026-06-10 09:40:00,100.0,100.8,99.00,100.0,1000\n"
+            "2026-06-10 09:41:00,100.0,100.7,99.60,100.2,1000\n"
+            "2026-06-10 09:42:00,100.2,100.9,99.70,100.3,1000\n"
+            "2026-06-10 09:43:00,100.3,101.0,99.80,100.4,1000\n"
+            "2026-06-10 09:44:00,100.4,101.1,99.90,100.5,1000\n"
+            "2026-06-10 09:45:00,100.5,101.2,100.0,100.6,1000\n"
+            "2026-06-10 09:46:00,100.6,101.3,100.1,100.7,1000\n"
+            "2026-06-10 09:47:00,100.7,101.4,100.2,100.8,1000\n"
+            "2026-06-10 09:48:00,100.8,101.5,100.3,100.9,1000\n"
+            "2026-06-10 09:49:00,100.9,101.6,100.4,101.0,1000\n"
+            "2026-06-10 09:50:00,101.0,101.7,100.5,101.1,1000\n"
+            "2026-06-10 09:51:00,101.1,101.8,100.6,101.2,1000\n"
+            "2026-06-10 09:52:00,101.2,101.9,100.7,101.3,1000\n"
+            "2026-06-10 09:53:00,101.3,102.0,100.8,101.4,1000\n"
+            "2026-06-10 09:54:00,100.0,100.8,99.05,100.6,1000"
+        )
+    }
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-10 09:55",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
+            "fast_history_window_candles": 60,
+            "fast_min_trigger_candles": 3,
+            "minimum_setup_grade": "B_PLUS",
+            "minimum_stop_distance_price": 0.3,
+        },
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "Aggressive Respect"
 
 
 def test_fast_engine_rejects_entry_against_one_minute_market_state(monkeypatch):

@@ -934,7 +934,6 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_history_window_candles", 60)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_min_trigger_candles", 3)
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_max_trigger_candles", 10)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "normal_activation_window_minutes", 30)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_activation_window_minutes", 6)
     monkeypatch.setattr(
@@ -995,7 +994,6 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     assert calls[1]["session_config"]["governing_timeframes"] == ("1m",)
     assert calls[1]["session_config"]["fast_history_window_candles"] == 60
     assert calls[1]["session_config"]["fast_min_trigger_candles"] == 3
-    assert calls[1]["session_config"]["fast_max_trigger_candles"] == 10
 
 
 def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):
