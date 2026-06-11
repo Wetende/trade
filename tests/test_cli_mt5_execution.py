@@ -931,7 +931,10 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "3m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_history_window_candles", 60)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_min_trigger_candles", 3)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_max_trigger_candles", 10)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "normal_activation_window_minutes", 30)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_activation_window_minutes", 6)
     monkeypatch.setattr(
@@ -986,9 +989,13 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     assert results[1][1] == "2026-06-03 08:16"
     assert calls[0]["timeframe"] == "15m"
     assert calls[1]["timeframe"] == "1m"
+    assert calls[1]["confirmation_timeframe"] == "1m"
     assert calls[0]["session_config"]["entry_profile"] == "normal"
     assert calls[1]["session_config"]["entry_profile"] == "fast"
-    assert calls[1]["session_config"]["governing_timeframes"] == ("3m",)
+    assert calls[1]["session_config"]["governing_timeframes"] == ("1m",)
+    assert calls[1]["session_config"]["fast_history_window_candles"] == 60
+    assert calls[1]["session_config"]["fast_min_trigger_candles"] == 3
+    assert calls[1]["session_config"]["fast_max_trigger_candles"] == 10
 
 
 def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):
@@ -1045,7 +1052,7 @@ def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "3m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
     monkeypatch.setattr(
         cli_main,
         "build_env_selections",
@@ -1071,7 +1078,7 @@ def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
         "fetch_mt5_price_action_snapshot",
         lambda broker, *, as_of, market_timezone: PriceActionSnapshot(
             candles=rows,
-            data_status={"healthy": False, "blocking_timeframes": ["1m", "3m"]},
+            data_status={"healthy": False, "blocking_timeframes": ["1m"]},
         ),
     )
 
@@ -1106,7 +1113,8 @@ def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
     assert calls[0]["snapshot"].data_status["confirmation_timeframe"]["interval"] == "30m"
     assert calls[1]["snapshot"].data_status["healthy"] is True
     assert calls[1]["snapshot"].data_status["trading_timeframe"]["interval"] == "1m"
-    assert calls[1]["snapshot"].data_status["confirmation_timeframe"]["interval"] == "3m"
+    assert calls[1]["snapshot"].data_status["confirmation_timeframe"]["interval"] == "1m"
+    assert set(calls[1]["snapshot"].data_status["timeframes"]) == {"1m"}
 
 
 def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path):

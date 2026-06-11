@@ -40,6 +40,17 @@ PASS = "passed"
 FAIL = "failed"
 UNKNOWN = "unknown"
 FAST_MICRO_SETUP_NAMES = {"Aggressive Respect", "Confirmed Break"}
+DEFAULT_FAST_HISTORY_WINDOW_CANDLES = 60
+DEFAULT_FAST_MIN_TRIGGER_CANDLES = 3
+DEFAULT_FAST_MAX_TRIGGER_CANDLES = 10
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _base_checklist(time_checks: dict[str, str]) -> dict[str, str]:
@@ -745,16 +756,21 @@ def _detect_fast_microstructure_setups(
     candles: list[Candle],
     *,
     timeframe: str,
+    min_trigger_candles: int = DEFAULT_FAST_MIN_TRIGGER_CANDLES,
+    max_trigger_candles: int = DEFAULT_FAST_MAX_TRIGGER_CANDLES,
 ) -> list[Setup]:
-    if len(candles) < 4:
+    min_trigger_candles = max(3, int(min_trigger_candles))
+    max_trigger_candles = max(min_trigger_candles, int(max_trigger_candles))
+    if len(candles) < min_trigger_candles:
         return []
 
-    latest = candles[-1]
+    trigger_candles = candles[-max_trigger_candles:]
+    latest = trigger_candles[-1]
     tolerance = _micro_tolerance(candles)
-    buffer = _micro_stop_buffer(candles)
+    buffer = _micro_stop_buffer(trigger_candles)
     setups: list[Setup] = []
 
-    respected_low = _find_respected_low(candles[:-1], latest, tolerance)
+    respected_low = _find_respected_low(trigger_candles[:-1], latest, tolerance)
     if (
         respected_low is not None
         and lower_wick(latest) > 0
@@ -786,7 +802,7 @@ def _detect_fast_microstructure_setups(
             )
         )
 
-    respected_high = _find_respected_high(candles[:-1], latest, tolerance)
+    respected_high = _find_respected_high(trigger_candles[:-1], latest, tolerance)
     if (
         respected_high is not None
         and upper_wick(latest) > 0
@@ -818,7 +834,7 @@ def _detect_fast_microstructure_setups(
             )
         )
 
-    broken_lows = _find_broken_respected_lows(candles, latest, tolerance)
+    broken_lows = _find_broken_respected_lows(trigger_candles, latest, tolerance)
     if broken_lows is not None:
         _first_index, _second_index, first, second, level = broken_lows
         low = min(float(first.low), float(second.low))
@@ -843,7 +859,7 @@ def _detect_fast_microstructure_setups(
             )
         )
 
-    broken_highs = _find_broken_respected_highs(candles, latest, tolerance)
+    broken_highs = _find_broken_respected_highs(trigger_candles, latest, tolerance)
     if broken_highs is not None:
         _first_index, _second_index, first, second, level = broken_highs
         low = min(float(first.high), float(second.high))
@@ -868,7 +884,7 @@ def _detect_fast_microstructure_setups(
             )
         )
 
-    confirmed_lows = _find_confirmed_respected_lows(candles, latest, tolerance)
+    confirmed_lows = _find_confirmed_respected_lows(trigger_candles, latest, tolerance)
     if confirmed_lows is not None:
         _first_index, _second_index, first, second, trigger = confirmed_lows
         low = min(float(first.low), float(second.low))
@@ -892,7 +908,7 @@ def _detect_fast_microstructure_setups(
             )
         )
 
-    confirmed_highs = _find_confirmed_respected_highs(candles, latest, tolerance)
+    confirmed_highs = _find_confirmed_respected_highs(trigger_candles, latest, tolerance)
     if confirmed_highs is not None:
         _first_index, _second_index, first, second, trigger = confirmed_highs
         low = min(float(first.high), float(second.high))
@@ -1040,6 +1056,24 @@ def analyze_playbook(
     }
     entry_candles = candles_by_tf.get(entry_timeframe, [])
     confirmation_candles = candles_by_tf.get(confirmation_timeframe, [])
+    is_fast_micro_profile = _is_fast_profile(profile_name, entry_timeframe)
+    fast_history_window_candles = _positive_int(
+        profile_config.get("fast_history_window_candles"),
+        DEFAULT_FAST_HISTORY_WINDOW_CANDLES,
+    )
+    fast_min_trigger_candles = _positive_int(
+        profile_config.get("fast_min_trigger_candles"),
+        DEFAULT_FAST_MIN_TRIGGER_CANDLES,
+    )
+    fast_max_trigger_candles = _positive_int(
+        profile_config.get("fast_max_trigger_candles"),
+        DEFAULT_FAST_MAX_TRIGGER_CANDLES,
+    )
+    fast_history_candles = (
+        entry_candles[-fast_history_window_candles:]
+        if is_fast_micro_profile
+        else entry_candles
+    )
     time_checks = evaluate_time_filters(as_of, market_timezone, config=session_config)
     checklist = _base_checklist(time_checks)
     checklist["candle_closed"] = PASS if entry_candles and confirmation_candles else FAIL
@@ -1072,7 +1106,12 @@ def analyze_playbook(
         )
     )
     for tf in zone_lookup_timeframes:
-        tf_zones = calculate_support_resistance(candles_by_tf.get(tf, []), timeframe=tf)
+        zone_candles = (
+            fast_history_candles
+            if is_fast_micro_profile and tf == entry_timeframe
+            else candles_by_tf.get(tf, [])
+        )
+        tf_zones = calculate_support_resistance(zone_candles, timeframe=tf)
         zones_by_tf[tf] = tf_zones
         if tf in zone_timeframes:
             zones.extend(tf_zones)
@@ -1092,8 +1131,11 @@ def analyze_playbook(
     timing_context = determine_m30_bias(
         [_setup_to_dict(setup) for setup in timing_breakouts]
     )
+    context_candles_by_tf = dict(candles_by_tf)
+    if is_fast_micro_profile:
+        context_candles_by_tf[entry_timeframe] = fast_history_candles
     governing_context = _governing_context(
-        candles_by_tf,
+        context_candles_by_tf,
         zones_by_tf,
         governing_timeframes,
     )
@@ -1113,7 +1155,13 @@ def analyze_playbook(
         "1H",
     )
     market_state = {
-        tf: classify_market_state(candles_by_tf.get(tf, []), zones_by_tf.get(tf, []), tf)
+        tf: classify_market_state(
+            fast_history_candles
+            if is_fast_micro_profile and tf == entry_timeframe
+            else candles_by_tf.get(tf, []),
+            zones_by_tf.get(tf, []),
+            tf,
+        )
         for tf in _ordered_timeframes(
             {*context_timeframes, *governing_timeframes, confirmation_timeframe, entry_timeframe}
         )
@@ -1146,12 +1194,19 @@ def analyze_playbook(
         "b_plus_min_rr": b_plus_min_rr,
         "require_clear_confirmation_context": require_clear_confirmation_context,
     }
-    is_fast_micro_profile = _is_fast_profile(profile_name, entry_timeframe)
     if is_fast_micro_profile:
         market_context["fast_microstructure"] = {
             "enabled": True,
             "entry_timeframe": entry_timeframe,
-            "window_timeframe": confirmation_timeframe,
+            "window_timeframe": entry_timeframe,
+            "history_window_candles": fast_history_window_candles,
+            "evaluated_history_candles": len(fast_history_candles),
+            "trigger_window_min_candles": fast_min_trigger_candles,
+            "trigger_window_max_candles": fast_max_trigger_candles,
+            "trigger_window_evaluated_candles": min(
+                len(fast_history_candles),
+                fast_max_trigger_candles,
+            ),
             "rules": ["AGGRESSIVE_RESPECT", "CONFIRMED_BREAK"],
         }
 
@@ -1228,8 +1283,10 @@ def analyze_playbook(
     entry_reference_zones = _entry_reference_zones(zones_by_tf, zone_timeframes)
     micro_setups = (
         _detect_fast_microstructure_setups(
-            entry_candles,
+            fast_history_candles,
             timeframe=entry_timeframe,
+            min_trigger_candles=fast_min_trigger_candles,
+            max_trigger_candles=fast_max_trigger_candles,
         )
         if is_fast_micro_profile
         else []
@@ -1291,20 +1348,8 @@ def analyze_playbook(
         clear_window_direction = _clear_fast_window_direction(
             market_context.get("confirmation_market_state", {})
         )
-        fast_history_rejection_reason = None
         if is_micro_setup:
-            if confirmation_direction is None:
-                context_allows = False
-                fast_history_rejection_reason = (
-                    "The fast history window is unclear. Default to HOLD."
-                )
-            else:
-                context_allows = confirmation_direction == setup.direction
-                if not context_allows:
-                    fast_history_rejection_reason = (
-                        "The fast history window opposes the 1m setup direction. "
-                        "Default to HOLD."
-                    )
+            context_allows = True
         else:
             context_allows = confirmation_direction == setup.direction or (
                 independent_direction
@@ -1320,11 +1365,7 @@ def analyze_playbook(
             candidate_checklist["timeframe_correlation"] = PASS
         else:
             candidate_checklist["timeframe_correlation"] = FAIL
-            if fast_history_rejection_reason:
-                candidate_checklist["timeframe_correlation_reason"] = (
-                    fast_history_rejection_reason
-                )
-            elif is_micro_setup and clear_window_direction not in {None, setup.direction}:
+            if is_micro_setup and clear_window_direction not in {None, setup.direction}:
                 candidate_checklist["timeframe_correlation_reason"] = (
                     f"The {confirmation_timeframe} window opposes the fast "
                     "microstructure setup. Default to HOLD."
@@ -1340,7 +1381,7 @@ def analyze_playbook(
         candidate_checklist["confirmation_context_clear"] = (
             PASS
             if (
-                (is_micro_setup and confirmation_direction is not None)
+                is_micro_setup
                 or
                 (not is_micro_setup and confirmation_direction is not None)
                 or (

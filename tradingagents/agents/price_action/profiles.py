@@ -35,13 +35,16 @@ def normal_profile(config: dict[str, Any] | None = None) -> EntryProfile:
 
 def fast_profile(config: dict[str, Any] | None = None) -> EntryProfile:
     cfg = config or {}
+    fast_timeframe = str(cfg.get("fast_timeframe", "1m"))
     return EntryProfile(
         name="fast",
-        timeframe=str(cfg.get("fast_timeframe", "1m")),
-        confirmation_timeframe=str(cfg.get("fast_confirmation_timeframe", "3m")),
-        zone_timeframes=("3m",),
-        context_timeframes=("3m",),
-        governing_timeframes=("3m",),
+        timeframe=fast_timeframe,
+        confirmation_timeframe=str(
+            cfg.get("fast_confirmation_timeframe", fast_timeframe)
+        ),
+        zone_timeframes=(fast_timeframe,),
+        context_timeframes=(fast_timeframe,),
+        governing_timeframes=(fast_timeframe,),
         activation_window_minutes=int(cfg.get("fast_activation_window_minutes", 6)),
         independent_direction=True,
         counter_bias_minimum_grade=str(
