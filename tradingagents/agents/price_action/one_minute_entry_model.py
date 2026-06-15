@@ -27,6 +27,7 @@ DEFAULT_FAST_MIN_TRIGGER_CANDLES = 3
 DEFAULT_MAX_STOP_DISTANCE = 2.0
 DEFAULT_BOOST_MAX_STOP_DISTANCE = 1.2
 DEFAULT_RISK_REWARD = 1.5
+MINIMUM_STOP_DISTANCE_BUFFER = 0.05
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -296,7 +297,7 @@ def _risk_for_trigger(
 
     risk_distance = abs(entry - stop)
     if minimum_stop_distance > 0 and risk_distance < minimum_stop_distance:
-        risk_distance = minimum_stop_distance
+        risk_distance = minimum_stop_distance + MINIMUM_STOP_DISTANCE_BUFFER
         stop = entry - risk_distance if direction == "BUY" else entry + risk_distance
     if risk_distance <= 0:
         return {"approved": False, "reason": "Invalid stop distance"}

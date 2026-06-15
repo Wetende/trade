@@ -207,10 +207,10 @@ def test_one_minute_model_respects_configured_minimum_stop_distance():
 
     assert payload["status"] == "SETUP_FOUND"
     assert payload["setups"][0]["name"] == "HIGH_RESPECT_SELL"
-    assert payload["risk"]["risk_distance"] >= 0.4
+    assert payload["risk"]["risk_distance"] > 0.4
     assert (
         payload["setups"][0]["stop_loss"] - payload["setups"][0]["entry_price"]
-    ) == pytest.approx(0.4)
+    ) == pytest.approx(0.45)
 
 
 def test_unclear_one_minute_story_returns_hold():
