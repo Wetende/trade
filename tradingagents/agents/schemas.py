@@ -90,6 +90,12 @@ class OrderProposal(BaseModel):
     setup_name: Optional[str] = None
     setup_grade: Optional[str] = None
     strategy_type: Optional[str] = None
+    trigger_name: Optional[str] = None
+    reaction_type: Optional[str] = None
+    confirmation_type: Optional[str] = None
+    touch_count: Optional[int] = None
+    candidate_score: Optional[float] = None
+    volume_decision: Optional[str] = None
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
@@ -120,6 +126,10 @@ class OrderProposal(BaseModel):
             value = getattr(self, field_name)
             if value is not None and value <= 0:
                 raise ValueError(f"{field_name} must be positive when provided")
+        if self.touch_count is not None and self.touch_count < 0:
+            raise ValueError("touch_count must be non-negative when provided")
+        if self.candidate_score is not None and self.candidate_score < 0:
+            raise ValueError("candidate_score must be non-negative when provided")
         for field_name in (
             "break_even_trigger_points",
             "break_even_lock_points",
@@ -155,6 +165,16 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         parts.extend(["", f"**Setup Grade**: {proposal.setup_grade}"])
     if proposal.strategy_type:
         parts.extend(["", f"**Strategy Type**: {proposal.strategy_type}"])
+    for label, value in (
+        ("Trigger Name", proposal.trigger_name),
+        ("Reaction Type", proposal.reaction_type),
+        ("Confirmation Type", proposal.confirmation_type),
+        ("Touch Count", proposal.touch_count),
+        ("Candidate Score", proposal.candidate_score),
+        ("Volume Decision", proposal.volume_decision),
+    ):
+        if value is not None:
+            parts.extend(["", f"**{label}**: {value}"])
     secondary_timeframe_label = (
         "Scalper Memory"
         if str(proposal.timeframe).strip().lower() == "1m"

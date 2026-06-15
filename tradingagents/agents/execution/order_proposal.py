@@ -59,6 +59,15 @@ def _float_value(value) -> Optional[float]:
         return None
 
 
+def _int_value(value) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_action(markdown: str) -> TradeAction:
     return TradeAction(parse_trade_action(markdown))
 
@@ -202,6 +211,12 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     setup_name = None
     setup_grade = None
     strategy_type = None
+    trigger_name = None
+    reaction_type = None
+    confirmation_type = None
+    touch_count = None
+    candidate_score = None
+    volume_decision = None
     volume = None
     volume_multiplier = None
     position_lifecycle = None
@@ -224,6 +239,26 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         setup_grade = str(setup.get("setup_grade") or "").strip() or None
         strategy_type = _strategy_type_from_setup(setup)
         risk = payload.get("risk") or {}
+        telemetry = payload.get("telemetry") or {}
+        selected_candidate = telemetry.get("selected_candidate") or {}
+        if isinstance(selected_candidate, dict):
+            trigger_name = (
+                str(selected_candidate.get("trigger") or setup_name or "").strip()
+                or None
+            )
+            reaction_type = (
+                str(selected_candidate.get("reaction_type") or "").strip() or None
+            )
+            confirmation_type = (
+                str(selected_candidate.get("confirmation_type") or "").strip()
+                or None
+            )
+            touch_count = _int_value(selected_candidate.get("touch_count"))
+            candidate_score = _float_value(selected_candidate.get("score"))
+            volume_decision = (
+                str(selected_candidate.get("volume_decision") or "").strip()
+                or None
+            )
         entry = _float_value(setup.get("entry_price"))
         stop = _float_value(setup.get("stop_loss"))
         target = _float_value(setup.get("take_profit") or risk.get("take_profit"))
@@ -256,6 +291,12 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         setup_name=setup_name,
         setup_grade=setup_grade,
         strategy_type=strategy_type,
+        trigger_name=trigger_name,
+        reaction_type=reaction_type,
+        confirmation_type=confirmation_type,
+        touch_count=touch_count,
+        candidate_score=candidate_score,
+        volume_decision=volume_decision,
         entry_price=entry,
         stop_loss=stop,
         take_profit=target,

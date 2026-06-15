@@ -334,6 +334,63 @@ def test_engine_order_proposal_carries_dynamic_fast_exit_settings(tmp_path):
 
 
 @pytest.mark.unit
+def test_one_minute_scalper_proposal_carries_selected_candidate_journal_fields(tmp_path):
+    state = {
+        "company_of_interest": "XAUUSD.vx",
+        "broker_symbol": "XAUUSD.vx",
+        "as_of": "2026-06-03 08:15",
+        "timeframe": "1m",
+        "confirmation_timeframe": "1m",
+        "market_timezone": "America/New_York",
+        "engine_payload": {
+            "status": "SETUP_FOUND",
+            "recommendation": "SELL",
+            "entry_profile": "fast",
+            "activation_window_minutes": 1,
+            "message": "One Minute Scalper selected a candidate.",
+            "setups": [
+                {
+                    "name": "FAILED_HIGH_BREAK_SELL",
+                    "direction": "SELL",
+                    "entry_price": 4075.17,
+                    "stop_loss": 4076.82,
+                    "take_profit": 4072.70,
+                    "setup_grade": "A_PLUS",
+                }
+            ],
+            "risk": {
+                "take_profit": 4072.70,
+                "volume_multiplier": 1.5,
+                "position_lifecycle": "FAST_PARTIAL_SCALE",
+            },
+            "telemetry": {
+                "selected_candidate": {
+                    "trigger": "FAILED_HIGH_BREAK_SELL",
+                    "reaction_type": "fakeout",
+                    "confirmation_type": "engulfing",
+                    "touch_count": 3,
+                    "score": 10,
+                    "volume_decision": "BOOST_1_5",
+                },
+                "candidate_setup_count": 2,
+            },
+        },
+    }
+
+    proposal_state = create_order_proposal_executor({"results_dir": tmp_path})(state)
+    proposal = json.loads(Path(proposal_state["order_proposal_path"]).read_text())
+
+    assert proposal["trigger_name"] == "FAILED_HIGH_BREAK_SELL"
+    assert proposal["reaction_type"] == "fakeout"
+    assert proposal["confirmation_type"] == "engulfing"
+    assert proposal["touch_count"] == 3
+    assert proposal["candidate_score"] == 10
+    assert proposal["volume_decision"] == "BOOST_1_5"
+    assert "**Trigger Name**: FAILED_HIGH_BREAK_SELL" in proposal_state["order_proposal"]
+    assert "**Volume Decision**: BOOST_1_5" in proposal_state["order_proposal"]
+
+
+@pytest.mark.unit
 def test_engine_no_setup_overrides_llm_buy_text(tmp_path):
     state = _state(
         "**Action**: BUY\n\n"
