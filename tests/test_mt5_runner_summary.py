@@ -192,6 +192,47 @@ def test_runner_summary_records_candidate_rejections_and_market_state(tmp_path):
     assert summary["latest_cycle"]["market_health"]["passed"] is False
 
 
+def test_runner_summary_records_one_minute_scalper_candidate_triggers(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "analysis": {
+                "telemetry": {
+                    "candidate_evaluations": [
+                        {
+                            "trigger": "HIGH_RESPECT_SELL",
+                            "approved": False,
+                            "rejection_reasons": [
+                                "LATEST_CANDLE_NOT_CONFIRMING",
+                                "MIXED_CONFIRMATION",
+                            ],
+                        },
+                        {
+                            "trigger": "FAILED_LOW_BREAK_BUY",
+                            "approved": True,
+                            "rejection_reasons": [],
+                        },
+                    ],
+                },
+                "data_status": {"healthy": True},
+            },
+            "proposal": {
+                "reason": "One Minute Scalper found candidates but none passed scoring."
+            },
+        }
+    )
+
+    assert summary["candidate_strategy_counts"]["HIGH_RESPECT_SELL"] == 1
+    assert summary["candidate_strategy_counts"]["FAILED_LOW_BREAK_BUY"] == 1
+    assert summary["approved_candidate_strategy_counts"]["FAILED_LOW_BREAK_BUY"] == 1
+    assert summary["candidate_rejection_reason_counts"] == {
+        "LATEST_CANDLE_NOT_CONFIRMING": 1,
+        "MIXED_CONFIRMATION": 1,
+    }
+
+
 def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     store = RunnerSummaryStore(tmp_path)
 

@@ -85,6 +85,26 @@ def _latest_market_health(
     return {}
 
 
+def _candidate_setup_name(item: dict[str, Any]) -> str:
+    setup = item.get("setup") or {}
+    return str(
+        setup.get("name")
+        or item.get("trigger")
+        or item.get("setup_name")
+        or "unknown"
+    )
+
+
+def _candidate_rejection_reasons(item: dict[str, Any]) -> list[str]:
+    reasons = item.get("rejection_reasons")
+    if isinstance(reasons, list) and reasons:
+        return [str(reason) for reason in reasons]
+    reason = item.get("rejection_reason")
+    if reason not in (None, ""):
+        return [str(reason)]
+    return ["UNKNOWN"]
+
+
 def _trade_profit(trade: dict[str, Any]) -> float:
     try:
         return float(trade.get("profit") or 0.0)
@@ -271,14 +291,13 @@ class RunnerSummaryStore:
         )
         for telemetry_source in telemetry_sources:
             for item in telemetry_source.get("candidate_evaluations") or []:
-                setup = item.get("setup") or {}
-                setup_name = str(setup.get("name") or "unknown")
+                setup_name = _candidate_setup_name(item)
                 candidate_counts[setup_name] += 1
                 if item.get("approved") is True:
                     approved_candidate_counts[setup_name] += 1
                 else:
-                    reason = str(item.get("rejection_reason") or "UNKNOWN")
-                    rejection_reason_counts[reason] += 1
+                    for reason in _candidate_rejection_reasons(item):
+                        rejection_reason_counts[reason] += 1
             for timeframe, state in (telemetry_source.get("market_state") or {}).items():
                 if not isinstance(state, dict):
                     continue
