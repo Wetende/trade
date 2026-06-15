@@ -927,7 +927,7 @@ def test_one_minute_profile_does_not_require_extra_confirmation_context():
             "governing_timeframes": ("3m",),
             "context_timeframes": ("3m",),
             "activation_window_minutes": 6,
-            "minimum_stop_distance_price": 2.5,
+            "minimum_stop_distance_price": 0.4,
         },
     )
 

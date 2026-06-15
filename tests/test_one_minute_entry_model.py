@@ -194,6 +194,25 @@ def test_raw_breaks_use_base_volume_without_multiplier(trigger_name, candles):
     assert payload["risk"]["position_lifecycle"] == "FAST_PARTIAL_SCALE"
 
 
+def test_one_minute_model_respects_configured_minimum_stop_distance():
+    payload = _payload(
+        _base_history()
+        + [
+            _candle(57, 99.8, 101.0, 99.4, 100.4),
+            _candle(58, 100.2, 100.95, 99.9, 100.6),
+            _candle(59, 100.7, 100.9, 99.2, 99.5),
+        ],
+        minimum_stop_distance_price=0.4,
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["setups"][0]["name"] == "HIGH_RESPECT_SELL"
+    assert payload["risk"]["risk_distance"] >= 0.4
+    assert (
+        payload["setups"][0]["stop_loss"] - payload["setups"][0]["entry_price"]
+    ) == pytest.approx(0.4)
+
+
 def test_unclear_one_minute_story_returns_hold():
     candles = _base_history(60)
 

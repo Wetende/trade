@@ -97,6 +97,73 @@ def test_engine_decision_runs_without_llm_and_writes_payload(monkeypatch, tmp_pa
     assert written["telemetry"]["decision_stage"] == "no_m15_setup"
 
 
+def test_engine_decision_preserves_model_timeframes_for_one_minute_profile(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(
+        decision,
+        "fetch_price_action_snapshot",
+        lambda symbol, as_of, market_timezone: SimpleNamespace(
+            candles=_candles(),
+            data_status=_healthy_status(),
+        ),
+    )
+
+    def fake_analyze(symbol, as_of, timeframe_data, market_timezone, session_config):
+        return {
+            "symbol": symbol,
+            "as_of": as_of,
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "activation_window_minutes": 6,
+            "status": "SETUP_FOUND",
+            "recommendation": "SELL",
+            "message": "Explicit 1m trigger HIGH_RESPECT_SELL passed.",
+            "checklist": {"playbook_setup": "passed"},
+            "risk": {"take_profit": 99.4},
+            "setups": [
+                {
+                    "name": "HIGH_RESPECT_SELL",
+                    "direction": "SELL",
+                    "entry_price": 100.0,
+                    "stop_loss": 100.4,
+                    "take_profit": 99.4,
+                    "setup_grade": "A_PLUS",
+                }
+            ],
+            "market_context": {"one_minute_story": {"classification": "HIGH_RESPECT_SELL"}},
+            "telemetry": {
+                "decision_stage": "one_minute_setup_found",
+                "primary_hold_reason": "Explicit 1m trigger HIGH_RESPECT_SELL passed.",
+                "candidate_setup_count": 1,
+                "confirmation_timeframe": "1m",
+            },
+        }
+
+    monkeypatch.setattr(decision, "analyze_playbook", fake_analyze)
+
+    state = decision.run_engine_decision(
+        "XAUUSD.vx",
+        broker_symbol="XAUUSD.vx",
+        as_of="2026-06-10 09:55",
+        results_dir=tmp_path,
+        timeframe="1m",
+        confirmation_timeframe="3m",
+        session_config={
+            "entry_profile": "fast",
+            "activation_window_minutes": 6,
+        },
+    )
+
+    assert state["timeframe"] == "1m"
+    assert state["confirmation_timeframe"] == "1m"
+    assert state["engine_payload"]["confirmation_timeframe"] == "1m"
+    assert "1m History" in state["price_action_report"]
+    assert "3m Context" not in state["price_action_report"]
+
+
 def test_engine_decision_returns_data_health_hold_when_data_is_unhealthy(
     monkeypatch,
     tmp_path,

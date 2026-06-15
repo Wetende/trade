@@ -273,6 +273,7 @@ def _risk_for_trigger(
     latest: Candle,
     *,
     tolerance: float,
+    minimum_stop_distance: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
     risk_reward: float,
@@ -294,6 +295,9 @@ def _risk_for_trigger(
         reward_sign = -1
 
     risk_distance = abs(entry - stop)
+    if minimum_stop_distance > 0 and risk_distance < minimum_stop_distance:
+        risk_distance = minimum_stop_distance
+        stop = entry - risk_distance if direction == "BUY" else entry + risk_distance
     if risk_distance <= 0:
         return {"approved": False, "reason": "Invalid stop distance"}
     if risk_distance > max_stop_distance:
@@ -325,6 +329,7 @@ def _risk_for_trigger(
             "trigger": name,
             "level": round(level, 4),
             "tolerance": round(tolerance, 4),
+            "minimum_stop_distance": round(minimum_stop_distance, 4),
         },
         "position_lifecycle": "FAST_PARTIAL_SCALE",
         **_dynamic_fast_exit_settings(risk_distance),
@@ -484,6 +489,10 @@ def analyze_one_minute_entry(
         config.get("fast_max_stop_distance_price"),
         DEFAULT_MAX_STOP_DISTANCE,
     )
+    minimum_stop_distance = _positive_float(
+        config.get("minimum_stop_distance_price"),
+        0.0,
+    )
     boost_max_stop_distance = _positive_float(
         config.get("fast_boost_max_stop_distance_price"),
         DEFAULT_BOOST_MAX_STOP_DISTANCE,
@@ -564,6 +573,7 @@ def analyze_one_minute_entry(
         trigger,
         latest,
         tolerance=tolerance,
+        minimum_stop_distance=minimum_stop_distance,
         max_stop_distance=max_stop_distance,
         boost_max_stop_distance=boost_max_stop_distance,
         risk_reward=risk_reward,

@@ -320,8 +320,8 @@ def run_engine_decision(
             market_timezone=market_timezone,
             session_config=session_config,
         )
-        payload["timeframe"] = timeframe
-        payload["confirmation_timeframe"] = confirmation_timeframe
+        payload.setdefault("timeframe", timeframe)
+        payload.setdefault("confirmation_timeframe", confirmation_timeframe)
         payload["data_status"] = data_status
         payload["market_metadata"] = market_metadata
         payload["market_health"] = market_health
@@ -338,13 +338,17 @@ def run_engine_decision(
     payload["telemetry_path"] = str(telemetry_path)
     report = render_engine_decision_report(payload)
     action = payload.get("recommendation", "HOLD")
+    resolved_timeframe = str(payload.get("timeframe") or timeframe)
+    resolved_confirmation_timeframe = str(
+        payload.get("confirmation_timeframe") or confirmation_timeframe
+    )
 
     return {
         "company_of_interest": symbol,
         "broker_symbol": broker_symbol or symbol,
         "as_of": as_of,
-        "timeframe": timeframe,
-        "confirmation_timeframe": confirmation_timeframe,
+        "timeframe": resolved_timeframe,
+        "confirmation_timeframe": resolved_confirmation_timeframe,
         "market_timezone": market_timezone,
         "price_action_report": report,
         "trade_plan": f"Action: {action}\n\nReason: {payload.get('message', '')}",
