@@ -69,13 +69,13 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "require_demo_account",
         "TRADINGAGENTS_TIME_FILTER_MODE": "time_filter_mode",
         "TRADINGAGENTS_DECISION_MODE": "decision_mode",
+        "TRADINGAGENTS_ENTRY_PROFILE_MODE": "entry_profile_mode",
         "TRADINGAGENTS_MIN_SETUP_GRADE": "minimum_setup_grade",
         "TRADINGAGENTS_B_PLUS_MIN_RR": "b_plus_min_rr",
         "TRADINGAGENTS_FAST_ENTRIES_ENABLED": "fast_entries_enabled",
         "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
         "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
         "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
-        "TRADINGAGENTS_FAST_MIN_TRIGGER_CANDLES": "fast_min_trigger_candles",
         "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
         "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
         "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
@@ -131,9 +131,6 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
         "fast_history_window_candles"
-    ]
-    DEFAULT_CONFIG["price_action"]["fast_min_trigger_candles"] = DEFAULT_CONFIG[
-        "fast_min_trigger_candles"
     ]
     DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
         "normal_activation_window_minutes"
@@ -675,9 +672,21 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
             "market_timezone",
             DEFAULT_CONFIG["market_timezone"],
         )
-        profiles = [normal_profile(DEFAULT_CONFIG)]
-        if DEFAULT_CONFIG.get("fast_entries_enabled"):
-            profiles.append(fast_profile(DEFAULT_CONFIG))
+        profile_mode = str(
+            DEFAULT_CONFIG.get("entry_profile_mode", "auto")
+        ).strip().lower()
+        if profile_mode == "fast_only":
+            profiles = [fast_profile(DEFAULT_CONFIG)]
+        elif profile_mode == "normal_only":
+            profiles = [normal_profile(DEFAULT_CONFIG)]
+        elif profile_mode in {"auto", "normal_and_fast"}:
+            profiles = [normal_profile(DEFAULT_CONFIG)]
+            if DEFAULT_CONFIG.get("fast_entries_enabled"):
+                profiles.append(fast_profile(DEFAULT_CONFIG))
+        else:
+            raise ValueError(
+                "TRADINGAGENTS_ENTRY_PROFILE_MODE must be auto, normal_only, or fast_only"
+            )
 
         proposal_executor = create_order_proposal_executor(DEFAULT_CONFIG)
         rows = []

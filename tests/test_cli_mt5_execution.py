@@ -834,6 +834,8 @@ def test_mt5_runner_analysis_func_attaches_engine_telemetry(monkeypatch, tmp_pat
     )
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "auto")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "auto")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,
@@ -866,6 +868,8 @@ def test_mt5_runner_engine_analysis_func_builds_proposal_from_engine(monkeypatch
     from tradingagents.agents.price_action import decision
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "auto")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "auto")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,
@@ -929,11 +933,12 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
 
     calls = []
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "auto")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "auto")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_history_window_candles", 60)
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_min_trigger_candles", 3)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "normal_activation_window_minutes", 30)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_activation_window_minutes", 6)
     monkeypatch.setattr(
@@ -993,7 +998,69 @@ def test_mt5_runner_engine_analysis_func_returns_fast_and_normal_profiles(monkey
     assert calls[1]["session_config"]["entry_profile"] == "fast"
     assert calls[1]["session_config"]["governing_timeframes"] == ("1m",)
     assert calls[1]["session_config"]["fast_history_window_candles"] == 60
-    assert calls[1]["session_config"]["fast_min_trigger_candles"] == 3
+
+
+def test_mt5_runner_engine_analysis_func_can_run_fast_profile_only(monkeypatch, tmp_path):
+    from tradingagents.agents.price_action import decision
+
+    calls = []
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "fast_only")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "fast_only")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_history_window_candles", 60)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_activation_window_minutes", 1)
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda as_of=None: {
+            "ticker": "XAUUSD.vx",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": as_of or "2026-06-03 08:15",
+            "timeframe": "15m",
+            "confirmation_timeframe": "30m",
+            "market_timezone": "America/New_York",
+        },
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "last_closed_candle",
+        lambda timeframe, market_timezone: "2026-06-03 08:16",
+    )
+
+    def fake_run_engine_decision(**kwargs):
+        calls.append(kwargs)
+        return {
+            "company_of_interest": kwargs["symbol"],
+            "broker_symbol": kwargs["broker_symbol"],
+            "as_of": kwargs["as_of"],
+            "timeframe": kwargs["timeframe"],
+            "confirmation_timeframe": kwargs["confirmation_timeframe"],
+            "market_timezone": kwargs["market_timezone"],
+            "price_action_report": "Action: HOLD",
+            "trade_plan": "Action: HOLD",
+            "telemetry_path": str(tmp_path / "fast.json"),
+            "engine_payload": {
+                "status": "NO_SETUP",
+                "recommendation": "HOLD",
+                "message": "No setup.",
+                "telemetry": {"decision_stage": "one_minute_no_trigger"},
+                "data_status": {"healthy": True},
+            },
+        }
+
+    monkeypatch.setattr(decision, "run_engine_decision", fake_run_engine_decision)
+
+    as_of, proposal, analysis = cli_main._mt5_runner_engine_analysis_func()()
+
+    assert as_of == "2026-06-03 08:16"
+    assert proposal.status == "NO_TRADE"
+    assert analysis["entry_profile"] == "fast"
+    assert len(calls) == 1
+    assert calls[0]["session_config"]["entry_profile"] == "fast"
+    assert calls[0]["session_config"]["governing_timeframes"] == ("1m",)
 
 
 def test_mt5_runner_current_as_of_uses_fast_timeframe_when_enabled(monkeypatch):
@@ -1048,6 +1115,8 @@ def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
     }
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "auto")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "auto")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_confirmation_timeframe", "1m")
@@ -1145,6 +1214,8 @@ def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path
         )
 
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "auto")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "auto")
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", False)
     monkeypatch.setattr(
         cli_main,

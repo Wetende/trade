@@ -34,13 +34,13 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "require_demo_account",
     "TRADINGAGENTS_TIME_FILTER_MODE":     "time_filter_mode",
     "TRADINGAGENTS_DECISION_MODE":        "decision_mode",
+    "TRADINGAGENTS_ENTRY_PROFILE_MODE":   "entry_profile_mode",
     "TRADINGAGENTS_MIN_SETUP_GRADE":      "minimum_setup_grade",
     "TRADINGAGENTS_B_PLUS_MIN_RR":        "b_plus_min_rr",
     "TRADINGAGENTS_FAST_ENTRIES_ENABLED": "fast_entries_enabled",
     "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
     "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
     "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
-    "TRADINGAGENTS_FAST_MIN_TRIGGER_CANDLES": "fast_min_trigger_candles",
     "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
     "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
     "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
@@ -142,6 +142,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "trading_mode": "OFF",
     "require_demo_account": True,
     "decision_mode": "engine",
+    "entry_profile_mode": "auto",
     "time_filter_mode": DEFAULT_SESSION_CONFIG["time_filter_mode"],
     "minimum_setup_grade": "B_PLUS",
     "b_plus_min_rr": 1.1,
@@ -149,7 +150,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_timeframe": "1m",
     "fast_confirmation_timeframe": "1m",
     "fast_history_window_candles": 60,
-    "fast_min_trigger_candles": 3,
     "normal_activation_window_minutes": 30,
     "fast_activation_window_minutes": 1,
     "fast_counter_bias_minimum_grade": "A_PLUS",
@@ -190,9 +190,6 @@ DEFAULT_CONFIG["price_action"]["fast_confirmation_timeframe"] = DEFAULT_CONFIG[
 ]
 DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
     "fast_history_window_candles"
-]
-DEFAULT_CONFIG["price_action"]["fast_min_trigger_candles"] = DEFAULT_CONFIG[
-    "fast_min_trigger_candles"
 ]
 DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
     "normal_activation_window_minutes"

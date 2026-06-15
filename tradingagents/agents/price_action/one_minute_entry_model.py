@@ -23,7 +23,7 @@ FAIL = "failed"
 UNKNOWN = "unknown"
 
 DEFAULT_FAST_HISTORY_WINDOW_CANDLES = 60
-DEFAULT_FAST_MIN_TRIGGER_CANDLES = 3
+MINIMUM_CANDLES_FOR_COMPARISON = 2
 DEFAULT_MAX_STOP_DISTANCE = 2.0
 DEFAULT_BOOST_MAX_STOP_DISTANCE = 1.2
 DEFAULT_RISK_REWARD = 1.5
@@ -900,10 +900,6 @@ def analyze_one_minute_entry(
         config.get("fast_history_window_candles"),
         DEFAULT_FAST_HISTORY_WINDOW_CANDLES,
     )
-    min_candles = _positive_int(
-        config.get("fast_min_trigger_candles"),
-        DEFAULT_FAST_MIN_TRIGGER_CANDLES,
-    )
     max_stop_distance = _positive_float(
         config.get("fast_max_stop_distance_price"),
         DEFAULT_MAX_STOP_DISTANCE,
@@ -933,7 +929,6 @@ def analyze_one_minute_entry(
         "classification": "UNCLEAR",
         "history_candles": len(history),
         "history_window_candles": history_window,
-        "min_trigger_candles": min_candles,
         "tolerance": round(tolerance, 4),
     }
     market_context = {
@@ -948,9 +943,8 @@ def analyze_one_minute_entry(
             "window_timeframe": "1m",
             "history_window_candles": history_window,
             "evaluated_history_candles": len(history),
-            "trigger_window_min_candles": min_candles,
             "trigger_selection": "cleanest_recent_story",
-            "trigger_window_evaluated_candles": len(history),
+            "candidate_memory_candles": len(history),
             "rules": [
                 LOW_RESPECT_BUY,
                 HIGH_RESPECT_SELL,
@@ -964,7 +958,7 @@ def analyze_one_minute_entry(
     checklist = _base_checklist()
     candidate_evaluations: list[dict[str, Any]] = []
 
-    if len(history) < min_candles:
+    if len(history) < MINIMUM_CANDLES_FOR_COMPARISON:
         return _payload(
             symbol,
             as_of,
@@ -974,7 +968,7 @@ def analyze_one_minute_entry(
             checklist=checklist,
             market_context=market_context,
             candidate_evaluations=candidate_evaluations,
-            message="Not enough closed 1m candles for the fast entry model.",
+            message="Not enough closed 1m candles for one-minute candidate comparison.",
         )
 
     if len(history) < 2:

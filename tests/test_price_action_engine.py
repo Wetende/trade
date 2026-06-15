@@ -722,7 +722,6 @@ def test_one_minute_profile_uses_one_minute_history_window_without_extra_data():
             "context_timeframes": ("1m",),
             "governing_timeframes": ("1m",),
             "fast_history_window_candles": 60,
-            "fast_min_trigger_candles": 3,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -733,7 +732,7 @@ def test_one_minute_profile_uses_one_minute_history_window_without_extra_data():
     fast_meta = payload["market_context"]["fast_microstructure"]
     assert fast_meta["window_timeframe"] == "1m"
     assert fast_meta["history_window_candles"] == 60
-    assert fast_meta["trigger_window_min_candles"] == 3
+    assert fast_meta["candidate_memory_candles"] == 5
     assert fast_meta["trigger_selection"] == "cleanest_recent_story"
 
 
@@ -769,7 +768,6 @@ def test_fast_one_minute_profile_does_not_call_generic_setup_detectors(monkeypat
             "context_timeframes": ("1m",),
             "governing_timeframes": ("1m",),
             "fast_history_window_candles": 60,
-            "fast_min_trigger_candles": 3,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -805,7 +803,6 @@ def test_fast_one_minute_profile_holds_when_story_is_unclear():
             "context_timeframes": ("1m",),
             "governing_timeframes": ("1m",),
             "fast_history_window_candles": 60,
-            "fast_min_trigger_candles": 3,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -851,7 +848,6 @@ def test_fast_microstructure_can_trigger_from_clean_story_beyond_ten_candles():
             "context_timeframes": ("1m",),
             "governing_timeframes": ("1m",),
             "fast_history_window_candles": 60,
-            "fast_min_trigger_candles": 3,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -884,7 +880,6 @@ def test_one_minute_profile_holds_when_latest_candle_has_no_equal_level_trigger(
             "timeframe": "1m",
             "confirmation_timeframe": "1m",
             "fast_history_window_candles": 60,
-            "fast_min_trigger_candles": 3,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
