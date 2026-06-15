@@ -426,6 +426,28 @@ def test_runner_records_no_trade_without_execution(tmp_path):
     assert executor.executed == []
 
 
+def test_runner_keeps_fast_profile_label_for_single_analysis_result(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    proposal.timeframe = "1m"
+    proposal.confirmation_timeframe = "1m"
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: (
+            "2026-06-03 08:16",
+            proposal,
+            {"entry_profile": "fast", "telemetry": {"entry_profile": "fast"}},
+        ),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "NO_TRADE"
+    assert result["candidate_methods"]["ENTRY_FAST"]["selected_profile"] == "fast"
+
+
 def test_runner_executes_first_proposed_profile_and_marks_each_profile(tmp_path):
     normal_no_trade = proposed_order()
     normal_no_trade.status = OrderStatus.NO_TRADE

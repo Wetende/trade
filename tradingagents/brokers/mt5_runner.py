@@ -577,7 +577,7 @@ class MT5Runner:
             return rows
 
         as_of, proposal, analysis = self._parse_analysis_result(result)
-        return [("normal", as_of, proposal, analysis)]
+        return [(_profile_from_analysis(analysis), as_of, proposal, analysis)]
 
     def _blocked_strategy(self, proposal: OrderProposal) -> str | None:
         side = _strategy_token(getattr(proposal.side, "value", proposal.side))
@@ -746,6 +746,16 @@ def _strategy_token(value) -> str:
 
 def _method_for_profile(profile: str) -> str:
     return "ENTRY_FAST" if str(profile).lower() == "fast" else "ENTRY_NORMAL"
+
+
+def _profile_from_analysis(analysis: dict[str, Any]) -> str:
+    telemetry = (analysis or {}).get("telemetry") or {}
+    profile = str(
+        (analysis or {}).get("entry_profile")
+        or telemetry.get("entry_profile")
+        or "normal"
+    ).strip().lower()
+    return "fast" if profile == "fast" else "normal"
 
 
 def _proposal_side(proposal: OrderProposal) -> str:
