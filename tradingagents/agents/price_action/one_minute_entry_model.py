@@ -576,9 +576,11 @@ def _score_candidate(
         return candidate
 
     high_confidence = (
-        candidate.score >= 8
+        candidate.score >= 10
+        and "DECISIVE_CLOSE" in candidate.score_reasons
         and candidate.confirmation_type in {"engulfing", "rejection"}
         and candidate.risk_distance <= boost_max_stop_distance
+        and candidate.level.touch_count >= 3
         and candidate.trigger in HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS
     )
     if high_confidence:

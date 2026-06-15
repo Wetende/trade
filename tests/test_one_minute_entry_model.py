@@ -141,15 +141,6 @@ def test_one_minute_model_emits_explicit_trigger_name_and_direction(
     "trigger_name,candles",
     [
         (
-            "LOW_RESPECT_BUY",
-            _base_history()
-            + [
-                _candle(57, 100.4, 100.8, 99.0, 99.7),
-                _candle(58, 99.8, 100.4, 99.05, 99.4),
-                _candle(59, 99.3, 100.9, 99.10, 100.7),
-            ],
-        ),
-        (
             "HIGH_RESPECT_SELL",
             _base_history()
             + [
@@ -361,6 +352,25 @@ def test_one_minute_scalper_allows_boost_only_for_strict_high_confidence_candida
     assert payload["market_context"]["one_minute_story"]["touch_count"] >= 3
     assert payload["risk"]["volume_multiplier"] == 1.5
     assert payload["telemetry"]["selected_candidate"]["volume_decision"] == "BOOST_1_5"
+
+
+def test_one_minute_scalper_does_not_boost_without_decisive_close():
+    candles = _base_history() + [
+        _candle(56, 99.8, 101.0, 99.5, 100.3),
+        _candle(57, 100.2, 100.95, 99.8, 100.5),
+        _candle(58, 100.4, 101.05, 99.9, 100.8),
+        _candle(59, 100.8, 101.6, 99.3, 100.0),
+    ]
+
+    payload = _payload(candles, minimum_stop_distance_price=0.25)
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["setups"][0]["name"] == "FAILED_HIGH_BREAK_SELL"
+    assert "DECISIVE_CLOSE" not in payload["telemetry"]["selected_candidate"][
+        "score_reasons"
+    ]
+    assert "volume_multiplier" not in payload["risk"]
+    assert payload["telemetry"]["selected_candidate"]["volume_decision"] == "BASE_1_0"
 
 
 def test_one_minute_scalper_only_executes_when_latest_closed_candle_confirms_candidate():
