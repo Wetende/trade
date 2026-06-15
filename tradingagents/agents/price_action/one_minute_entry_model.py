@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from statistics import median
 from typing import Any
 
@@ -28,6 +28,9 @@ DEFAULT_MAX_STOP_DISTANCE = 2.0
 DEFAULT_BOOST_MAX_STOP_DISTANCE = 1.2
 DEFAULT_RISK_REWARD = 1.5
 MINIMUM_STOP_DISTANCE_BUFFER = 0.05
+MODEL_NAME = "One Minute Scalper"
+TWO_TOUCH = "two_touch"
+THREE_TOUCH = "three_touch"
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -42,6 +45,42 @@ HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS = {
     FAILED_LOW_BREAK_BUY,
     FAILED_HIGH_BREAK_SELL,
 }
+
+
+@dataclass(frozen=True)
+class OneMinuteLevel:
+    side: str
+    level: float
+    touch_count: int
+    first_touch_index: int
+    last_touch_index: int
+    spread: float
+    tolerance: float
+
+    @property
+    def level_type(self) -> str:
+        return THREE_TOUCH if self.touch_count >= 3 else TWO_TOUCH
+
+
+@dataclass
+class OneMinuteCandidate:
+    trigger: str
+    direction: str
+    reaction_type: str
+    confirmation_type: str
+    level: OneMinuteLevel
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    risk_distance: float
+    reward_distance: float
+    risk: dict[str, Any] = field(default_factory=dict)
+    score: float = 0.0
+    approved: bool = False
+    score_reasons: list[str] = field(default_factory=list)
+    rejection_reasons: list[str] = field(default_factory=list)
+    volume_decision: str = "REJECTED"
+    volume_multiplier: float | None = None
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -67,59 +106,162 @@ def _recent_tolerance(candles: list[Candle]) -> float:
     return max(0.2, median(ranges) * 0.2)
 
 
-def _cluster_levels_with_recency(
-    prices: list[float],
+def _detect_equal_levels(
+    candles: list[Candle],
     tolerance: float,
     *,
-    minimum_touches: int = 2,
-) -> list[dict[str, Any]]:
-    levels: list[dict[str, Any]] = []
-    for index, price in enumerate(prices):
+    side: str,
+) -> list[OneMinuteLevel]:
+    prices = [
+        float(candle.high if side == "high" else candle.low)
+        for candle in candles
+    ]
+    levels: list[OneMinuteLevel] = []
+    for _index, price in enumerate(prices):
         touches = [
             (touch_index, candidate)
             for touch_index, candidate in enumerate(prices)
             if abs(candidate - price) <= tolerance
         ]
-        if len(touches) < minimum_touches:
+        if len(touches) < 2:
             continue
         level = sum(candidate for _touch_index, candidate in touches) / len(touches)
-        if any(abs(float(item["level"]) - level) <= tolerance for item in levels):
+        if any(abs(existing.level - level) <= tolerance for existing in levels):
             continue
         touch_prices = [candidate for _touch_index, candidate in touches]
         levels.append(
-            {
-                "level": level,
-                "touches": len(touches),
-                "spread": max(touch_prices) - min(touch_prices),
-                "first_touch_index": min(touch_index for touch_index, _price in touches),
-                "last_touch_index": max(touch_index for touch_index, _price in touches),
-                "seed_index": index,
-            }
+            OneMinuteLevel(
+                side=side,
+                level=level,
+                touch_count=len(touches),
+                first_touch_index=min(touch_index for touch_index, _price in touches),
+                last_touch_index=max(touch_index for touch_index, _price in touches),
+                spread=max(touch_prices) - min(touch_prices),
+                tolerance=tolerance,
+            )
         )
-    return levels
+    return sorted(
+        levels,
+        key=lambda item: (-item.touch_count, -item.last_touch_index, item.spread),
+    )
 
 
-def _closest_prior_touch_level(
-    prices: list[float],
-    anchor: float,
-    tolerance: float,
-) -> dict[str, Any] | None:
-    matches = [
-        (index, price)
-        for index, price in enumerate(prices)
-        if abs(price - anchor) <= tolerance
-    ]
-    if not matches:
-        return None
-    level = sum(price for _index, price in matches) / len(matches)
-    return {
-        "level": level,
-        "touches": len(matches) + 1,
-        "spread": max(price for _index, price in matches + [(-1, anchor)])
-        - min(price for _index, price in matches + [(-1, anchor)]),
-        "first_touch_index": min(index for index, _price in matches),
-        "last_touch_index": max(index for index, _price in matches),
-    }
+def _body_size(candle: Candle) -> float:
+    return abs(float(candle.close) - float(candle.open))
+
+
+def _body_top(candle: Candle) -> float:
+    return max(float(candle.open), float(candle.close))
+
+
+def _body_bottom(candle: Candle) -> float:
+    return min(float(candle.open), float(candle.close))
+
+
+def _close_position(candle: Candle) -> float:
+    total = candle_range(candle)
+    if total <= 0:
+        return 0.5
+    return (float(candle.close) - float(candle.low)) / total
+
+
+def _bullish_engulfing(previous: Candle, latest: Candle) -> bool:
+    return (
+        is_bearish(previous)
+        and is_bullish(latest)
+        and _body_bottom(latest) <= _body_bottom(previous)
+        and _body_top(latest) >= _body_top(previous)
+        and _close_position(latest) >= 0.65
+    )
+
+
+def _bearish_engulfing(previous: Candle, latest: Candle) -> bool:
+    return (
+        is_bullish(previous)
+        and is_bearish(latest)
+        and _body_top(latest) >= _body_top(previous)
+        and _body_bottom(latest) <= _body_bottom(previous)
+        and _close_position(latest) <= 0.35
+    )
+
+
+def _strong_bullish_close(candle: Candle) -> bool:
+    total = candle_range(candle)
+    return (
+        total > 0
+        and is_bullish(candle)
+        and _body_size(candle) >= total * 0.45
+        and _close_position(candle) >= 0.70
+    )
+
+
+def _strong_bearish_close(candle: Candle) -> bool:
+    total = candle_range(candle)
+    return (
+        total > 0
+        and is_bearish(candle)
+        and _body_size(candle) >= total * 0.45
+        and _close_position(candle) <= 0.30
+    )
+
+
+def _decisive_directional_close(direction: str, candle: Candle) -> bool:
+    position = _close_position(candle)
+    if direction == "BUY":
+        return position >= 0.82 and _strong_bullish_close(candle)
+    if direction == "SELL":
+        return position <= 0.18 and _strong_bearish_close(candle)
+    return False
+
+
+def _confirmation_type(trigger: str, previous: Candle, latest: Candle) -> str:
+    if trigger in {LOW_RESPECT_BUY, FAILED_LOW_BREAK_BUY}:
+        if _bullish_engulfing(previous, latest):
+            return "engulfing"
+        if _bullish_rejection(latest):
+            return "rejection"
+        if _strong_bullish_close(latest):
+            return "strong_close"
+        return "mixed"
+    if trigger in {HIGH_RESPECT_SELL, FAILED_HIGH_BREAK_SELL}:
+        if _bearish_engulfing(previous, latest):
+            return "engulfing"
+        if _bearish_rejection(latest):
+            return "rejection"
+        if _strong_bearish_close(latest):
+            return "strong_close"
+        return "mixed"
+    if trigger == HIGH_BREAK_BUY and _strong_bullish_close(latest):
+        return "strong_close"
+    if trigger == LOW_BREAK_SELL and _strong_bearish_close(latest):
+        return "strong_close"
+    return "mixed"
+
+
+def _is_overlapping_chop(candles: list[Candle]) -> bool:
+    if len(candles) < 8:
+        return False
+    recent = candles[-8:]
+    ranges = [candle_range(candle) for candle in recent if candle_range(candle) > 0]
+    if not ranges:
+        return True
+    highs = [float(candle.high) for candle in recent]
+    lows = [float(candle.low) for candle in recent]
+    closes = [float(candle.close) for candle in recent]
+    median_range = median(ranges)
+    total_range = max(highs) - min(lows)
+    close_range = max(closes) - min(closes)
+    alternating = sum(
+        1
+        for left, right in zip(recent, recent[1:])
+        if (is_bullish(left) and is_bearish(right))
+        or (is_bearish(left) and is_bullish(right))
+    )
+    return (
+        alternating >= 5
+        and total_range <= median_range * 2.2
+        and close_range <= median_range * 0.8
+    )
 
 
 def _trigger(
@@ -135,25 +277,6 @@ def _trigger(
         "level_type": level_type,
         "touches": int(level_info["touches"]),
     }
-
-
-def _select_break_level(
-    levels: list[dict[str, Any]],
-    *,
-    anchor: float,
-    predicate,
-) -> dict[str, Any] | None:
-    matches = [level for level in levels if predicate(float(level["level"]))]
-    if not matches:
-        return None
-    return min(
-        matches,
-        key=lambda level: (
-            abs(float(level["level"]) - anchor),
-            -int(level["last_touch_index"]),
-            float(level["spread"]),
-        ),
-    )
 
 
 def _level_zone(
@@ -192,73 +315,6 @@ def _bearish_rejection(candle: Candle) -> bool:
         return False
     close_position = (float(candle.close) - float(candle.low)) / total
     return close_position <= 0.35 and lower_wick(candle) <= max(total * 0.40, 0.05)
-
-
-def _detect_trigger(
-    history: list[Candle],
-    tolerance: float,
-) -> dict[str, Any] | None:
-    latest = history[-1]
-    prior = history[:-1]
-    prior_lows = [float(candle.low) for candle in prior]
-    prior_highs = [float(candle.high) for candle in prior]
-    equal_lows = _cluster_levels_with_recency(prior_lows, tolerance)
-    equal_highs = _cluster_levels_with_recency(prior_highs, tolerance)
-    touched_low = _closest_prior_touch_level(prior_lows, float(latest.low), tolerance)
-    touched_high = _closest_prior_touch_level(prior_highs, float(latest.high), tolerance)
-    break_margin = max(0.05, tolerance * 0.25)
-
-    if touched_low is not None:
-        level = float(touched_low["level"])
-        if (
-            float(latest.close) > level
-            and _bullish_rejection(latest)
-        ):
-            return _trigger(LOW_RESPECT_BUY, "BUY", "support", touched_low)
-
-    if touched_high is not None:
-        level = float(touched_high["level"])
-        if (
-            float(latest.close) < level
-            and _bearish_rejection(latest)
-        ):
-            return _trigger(HIGH_RESPECT_SELL, "SELL", "resistance", touched_high)
-
-    failed_low = _select_break_level(
-        equal_lows,
-        anchor=float(latest.low),
-        predicate=lambda level: float(latest.low) < level - break_margin
-        and float(latest.close) > level,
-    )
-    if failed_low is not None and _bullish_rejection(latest):
-        return _trigger(FAILED_LOW_BREAK_BUY, "BUY", "support", failed_low)
-
-    failed_high = _select_break_level(
-        equal_highs,
-        anchor=float(latest.high),
-        predicate=lambda level: float(latest.high) > level + break_margin
-        and float(latest.close) < level,
-    )
-    if failed_high is not None and _bearish_rejection(latest):
-        return _trigger(FAILED_HIGH_BREAK_SELL, "SELL", "resistance", failed_high)
-
-    broken_low = _select_break_level(
-        equal_lows,
-        anchor=float(latest.close),
-        predicate=lambda level: float(latest.close) < level - break_margin,
-    )
-    if broken_low is not None:
-        return _trigger(LOW_BREAK_SELL, "SELL", "support", broken_low)
-
-    broken_high = _select_break_level(
-        equal_highs,
-        anchor=float(latest.close),
-        predicate=lambda level: float(latest.close) > level + break_margin,
-    )
-    if broken_high is not None:
-        return _trigger(HIGH_BREAK_BUY, "BUY", "resistance", broken_high)
-
-    return None
 
 
 def _entry_price(trigger: dict[str, Any], latest: Candle) -> float:
@@ -323,9 +379,7 @@ def _risk_for_trigger(
         "available_risk_reward": round(risk_reward, 2),
         "risk_model": "ONE_MINUTE_FAST_ENTRY",
         "microstructure_signal": name,
-        "microstructure_confidence": (
-            "HIGH" if name in HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS else "NORMAL"
-        ),
+        "microstructure_confidence": "NORMAL",
         "fast_trigger_quality": {
             "trigger": name,
             "level": round(level, 4),
@@ -335,12 +389,267 @@ def _risk_for_trigger(
         "position_lifecycle": "FAST_PARTIAL_SCALE",
         **_dynamic_fast_exit_settings(risk_distance),
     }
-    if (
-        name in HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS
-        and risk_distance <= boost_max_stop_distance
-    ):
-        risk["volume_multiplier"] = 1.5
     return risk
+
+
+def _candidate_from_level(
+    level: OneMinuteLevel,
+    previous: Candle,
+    latest: Candle,
+    *,
+    tolerance: float,
+    minimum_stop_distance: float,
+    max_stop_distance: float,
+    boost_max_stop_distance: float,
+    risk_reward: float,
+) -> OneMinuteCandidate | None:
+    break_margin = max(0.05, tolerance * 0.25)
+    level_kind = "support" if level.side == "low" else "resistance"
+    if level.side == "low":
+        if (
+            float(latest.low) < level.level - break_margin
+            and float(latest.close) > level.level
+        ):
+            trigger_name = FAILED_LOW_BREAK_BUY
+            direction = "BUY"
+            reaction_type = "fakeout"
+        elif float(latest.close) < level.level - break_margin:
+            trigger_name = LOW_BREAK_SELL
+            direction = "SELL"
+            reaction_type = "break"
+        elif (
+            abs(float(latest.low) - level.level) <= tolerance
+            and float(latest.close) > level.level
+        ):
+            trigger_name = LOW_RESPECT_BUY
+            direction = "BUY"
+            reaction_type = "respect"
+        else:
+            return None
+    else:
+        if (
+            float(latest.high) > level.level + break_margin
+            and float(latest.close) < level.level
+        ):
+            trigger_name = FAILED_HIGH_BREAK_SELL
+            direction = "SELL"
+            reaction_type = "fakeout"
+        elif float(latest.close) > level.level + break_margin:
+            trigger_name = HIGH_BREAK_BUY
+            direction = "BUY"
+            reaction_type = "break"
+        elif (
+            abs(float(latest.high) - level.level) <= tolerance
+            and float(latest.close) < level.level
+        ):
+            trigger_name = HIGH_RESPECT_SELL
+            direction = "SELL"
+            reaction_type = "respect"
+        else:
+            return None
+
+    trigger = _trigger(trigger_name, direction, level_kind, {
+        "level": level.level,
+        "touches": level.touch_count,
+    })
+    risk = _risk_for_trigger(
+        trigger,
+        latest,
+        tolerance=tolerance,
+        minimum_stop_distance=minimum_stop_distance,
+        max_stop_distance=max_stop_distance,
+        boost_max_stop_distance=boost_max_stop_distance,
+        risk_reward=risk_reward,
+    )
+    confirmation = _confirmation_type(trigger_name, previous, latest)
+    if not risk.get("approved"):
+        candidate = OneMinuteCandidate(
+            trigger=trigger_name,
+            direction=direction,
+            reaction_type=reaction_type,
+            confirmation_type=confirmation,
+            level=level,
+            entry_price=float(latest.close),
+            stop_loss=float(latest.close),
+            take_profit=float(latest.close),
+            risk_distance=0.0,
+            reward_distance=0.0,
+            risk=risk,
+        )
+        candidate.rejection_reasons.append(str(risk.get("reason") or "RISK_REJECTED"))
+        return candidate
+
+    return OneMinuteCandidate(
+        trigger=trigger_name,
+        direction=direction,
+        reaction_type=reaction_type,
+        confirmation_type=confirmation,
+        level=level,
+        entry_price=float(risk["entry_price"]),
+        stop_loss=float(risk["stop_loss"]),
+        take_profit=float(risk["take_profit"]),
+        risk_distance=float(risk["risk_distance"]),
+        reward_distance=float(risk["reward_distance"]),
+        risk=risk,
+    )
+
+
+def _score_candidate(
+    candidate: OneMinuteCandidate,
+    latest: Candle,
+    *,
+    is_chop: bool,
+    boost_max_stop_distance: float,
+) -> OneMinuteCandidate:
+    initial_rejections = list(candidate.rejection_reasons)
+    candidate.score = 0.0
+    candidate.score_reasons = []
+    candidate.rejection_reasons = initial_rejections
+
+    candidate.score += 2
+    candidate.score_reasons.append("TWO_TOUCH_LEVEL")
+    if candidate.level.touch_count >= 3:
+        candidate.score += 2
+        candidate.score_reasons.append("THIRD_TOUCH_PRIORITY")
+    if candidate.confirmation_type == "rejection":
+        candidate.score += 2
+        candidate.score_reasons.append("CLEAN_REJECTION")
+    elif candidate.confirmation_type == "engulfing":
+        candidate.score += 2
+        candidate.score_reasons.append("ENGULFING_CONFIRMATION")
+    elif candidate.confirmation_type == "strong_close":
+        candidate.score += 2
+        candidate.score_reasons.append("STRONG_CLOSE")
+    if _decisive_directional_close(candidate.direction, latest):
+        candidate.score += 2
+        candidate.score_reasons.append("DECISIVE_CLOSE")
+    if candidate.risk_distance > 0 and candidate.risk_distance <= boost_max_stop_distance:
+        candidate.score += 2
+        candidate.score_reasons.append("CLOSE_INVALIDATION")
+
+    if candidate.confirmation_type == "mixed":
+        candidate.score -= 3
+        candidate.rejection_reasons.append("LATEST_CANDLE_NOT_CONFIRMING")
+        candidate.rejection_reasons.append("MIXED_CONFIRMATION")
+    if is_chop:
+        candidate.score -= 3
+        candidate.rejection_reasons.append("OVERLAPPING_CHOP")
+    if candidate.risk_distance <= 0:
+        candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
+
+    candidate.rejection_reasons = list(dict.fromkeys(candidate.rejection_reasons))
+    candidate.approved = candidate.score >= 6 and not candidate.rejection_reasons
+    if not candidate.approved:
+        candidate.volume_decision = "REJECTED"
+        candidate.volume_multiplier = None
+        return candidate
+
+    high_confidence = (
+        candidate.score >= 8
+        and candidate.confirmation_type in {"engulfing", "rejection"}
+        and candidate.risk_distance <= boost_max_stop_distance
+        and candidate.trigger in HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS
+    )
+    if high_confidence:
+        candidate.volume_decision = "BOOST_1_5"
+        candidate.volume_multiplier = 1.5
+        candidate.risk["volume_multiplier"] = 1.5
+        candidate.risk["microstructure_confidence"] = "HIGH"
+    else:
+        candidate.volume_decision = "BASE_1_0"
+        candidate.volume_multiplier = None
+        candidate.risk.pop("volume_multiplier", None)
+        candidate.risk["microstructure_confidence"] = "NORMAL"
+    candidate.risk["fast_trigger_quality"] = {
+        **candidate.risk.get("fast_trigger_quality", {}),
+        "score": round(candidate.score, 2),
+        "score_reasons": list(candidate.score_reasons),
+        "volume_decision": candidate.volume_decision,
+    }
+    return candidate
+
+
+def _build_candidates(
+    history: list[Candle],
+    *,
+    tolerance: float,
+    minimum_stop_distance: float,
+    max_stop_distance: float,
+    boost_max_stop_distance: float,
+    risk_reward: float,
+) -> list[OneMinuteCandidate]:
+    latest = history[-1]
+    previous = history[-2]
+    prior = history[:-1]
+    levels = [
+        *_detect_equal_levels(prior, tolerance, side="low"),
+        *_detect_equal_levels(prior, tolerance, side="high"),
+    ]
+    touched_low_level = any(
+        level.side == "low" and abs(float(latest.low) - level.level) <= tolerance
+        for level in levels
+    )
+    touched_high_level = any(
+        level.side == "high" and abs(float(latest.high) - level.level) <= tolerance
+        for level in levels
+    )
+    is_chop = _is_overlapping_chop(history)
+    candidates: list[OneMinuteCandidate] = []
+    seen: set[tuple[str, str, int]] = set()
+    for level in levels:
+        if (
+            level.side == "low"
+            and touched_low_level
+            and abs(float(latest.low) - level.level) > tolerance
+            and float(latest.close) > level.level
+        ):
+            continue
+        if (
+            level.side == "high"
+            and touched_high_level
+            and abs(float(latest.high) - level.level) > tolerance
+            and float(latest.close) < level.level
+        ):
+            continue
+        candidate = _candidate_from_level(
+            level,
+            previous,
+            latest,
+            tolerance=tolerance,
+            minimum_stop_distance=minimum_stop_distance,
+            max_stop_distance=max_stop_distance,
+            boost_max_stop_distance=boost_max_stop_distance,
+            risk_reward=risk_reward,
+        )
+        if candidate is None:
+            continue
+        key = (
+            candidate.trigger,
+            candidate.level.side,
+            round(candidate.level.level / max(tolerance, 0.0001)),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            _score_candidate(
+                candidate,
+                latest,
+                is_chop=is_chop,
+                boost_max_stop_distance=boost_max_stop_distance,
+            )
+        )
+    return sorted(
+        candidates,
+        key=lambda item: (
+            item.approved,
+            item.score,
+            item.level.touch_count,
+            item.level.last_touch_index,
+            -item.risk_distance,
+        ),
+        reverse=True,
+    )
 
 
 def _dynamic_fast_exit_settings(risk_distance: float) -> dict[str, float]:
@@ -398,6 +707,56 @@ def _setup_to_dict(
     return setup
 
 
+def _candidate_to_trigger(candidate: OneMinuteCandidate) -> dict[str, Any]:
+    return _trigger(
+        candidate.trigger,
+        candidate.direction,
+        "support" if candidate.level.side == "low" else "resistance",
+        {
+            "level": candidate.level.level,
+            "touches": candidate.level.touch_count,
+        },
+    )
+
+
+def _candidate_to_setup(
+    candidate: OneMinuteCandidate,
+    latest: Candle,
+    zone: Zone,
+) -> dict[str, Any]:
+    return _setup_to_dict(
+        _candidate_to_trigger(candidate),
+        latest,
+        zone,
+        candidate.risk,
+    )
+
+
+def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
+    return {
+        "model_name": MODEL_NAME,
+        "trigger": candidate.trigger,
+        "direction": candidate.direction,
+        "reaction_type": candidate.reaction_type,
+        "confirmation_type": candidate.confirmation_type,
+        "level": round(candidate.level.level, 4),
+        "level_side": candidate.level.side,
+        "level_type": candidate.level.level_type,
+        "touch_count": candidate.level.touch_count,
+        "score": round(candidate.score, 2),
+        "approved": candidate.approved,
+        "score_reasons": list(candidate.score_reasons),
+        "rejection_reasons": list(candidate.rejection_reasons),
+        "entry_price": round(candidate.entry_price, 4),
+        "stop_loss": round(candidate.stop_loss, 4),
+        "take_profit": round(candidate.take_profit, 4),
+        "risk_distance": round(candidate.risk_distance, 4),
+        "reward_distance": round(candidate.reward_distance, 4),
+        "volume_decision": candidate.volume_decision,
+        "volume_multiplier": candidate.volume_multiplier,
+    }
+
+
 def _base_checklist() -> dict[str, str]:
     return {
         "volume_time": UNKNOWN,
@@ -431,13 +790,18 @@ def _payload(
     zones: list[Zone] | None = None,
     risk: dict[str, Any] | None = None,
     message: str = "",
+    candidate_evaluations: list[dict[str, Any]] | None = None,
+    selected_candidate: dict[str, Any] | None = None,
+    decision_stage: str | None = None,
 ) -> dict[str, Any]:
-    if status == "SETUP_FOUND":
-        decision_stage = "one_minute_setup_found"
-    elif risk and risk.get("approved") is False:
-        decision_stage = "one_minute_risk_rejected"
-    else:
-        decision_stage = "one_minute_no_trigger"
+    if decision_stage is None:
+        if status == "SETUP_FOUND":
+            decision_stage = "one_minute_setup_found"
+        elif risk and risk.get("approved") is False:
+            decision_stage = "one_minute_risk_rejected"
+        else:
+            decision_stage = "one_minute_no_trigger"
+    candidate_rows = candidate_evaluations or []
     return {
         "symbol": symbol.upper(),
         "as_of": as_of,
@@ -454,6 +818,7 @@ def _payload(
         "risk": risk or {},
         "message": message,
         "telemetry": {
+            "model_name": MODEL_NAME,
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "1m",
@@ -462,8 +827,18 @@ def _payload(
             "timeframe_rows": {"1m": len(history)},
             "zone_counts": {"1m": len(zones or [])},
             "market_state": {},
-            "candidate_setup_count": len(setups or []),
-            "approved_candidate_count": 1 if status == "SETUP_FOUND" else 0,
+            "candidate_setup_count": (
+                len(candidate_rows)
+                if candidate_evaluations is not None
+                else len(setups or [])
+            ),
+            "approved_candidate_count": (
+                sum(1 for item in candidate_rows if item.get("approved"))
+                if candidate_evaluations is not None
+                else 1 if status == "SETUP_FOUND" else 0
+            ),
+            "candidate_evaluations": candidate_rows,
+            "selected_candidate": selected_candidate,
         },
     }
 
@@ -511,6 +886,7 @@ def analyze_one_minute_entry(
     history = all_candles[-history_window:]
     tolerance = _recent_tolerance(history)
     story = {
+        "model_name": MODEL_NAME,
         "classification": "UNCLEAR",
         "history_candles": len(history),
         "history_window_candles": history_window,
@@ -543,6 +919,7 @@ def analyze_one_minute_entry(
         },
     }
     checklist = _base_checklist()
+    candidate_evaluations: list[dict[str, Any]] = []
 
     if len(history) < min_candles:
         return _payload(
@@ -553,11 +930,11 @@ def analyze_one_minute_entry(
             history=history,
             checklist=checklist,
             market_context=market_context,
+            candidate_evaluations=candidate_evaluations,
             message="Not enough closed 1m candles for the fast entry model.",
         )
 
-    trigger = _detect_trigger(history, tolerance)
-    if trigger is None:
+    if len(history) < 2:
         return _payload(
             symbol,
             as_of,
@@ -566,24 +943,67 @@ def analyze_one_minute_entry(
             history=history,
             checklist=checklist,
             market_context=market_context,
-            message="No explicit one-minute trigger from the latest closed candle.",
+            candidate_evaluations=candidate_evaluations,
+            message="Not enough closed 1m candles for candidate comparison.",
         )
 
     latest = history[-1]
-    risk = _risk_for_trigger(
-        trigger,
-        latest,
+    candidates = _build_candidates(
+        history,
         tolerance=tolerance,
         minimum_stop_distance=minimum_stop_distance,
         max_stop_distance=max_stop_distance,
         boost_max_stop_distance=boost_max_stop_distance,
         risk_reward=risk_reward,
     )
+    candidate_evaluations = [_candidate_to_telemetry(candidate) for candidate in candidates]
+    approved_candidates = [candidate for candidate in candidates if candidate.approved]
+
+    if not candidates:
+        return _payload(
+            symbol,
+            as_of,
+            status="NO_SETUP",
+            recommendation="HOLD",
+            history=history,
+            checklist=checklist,
+            market_context=market_context,
+            candidate_evaluations=candidate_evaluations,
+            message="No explicit one-minute trigger from the latest closed candle.",
+        )
+
+    if not approved_candidates:
+        checklist["playbook_setup"] = FAIL
+        checklist["fast_trigger_quality"] = FAIL
+        checklist["clean_range_to_fill"] = FAIL
+        selected_rejected = candidate_evaluations[0] if candidate_evaluations else None
+        return _payload(
+            symbol,
+            as_of,
+            status="NO_SETUP",
+            recommendation="HOLD",
+            history=history,
+            checklist=checklist,
+            market_context=market_context,
+            candidate_evaluations=candidate_evaluations,
+            selected_candidate=selected_rejected,
+            decision_stage="one_minute_no_approved_candidate",
+            message="One Minute Scalper found candidates but none passed scoring.",
+        )
+
+    selected = approved_candidates[0]
+    selected_telemetry = _candidate_to_telemetry(selected)
+    risk = dict(selected.risk)
     story.update(
         {
-            "classification": trigger["name"],
-            "direction": trigger["direction"],
-            "level": round(float(trigger["level"]), 4),
+            "classification": selected.trigger,
+            "direction": selected.direction,
+            "level": round(float(selected.level.level), 4),
+            "touch_count": selected.level.touch_count,
+            "level_type": selected.level.level_type,
+            "reaction_type": selected.reaction_type,
+            "confirmation_type": selected.confirmation_type,
+            "score": round(selected.score, 2),
             "trigger_candle": latest.timestamp,
         }
     )
@@ -605,24 +1025,26 @@ def analyze_one_minute_entry(
         )
 
     zone = _level_zone(
-        level_type=trigger["level_type"],
-        level=float(trigger["level"]),
+        level_type="support" if selected.level.side == "low" else "resistance",
+        level=float(selected.level.level),
         tolerance=tolerance,
-        touches=int(trigger["touches"]),
+        touches=int(selected.level.touch_count),
     )
-    setup = _setup_to_dict(trigger, latest, zone, risk)
+    setup = _candidate_to_setup(selected, latest, zone)
     return _payload(
         symbol,
         as_of,
         status="SETUP_FOUND",
-        recommendation=trigger["direction"],
+        recommendation=selected.direction,
         history=history,
         checklist=checklist,
         market_context=market_context,
         setups=[setup],
         zones=[zone],
         risk=risk,
-        message=f"Explicit 1m trigger {trigger['name']} passed using the latest closed candle.",
+        candidate_evaluations=candidate_evaluations,
+        selected_candidate=selected_telemetry,
+        message=f"One Minute Scalper selected {selected.trigger} from the latest closed candle.",
     )
 
 
