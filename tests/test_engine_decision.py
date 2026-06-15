@@ -117,7 +117,7 @@ def test_engine_decision_preserves_model_timeframes_for_one_minute_profile(
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "1m",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
             "status": "SETUP_FOUND",
             "recommendation": "SELL",
             "message": "Explicit 1m trigger HIGH_RESPECT_SELL passed.",
@@ -150,10 +150,10 @@ def test_engine_decision_preserves_model_timeframes_for_one_minute_profile(
         as_of="2026-06-10 09:55",
         results_dir=tmp_path,
         timeframe="1m",
-        confirmation_timeframe="3m",
+        confirmation_timeframe="1m",
         session_config={
             "entry_profile": "fast",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
         },
     )
 
@@ -255,10 +255,10 @@ def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
         as_of="2026-06-03 08:15",
         results_dir=tmp_path,
         timeframe="1m",
-        confirmation_timeframe="3m",
+        confirmation_timeframe="1m",
         session_config={
             "entry_profile": "fast",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
         },
         snapshot=snapshot,
     )
@@ -271,7 +271,7 @@ def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
     )
     assert state["telemetry_path"] == str(telemetry_path)
     assert state["engine_payload"]["entry_profile"] == "fast"
-    assert state["engine_payload"]["activation_window_minutes"] == 6
+    assert state["engine_payload"]["activation_window_minutes"] == 1
     assert telemetry_path.exists()
 
 
@@ -282,7 +282,7 @@ def test_render_engine_decision_report_labels_fast_history_window():
             "as_of": "2026-06-11 13:53",
             "status": "SETUP_FOUND",
             "recommendation": "SELL",
-            "confirmation_timeframe": "3m",
+            "confirmation_timeframe": "1m",
             "market_context": {"m30_bias": "BEARISH", "m30_context": "BREAKOUT"},
             "telemetry": {
                 "candidate_setup_count": 1,

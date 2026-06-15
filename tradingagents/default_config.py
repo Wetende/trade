@@ -151,7 +151,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_history_window_candles": 60,
     "fast_min_trigger_candles": 3,
     "normal_activation_window_minutes": 30,
-    "fast_activation_window_minutes": 6,
+    "fast_activation_window_minutes": 1,
     "fast_counter_bias_minimum_grade": "A_PLUS",
     "minimum_stop_distance_price": 0.35,
     "minimum_stop_spread_multiple": 1.2,

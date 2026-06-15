@@ -11,7 +11,7 @@ def test_entry_profiles_use_configured_timeframes_and_windows():
         "fast_timeframe": "1m",
         "fast_confirmation_timeframe": "1m",
         "normal_activation_window_minutes": 30,
-        "fast_activation_window_minutes": 6,
+        "fast_activation_window_minutes": 1,
         "fast_counter_bias_minimum_grade": "A_PLUS",
     }
 
@@ -32,6 +32,6 @@ def test_entry_profiles_use_configured_timeframes_and_windows():
     assert fast.zone_timeframes == ("1m",)
     assert fast.context_timeframes == ("1m",)
     assert fast.governing_timeframes == ("1m",)
-    assert fast.activation_window_minutes == 6
+    assert fast.activation_window_minutes == 1
     assert fast.independent_direction is True
     assert fast.counter_bias_minimum_grade == "A_PLUS"

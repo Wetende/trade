@@ -146,6 +146,37 @@ def _detect_equal_levels(
     )
 
 
+def _latest_touch_level(
+    prior: list[Candle],
+    latest: Candle,
+    tolerance: float,
+    *,
+    side: str,
+) -> OneMinuteLevel | None:
+    anchor = float(latest.high if side == "high" else latest.low)
+    prices = [
+        (index, float(candle.high if side == "high" else candle.low))
+        for index, candle in enumerate(prior)
+    ]
+    touches = [
+        (touch_index, price)
+        for touch_index, price in prices
+        if abs(price - anchor) <= tolerance
+    ]
+    if not touches:
+        return None
+    touch_prices = [price for _touch_index, price in touches] + [anchor]
+    return OneMinuteLevel(
+        side=side,
+        level=sum(touch_prices) / len(touch_prices),
+        touch_count=len(touch_prices),
+        first_touch_index=min(touch_index for touch_index, _price in touches),
+        last_touch_index=len(prior),
+        spread=max(touch_prices) - min(touch_prices),
+        tolerance=tolerance,
+    )
+
+
 def _body_size(candle: Candle) -> float:
     return abs(float(candle.close) - float(candle.open))
 
@@ -581,10 +612,22 @@ def _build_candidates(
     latest = history[-1]
     previous = history[-2]
     prior = history[:-1]
+    latest_low_level = _latest_touch_level(prior, latest, tolerance, side="low")
+    latest_high_level = _latest_touch_level(prior, latest, tolerance, side="high")
     levels = [
         *_detect_equal_levels(prior, tolerance, side="low"),
         *_detect_equal_levels(prior, tolerance, side="high"),
     ]
+    for latest_level in (latest_low_level, latest_high_level):
+        if latest_level is None:
+            continue
+        if any(
+            level.side == latest_level.side
+            and abs(level.level - latest_level.level) <= tolerance
+            for level in levels
+        ):
+            continue
+        levels.append(latest_level)
     touched_low_level = any(
         level.side == "low" and abs(float(latest.low) - level.level) <= tolerance
         for level in levels
@@ -879,7 +922,7 @@ def analyze_one_minute_entry(
     )
     activation_window_minutes = _positive_int(
         config.get("fast_activation_window_minutes"),
-        6,
+        1,
     )
 
     all_candles = normalize_candles(timeframe_data.get("1m"))

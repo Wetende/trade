@@ -156,7 +156,7 @@ def render_order_proposal(proposal: OrderProposal) -> str:
     if proposal.strategy_type:
         parts.extend(["", f"**Strategy Type**: {proposal.strategy_type}"])
     secondary_timeframe_label = (
-        "History Window"
+        "Scalper Memory"
         if str(proposal.timeframe).strip().lower() == "1m"
         else "Confirmation Timeframe"
     )

@@ -178,13 +178,13 @@ def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
         "broker_symbol": "XAUUSD.vx",
         "as_of": "2026-06-03 08:15",
         "timeframe": "1m",
-        "confirmation_timeframe": "3m",
+        "confirmation_timeframe": "1m",
         "market_timezone": "America/New_York",
         "engine_payload": {
             "status": "SETUP_FOUND",
             "recommendation": "BUY",
             "entry_profile": "fast",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
             "message": "Fast A+ setup passed.",
             "setups": [
                 {
@@ -206,9 +206,9 @@ def test_engine_order_proposal_uses_fast_profile_activation_window(tmp_path):
 
     assert proposal_path.name == "order_proposal_2026-06-03_08_15_fast.json"
     assert proposal["timeframe"] == "1m"
-    assert proposal["confirmation_timeframe"] == "3m"
-    assert proposal["activation_window_minutes"] == 6
-    assert proposal["cancel_if_not_triggered_after"] == "2026-06-03 08:21 EDT"
+    assert proposal["confirmation_timeframe"] == "1m"
+    assert proposal["activation_window_minutes"] == 1
+    assert proposal["cancel_if_not_triggered_after"] == "2026-06-03 08:16 EDT"
 
 
 @pytest.mark.unit
@@ -218,7 +218,7 @@ def test_fast_order_proposal_renders_history_window_not_confirmation_label():
         side=TradeAction.BUY,
         order_type="AUTO",
         timeframe="1m",
-        confirmation_timeframe="3m",
+        confirmation_timeframe="1m",
         valid_until="2026-06-03 08:15 EDT",
         status=OrderStatus.PROPOSED,
         reason="Fast setup passed.",
@@ -226,7 +226,7 @@ def test_fast_order_proposal_renders_history_window_not_confirmation_label():
 
     rendered = render_order_proposal(proposal)
 
-    assert "**History Window**: 3m" in rendered
+    assert "**Scalper Memory**: 1m" in rendered
     assert "Confirmation Timeframe" not in rendered
 
 
@@ -237,13 +237,13 @@ def test_engine_order_proposal_carries_fast_volume_multiplier(tmp_path):
         "broker_symbol": "XAUUSD.vx",
         "as_of": "2026-06-03 08:15",
         "timeframe": "1m",
-        "confirmation_timeframe": "3m",
+        "confirmation_timeframe": "1m",
         "market_timezone": "America/New_York",
         "engine_payload": {
             "status": "SETUP_FOUND",
             "recommendation": "SELL",
             "entry_profile": "fast",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
             "message": "Fast microstructure setup passed.",
             "setups": [
                 {
@@ -286,13 +286,13 @@ def test_engine_order_proposal_carries_dynamic_fast_exit_settings(tmp_path):
         "broker_symbol": "XAUUSD.vx",
         "as_of": "2026-06-03 08:15",
         "timeframe": "1m",
-        "confirmation_timeframe": "3m",
+        "confirmation_timeframe": "1m",
         "market_timezone": "America/New_York",
         "engine_payload": {
             "status": "SETUP_FOUND",
             "recommendation": "SELL",
             "entry_profile": "fast",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
             "message": "Fast microstructure setup passed.",
             "setups": [
                 {

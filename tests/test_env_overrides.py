@@ -180,7 +180,7 @@ def test_fast_risk_env_updates_price_action_config(monkeypatch):
 
     assert dc.DEFAULT_CONFIG["fast_entries_enabled"] is True
     assert dc.DEFAULT_CONFIG["normal_activation_window_minutes"] == 30
-    assert dc.DEFAULT_CONFIG["fast_activation_window_minutes"] == 6
+    assert dc.DEFAULT_CONFIG["fast_activation_window_minutes"] == 1
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 2.5
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 4.0
     assert dc.DEFAULT_CONFIG["max_entry_spread_price"] == 0.6

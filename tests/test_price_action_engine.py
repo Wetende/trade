@@ -399,11 +399,11 @@ def test_engine_routes_fast_profile_to_one_minute_entry_model():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "activation_window_minutes": 6,
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "activation_window_minutes": 1,
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -415,7 +415,7 @@ def test_engine_routes_fast_profile_to_one_minute_entry_model():
     assert payload["timeframe"] == "1m"
     assert payload["confirmation_timeframe"] == "1m"
     assert payload["setups"][0]["name"] == "LOW_RESPECT_BUY"
-    assert payload["activation_window_minutes"] == 6
+    assert payload["activation_window_minutes"] == 1
     assert payload["telemetry"]["timeframe_rows"]["1m"] == 5
     assert payload["telemetry"]["zone_counts"]["1m"] == 1
     assert "3m" not in payload["telemetry"]["zone_counts"]
@@ -448,10 +448,10 @@ def test_one_minute_low_respect_buy_from_equal_lows():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -463,7 +463,7 @@ def test_one_minute_low_respect_buy_from_equal_lows():
     assert payload["setups"][0]["setup_grade"] == "A_PLUS"
     assert payload["risk"]["approved"] is True
     assert payload["risk"]["risk_reward"] >= 1.1
-    assert payload["risk"]["volume_multiplier"] == 1.5
+    assert "volume_multiplier" not in payload["risk"]
     assert payload["risk"]["position_lifecycle"] == "FAST_PARTIAL_SCALE"
     assert payload["checklist"]["confirmation_context_clear"] == "passed"
     assert payload["market_context"]["fast_microstructure"]["window_timeframe"] == "1m"
@@ -494,10 +494,10 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -536,10 +536,10 @@ def test_one_minute_low_break_sell_when_two_lows_fail():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -577,10 +577,10 @@ def test_one_minute_high_rejection_switches_to_sell_trigger():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -588,8 +588,8 @@ def test_one_minute_high_rejection_switches_to_sell_trigger():
 
     assert payload["status"] == "SETUP_FOUND"
     assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "HIGH_RESPECT_SELL"
-    assert payload["market_context"]["one_minute_story"]["classification"] == "HIGH_RESPECT_SELL"
+    assert payload["setups"][0]["name"] == "FAILED_HIGH_BREAK_SELL"
+    assert payload["market_context"]["one_minute_story"]["classification"] == "FAILED_HIGH_BREAK_SELL"
 
 
 def test_one_minute_low_break_sell_uses_latest_breaking_candle():
@@ -604,7 +604,7 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
             "2026-06-10 11:03:00,99.6,100.4,98.95,100.0,1000\n"
             "2026-06-10 11:04:00,100.0,100.7,99.2,99.5,1000\n"
             "2026-06-10 11:05:00,99.5,100.0,98.4,98.6,1000\n"
-            "2026-06-10 11:06:00,98.2,99.3,96.8,98.8,1000"
+            "2026-06-10 11:06:00,99.0,99.3,97.2,97.6,1000"
         ),
     }
 
@@ -617,10 +617,10 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -678,10 +678,10 @@ def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
             "minimum_setup_grade": "B_PLUS",
             "minimum_stop_distance_price": 0.3,
         },
@@ -893,7 +893,7 @@ def test_one_minute_profile_holds_when_latest_candle_has_no_equal_level_trigger(
     assert payload["status"] == "NO_SETUP"
     assert payload["recommendation"] == "HOLD"
     assert payload["checklist"]["entry_market_state_aligned"] == "passed"
-    assert payload["telemetry"]["decision_stage"] == "one_minute_no_trigger"
+    assert payload["telemetry"]["decision_stage"] == "one_minute_no_approved_candidate"
     assert payload["market_context"]["one_minute_story"]["classification"] == "UNCLEAR"
 
 
@@ -922,11 +922,11 @@ def test_one_minute_profile_does_not_require_extra_confirmation_context():
             "time_filter_mode": "allow",
             "entry_profile": "fast",
             "timeframe": "1m",
-            "confirmation_timeframe": "3m",
-            "zone_timeframes": ("3m",),
-            "governing_timeframes": ("3m",),
-            "context_timeframes": ("3m",),
-            "activation_window_minutes": 6,
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "activation_window_minutes": 1,
             "minimum_stop_distance_price": 0.4,
         },
     )
@@ -959,7 +959,7 @@ def test_one_minute_profile_does_not_use_higher_timeframe_bias_filter():
             "entry_profile": "fast",
             "timeframe": "1m",
             "confirmation_timeframe": "1m",
-            "activation_window_minutes": 6,
+            "activation_window_minutes": 1,
             "minimum_setup_grade": "B_PLUS",
             "b_plus_min_rr": 1.2,
             "higher_timeframe_bias": "SELL",
