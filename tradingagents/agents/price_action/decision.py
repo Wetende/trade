@@ -313,12 +313,19 @@ def run_engine_decision(
             market_metadata,
         )
     else:
+        analysis_config = dict(profile_config)
+        if market_health.get("spread_price") is not None:
+            analysis_config["current_spread_price"] = market_health["spread_price"]
+        if market_health.get("bid") is not None:
+            analysis_config["current_bid_price"] = market_health["bid"]
+        if market_health.get("ask") is not None:
+            analysis_config["current_ask_price"] = market_health["ask"]
         payload = analyze_playbook(
             symbol,
             as_of,
             snapshot.candles,
             market_timezone=market_timezone,
-            session_config=session_config,
+            session_config=analysis_config,
         )
         payload.setdefault("timeframe", timeframe)
         payload.setdefault("confirmation_timeframe", confirmation_timeframe)

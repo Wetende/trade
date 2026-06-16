@@ -194,6 +194,21 @@ def test_one_minute_scalper_still_rejects_messy_raw_break_without_clean_impulse(
     assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
+def test_one_minute_scalper_rejects_clean_impulse_when_live_quote_moved_too_far():
+    payload = _payload(
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=104.20,
+        current_ask_price=104.40,
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    assert "IMPULSE_ENTRY_MOVED_AWAY" in candidate["rejection_reasons"]
+
+
 @pytest.mark.parametrize(
     ("trigger_name", "direction", "candles"),
     [

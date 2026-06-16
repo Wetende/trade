@@ -243,6 +243,65 @@ def test_engine_decision_returns_market_health_hold_for_wide_spread(
     assert payload["market_health"]["reasons"] == ["spread_too_wide"]
 
 
+def test_engine_decision_passes_live_bid_ask_into_one_minute_profile(
+    monkeypatch,
+    tmp_path,
+):
+    captured_config = {}
+    snapshot = PriceActionSnapshot(
+        candles={"1m": [Candle("2026-06-10 09:00:00", 1, 2, 0.5, 1.5, 1000)]},
+        data_status=_healthy_status(),
+        market_metadata={
+            "symbol": {
+                "name": "XAUUSD.vx",
+                "bid": 4339.84,
+                "ask": 4340.13,
+                "spread_price": 0.29,
+            },
+            "tick": {"bid": 4339.84, "ask": 4340.13},
+        },
+    )
+
+    def fake_analyze(symbol, as_of, timeframe_data, market_timezone, session_config):
+        captured_config.update(session_config)
+        return {
+            "symbol": symbol,
+            "as_of": as_of,
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "status": "NO_SETUP",
+            "recommendation": "HOLD",
+            "message": "No one-minute setup.",
+            "checklist": {"playbook_setup": "failed"},
+            "risk": {},
+            "setups": [],
+            "market_context": {},
+            "telemetry": {"decision_stage": "one_minute_no_trigger"},
+        }
+
+    monkeypatch.setattr(decision, "analyze_playbook", fake_analyze)
+
+    decision.run_engine_decision(
+        "XAUUSD.vx",
+        broker_symbol="XAUUSD.vx",
+        as_of="2026-06-10 09:01",
+        results_dir=tmp_path,
+        timeframe="1m",
+        confirmation_timeframe="1m",
+        snapshot=snapshot,
+        session_config={
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+        },
+    )
+
+    assert captured_config["current_spread_price"] == 0.29
+    assert captured_config["current_bid_price"] == 4339.84
+    assert captured_config["current_ask_price"] == 4340.13
+
+
 def test_engine_decision_tags_unhealthy_fast_profile_payload(tmp_path):
     unhealthy = _healthy_status()
     unhealthy["healthy"] = False

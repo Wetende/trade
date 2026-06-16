@@ -705,6 +705,9 @@ def _candidate_from_level(
     tolerance: float,
     minimum_stop_distance: float,
     current_spread_price: float,
+    current_bid_price: float,
+    current_ask_price: float,
+    max_live_entry_drift: float,
     minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
@@ -810,6 +813,37 @@ def _candidate_from_level(
             candidate.rejection_reasons.append(reason_code)
         candidate.rejection_reasons.append(str(risk.get("reason") or "RISK_REJECTED"))
         return candidate
+
+    quote = current_ask_price if direction == "BUY" else current_bid_price
+    if quote > 0:
+        drift = abs(quote - float(risk["entry_price"]))
+        if drift > max_live_entry_drift:
+            candidate = OneMinuteCandidate(
+                trigger=trigger_name,
+                direction=direction,
+                reaction_type=reaction_type,
+                confirmation_type=confirmation,
+                level=level,
+                entry_price=float(risk["entry_price"]),
+                stop_loss=float(risk["stop_loss"]),
+                take_profit=float(risk["take_profit"]),
+                risk_distance=float(risk["risk_distance"]),
+                reward_distance=float(risk["reward_distance"]),
+                risk=risk,
+            )
+            reason = (
+                "IMPULSE_ENTRY_MOVED_AWAY"
+                if trigger_name in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS
+                else "LIVE_ENTRY_MOVED_AWAY"
+            )
+            candidate.rejection_reasons.append(reason)
+            candidate.risk["fast_trigger_quality"] = {
+                **candidate.risk.get("fast_trigger_quality", {}),
+                "live_quote": round(quote, 4),
+                "live_entry_drift": round(drift, 4),
+                "max_live_entry_drift": round(max_live_entry_drift, 4),
+            }
+            return candidate
 
     return OneMinuteCandidate(
         trigger=trigger_name,
@@ -991,6 +1025,9 @@ def _build_candidates(
     tolerance: float,
     minimum_stop_distance: float,
     current_spread_price: float,
+    current_bid_price: float,
+    current_ask_price: float,
+    max_live_entry_drift: float,
     minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
@@ -1050,6 +1087,9 @@ def _build_candidates(
             tolerance=tolerance,
             minimum_stop_distance=minimum_stop_distance,
             current_spread_price=current_spread_price,
+            current_bid_price=current_bid_price,
+            current_ask_price=current_ask_price,
+            max_live_entry_drift=max_live_entry_drift,
             minimum_stop_spread_multiple=minimum_stop_spread_multiple,
             max_stop_distance=max_stop_distance,
             boost_max_stop_distance=boost_max_stop_distance,
@@ -1317,6 +1357,12 @@ def analyze_one_minute_entry(
         config.get("current_spread_price", config.get("spread_price")),
         0.0,
     )
+    current_bid_price = _positive_float(config.get("current_bid_price"), 0.0)
+    current_ask_price = _positive_float(config.get("current_ask_price"), 0.0)
+    max_live_entry_drift = _positive_float(
+        config.get("fast_impulse_max_live_entry_drift_price"),
+        max(current_spread_price * 3.0, 0.60),
+    )
     boost_max_stop_distance = _positive_float(
         config.get("fast_boost_max_stop_distance_price"),
         DEFAULT_BOOST_MAX_STOP_DISTANCE,
@@ -1368,6 +1414,9 @@ def analyze_one_minute_entry(
         "tolerance": round(tolerance, 4),
         "min_candidate_score": round(min_candidate_score, 2),
         "current_spread_price": round(current_spread_price, 4),
+        "current_bid_price": round(current_bid_price, 4),
+        "current_ask_price": round(current_ask_price, 4),
+        "max_live_entry_drift": round(max_live_entry_drift, 4),
         "minimum_stop_spread_multiple": round(minimum_stop_spread_multiple, 4),
         "latest_candle_relation": asdict(latest_relation),
         "active_openings": [_opening_to_dict(opening) for opening in openings],
@@ -1433,6 +1482,9 @@ def analyze_one_minute_entry(
         tolerance=tolerance,
         minimum_stop_distance=minimum_stop_distance,
         current_spread_price=current_spread_price,
+        current_bid_price=current_bid_price,
+        current_ask_price=current_ask_price,
+        max_live_entry_drift=max_live_entry_drift,
         minimum_stop_spread_multiple=minimum_stop_spread_multiple,
         max_stop_distance=max_stop_distance,
         boost_max_stop_distance=boost_max_stop_distance,
