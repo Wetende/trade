@@ -26,11 +26,16 @@ DEFAULT_FAST_HISTORY_WINDOW_CANDLES = 60
 MINIMUM_CANDLES_FOR_COMPARISON = 2
 DEFAULT_MAX_STOP_DISTANCE = 2.0
 DEFAULT_BOOST_MAX_STOP_DISTANCE = 1.2
+DEFAULT_MIN_CANDIDATE_SCORE = 8.0
+DEFAULT_MIN_STOP_SPREAD_MULTIPLE = 2.0
 DEFAULT_RISK_REWARD = 1.5
 MINIMUM_STOP_DISTANCE_BUFFER = 0.05
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
+RAW_BREAK_EXECUTION_DISABLED = "RAW_BREAK_EXECUTION_DISABLED"
+SPREAD_SAFE_STOP_TOO_WIDE = "SPREAD_SAFE_STOP_TOO_WIDE"
+SPREAD_SAFE_STOP_ADJUSTED = "SPREAD_SAFE_STOP_ADJUSTED"
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -44,6 +49,21 @@ HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS = {
     HIGH_RESPECT_SELL,
     FAILED_LOW_BREAK_BUY,
     FAILED_HIGH_BREAK_SELL,
+}
+
+RESPECT_ONE_MINUTE_TRIGGERS = {
+    LOW_RESPECT_BUY,
+    HIGH_RESPECT_SELL,
+}
+
+FAKEOUT_ONE_MINUTE_TRIGGERS = {
+    FAILED_LOW_BREAK_BUY,
+    FAILED_HIGH_BREAK_SELL,
+}
+
+BREAK_ONE_MINUTE_TRIGGERS = {
+    LOW_BREAK_SELL,
+    HIGH_BREAK_BUY,
 }
 
 
@@ -76,11 +96,40 @@ class OneMinuteCandidate:
     reward_distance: float
     risk: dict[str, Any] = field(default_factory=dict)
     score: float = 0.0
+    minimum_required_score: float = DEFAULT_MIN_CANDIDATE_SCORE
     approved: bool = False
     score_reasons: list[str] = field(default_factory=list)
     rejection_reasons: list[str] = field(default_factory=list)
     volume_decision: str = "REJECTED"
     volume_multiplier: float | None = None
+
+
+@dataclass(frozen=True)
+class OneMinuteCandleRelation:
+    equal_high: bool
+    equal_low: bool
+    higher_high: bool
+    higher_low: bool
+    lower_high: bool
+    lower_low: bool
+    broke_high_zone: bool
+    broke_low_zone: bool
+    rejected_high_zone: bool
+    rejected_low_zone: bool
+    failed_high_break: bool
+    failed_low_break: bool
+
+
+@dataclass(frozen=True)
+class OneMinuteOpeningMemory:
+    side: str
+    level: float
+    touch_count: int
+    level_type: str
+    first_touch_index: int
+    last_touch_index: int
+    tolerance: float
+    state: str
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -97,6 +146,19 @@ def _positive_float(value: Any, default: float) -> float:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _bool_value(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _recent_tolerance(candles: list[Candle]) -> float:
@@ -143,6 +205,135 @@ def _detect_equal_levels(
     return sorted(
         levels,
         key=lambda item: (-item.touch_count, -item.last_touch_index, item.spread),
+    )
+
+
+def _opening_state(level: OneMinuteLevel, latest: Candle, tolerance: float) -> str:
+    margin = max(0.05, tolerance * 0.25)
+    if level.side == "high":
+        if float(latest.close) > level.level + margin:
+            return "broken_up"
+        if (
+            float(latest.high) > level.level + margin
+            and float(latest.close) < level.level
+        ):
+            return "failed_break_up"
+        if abs(float(latest.high) - level.level) <= tolerance:
+            return "respected_high"
+        return "watching_high"
+    if float(latest.close) < level.level - margin:
+        return "broken_down"
+    if (
+        float(latest.low) < level.level - margin
+        and float(latest.close) > level.level
+    ):
+        return "failed_break_down"
+    if abs(float(latest.low) - level.level) <= tolerance:
+        return "respected_low"
+    return "watching_low"
+
+
+def _opening_to_dict(opening: OneMinuteOpeningMemory) -> dict[str, Any]:
+    return {
+        "side": opening.side,
+        "level": round(opening.level, 4),
+        "touch_count": opening.touch_count,
+        "level_type": opening.level_type,
+        "first_touch_index": opening.first_touch_index,
+        "last_touch_index": opening.last_touch_index,
+        "tolerance": round(opening.tolerance, 4),
+        "state": opening.state,
+    }
+
+
+def _build_opening_memory(
+    history: list[Candle],
+    tolerance: float,
+) -> list[OneMinuteOpeningMemory]:
+    if len(history) < 2:
+        return []
+    latest = history[-1]
+    prior = history[:-1]
+    levels = [
+        *_detect_equal_levels(prior, tolerance, side="low"),
+        *_detect_equal_levels(prior, tolerance, side="high"),
+    ]
+    memory: list[OneMinuteOpeningMemory] = []
+    for level in levels:
+        memory.append(
+            OneMinuteOpeningMemory(
+                side=level.side,
+                level=level.level,
+                touch_count=level.touch_count,
+                level_type=level.level_type,
+                first_touch_index=level.first_touch_index,
+                last_touch_index=level.last_touch_index,
+                tolerance=level.tolerance,
+                state=_opening_state(level, latest, tolerance),
+            )
+        )
+    return sorted(
+        memory,
+        key=lambda item: (
+            item.state.startswith("broken"),
+            item.state.startswith("failed"),
+            item.touch_count,
+            item.last_touch_index,
+        ),
+        reverse=True,
+    )
+
+
+def _latest_candle_relation(
+    history: list[Candle],
+    tolerance: float,
+    openings: list[OneMinuteOpeningMemory],
+) -> OneMinuteCandleRelation:
+    latest = history[-1]
+    previous = history[-2]
+    latest_high = float(latest.high)
+    latest_low = float(latest.low)
+    previous_high = float(previous.high)
+    previous_low = float(previous.low)
+
+    broke_high_zone = any(
+        opening.side == "high" and opening.state == "broken_up"
+        for opening in openings
+    )
+    broke_low_zone = any(
+        opening.side == "low" and opening.state == "broken_down"
+        for opening in openings
+    )
+    rejected_high_zone = any(
+        opening.side == "high" and opening.state == "respected_high"
+        for opening in openings
+    )
+    rejected_low_zone = any(
+        opening.side == "low" and opening.state == "respected_low"
+        for opening in openings
+    )
+    failed_high_break = any(
+        opening.side == "high" and opening.state == "failed_break_up"
+        for opening in openings
+    )
+    failed_low_break = any(
+        opening.side == "low" and opening.state == "failed_break_down"
+        for opening in openings
+    )
+
+    return OneMinuteCandleRelation(
+        equal_high=abs(latest_high - previous_high) <= tolerance,
+        equal_low=abs(latest_low - previous_low) <= tolerance,
+        higher_high=latest_high > previous_high,
+        higher_low=latest_low > previous_low,
+        lower_high=latest_high < previous_high,
+        lower_low=latest_low < previous_low,
+        broke_high_zone=broke_high_zone,
+        broke_low_zone=broke_low_zone,
+        rejected_high_zone=rejected_high_zone,
+        rejected_low_zone=rejected_low_zone,
+        failed_high_break=failed_high_break,
+        failed_low_break=failed_low_break,
     )
 
 
@@ -362,6 +553,8 @@ def _risk_for_trigger(
     *,
     tolerance: float,
     minimum_stop_distance: float,
+    current_spread_price: float,
+    minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
     risk_reward: float,
@@ -370,6 +563,7 @@ def _risk_for_trigger(
     level = float(trigger["level"])
     name = trigger["name"]
     entry = _entry_price(trigger, latest)
+    spread_safe_stop_adjusted = False
     stop_buffer = max(0.05, min(tolerance * 0.5, 0.25))
     if direction == "BUY":
         stop = level - stop_buffer
@@ -388,6 +582,38 @@ def _risk_for_trigger(
         stop = entry - risk_distance if direction == "BUY" else entry + risk_distance
     if risk_distance <= 0:
         return {"approved": False, "reason": "Invalid stop distance"}
+    spread_floor = (
+        current_spread_price * minimum_stop_spread_multiple
+        if current_spread_price > 0 and minimum_stop_spread_multiple > 0
+        else 0.0
+    )
+    if spread_floor > 0 and risk_distance < spread_floor:
+        if name in HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS:
+            adjusted_risk_distance = spread_floor + MINIMUM_STOP_DISTANCE_BUFFER
+            if adjusted_risk_distance > boost_max_stop_distance:
+                return {
+                    "approved": False,
+                    "reason_code": SPREAD_SAFE_STOP_TOO_WIDE,
+                    "reason": (
+                        "Spread-safe one-minute stop exceeds scalp maximum: "
+                        f"distance={adjusted_risk_distance:.2f}, "
+                        f"spread={current_spread_price:.2f}, "
+                        f"maximum={boost_max_stop_distance:.2f}"
+                    ),
+                }
+            risk_distance = adjusted_risk_distance
+            stop = entry - risk_distance if direction == "BUY" else entry + risk_distance
+            spread_safe_stop_adjusted = True
+        else:
+            return {
+                "approved": False,
+                "reason_code": "STOP_TOO_CLOSE_TO_SPREAD",
+                "reason": (
+                    "Stop distance too close to spread: "
+                    f"distance={risk_distance:.2f}, spread={current_spread_price:.2f}, "
+                    f"minimum={spread_floor:.2f}"
+                ),
+            }
     if risk_distance > max_stop_distance:
         return {
             "approved": False,
@@ -416,6 +642,10 @@ def _risk_for_trigger(
             "level": round(level, 4),
             "tolerance": round(tolerance, 4),
             "minimum_stop_distance": round(minimum_stop_distance, 4),
+            "current_spread_price": round(current_spread_price, 4),
+            "minimum_stop_spread_multiple": round(minimum_stop_spread_multiple, 4),
+            "spread_floor": round(spread_floor, 4),
+            "spread_safe_stop_adjusted": spread_safe_stop_adjusted,
         },
         "position_lifecycle": "FAST_PARTIAL_SCALE",
         **_dynamic_fast_exit_settings(risk_distance),
@@ -430,6 +660,8 @@ def _candidate_from_level(
     *,
     tolerance: float,
     minimum_stop_distance: float,
+    current_spread_price: float,
+    minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
     risk_reward: float,
@@ -488,6 +720,8 @@ def _candidate_from_level(
         latest,
         tolerance=tolerance,
         minimum_stop_distance=minimum_stop_distance,
+        current_spread_price=current_spread_price,
+        minimum_stop_spread_multiple=minimum_stop_spread_multiple,
         max_stop_distance=max_stop_distance,
         boost_max_stop_distance=boost_max_stop_distance,
         risk_reward=risk_reward,
@@ -507,6 +741,9 @@ def _candidate_from_level(
             reward_distance=0.0,
             risk=risk,
         )
+        reason_code = str(risk.get("reason_code") or "").strip()
+        if reason_code:
+            candidate.rejection_reasons.append(reason_code)
         candidate.rejection_reasons.append(str(risk.get("reason") or "RISK_REJECTED"))
         return candidate
 
@@ -531,6 +768,8 @@ def _score_candidate(
     *,
     is_chop: bool,
     boost_max_stop_distance: float,
+    min_candidate_score: float,
+    volume_boost_enabled: bool,
 ) -> OneMinuteCandidate:
     initial_rejections = list(candidate.rejection_reasons)
     candidate.score = 0.0
@@ -558,6 +797,28 @@ def _score_candidate(
         candidate.score += 2
         candidate.score_reasons.append("CLOSE_INVALIDATION")
 
+    if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
+        extension = abs(float(candidate.entry_price) - float(candidate.level.level))
+        max_extension = max(float(candidate.level.tolerance) * 2.0, 0.30)
+        tight_break = extension <= max_extension
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "break_extension": round(extension, 4),
+            "max_break_extension": round(max_extension, 4),
+        }
+        if tight_break:
+            candidate.score += 1
+            candidate.score_reasons.append("BREAK_ENTRY_TIGHT")
+        else:
+            candidate.rejection_reasons.append("BREAK_ENTRY_TOO_EXTENDED")
+        if candidate.level.touch_count < 3:
+            candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_THIRD_TOUCH")
+        if "DECISIVE_CLOSE" not in candidate.score_reasons:
+            candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_DECISIVE_CLOSE")
+        if candidate.risk_distance > boost_max_stop_distance:
+            candidate.rejection_reasons.append("BREAK_ENTRY_STOP_TOO_WIDE")
+        candidate.rejection_reasons.append(RAW_BREAK_EXECUTION_DISABLED)
+
     if candidate.confirmation_type == "mixed":
         candidate.score -= 3
         candidate.rejection_reasons.append("LATEST_CANDLE_NOT_CONFIRMING")
@@ -568,15 +829,26 @@ def _score_candidate(
     if candidate.risk_distance <= 0:
         candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
 
+    candidate.minimum_required_score = _minimum_required_score(
+        candidate,
+        min_candidate_score,
+    )
+    if candidate.score < candidate.minimum_required_score:
+        candidate.rejection_reasons.append("LOW_ONE_MINUTE_SCORE")
+
     candidate.rejection_reasons = list(dict.fromkeys(candidate.rejection_reasons))
-    candidate.approved = candidate.score >= 6 and not candidate.rejection_reasons
+    candidate.approved = (
+        candidate.score >= candidate.minimum_required_score
+        and not candidate.rejection_reasons
+    )
     if not candidate.approved:
         candidate.volume_decision = "REJECTED"
         candidate.volume_multiplier = None
         return candidate
 
     high_confidence = (
-        candidate.score >= 10
+        volume_boost_enabled
+        and candidate.score >= 10
         and "DECISIVE_CLOSE" in candidate.score_reasons
         and candidate.confirmation_type in {"engulfing", "rejection"}
         and candidate.risk_distance <= boost_max_stop_distance
@@ -596,10 +868,38 @@ def _score_candidate(
     candidate.risk["fast_trigger_quality"] = {
         **candidate.risk.get("fast_trigger_quality", {}),
         "score": round(candidate.score, 2),
+        "minimum_required_score": round(candidate.minimum_required_score, 2),
         "score_reasons": list(candidate.score_reasons),
         "volume_decision": candidate.volume_decision,
     }
     return candidate
+
+
+def _minimum_required_score(
+    candidate: OneMinuteCandidate,
+    configured_minimum: float,
+) -> float:
+    can_relax = (
+        candidate.confirmation_type in {"engulfing", "rejection"}
+        and "CLOSE_INVALIDATION" in candidate.score_reasons
+    )
+    if not can_relax:
+        return configured_minimum
+    if candidate.trigger in RESPECT_ONE_MINUTE_TRIGGERS:
+        candidate.score_reasons.append("RELAXED_RESPECT_SCORE_FLOOR")
+        return max(6.0, configured_minimum - 2.0)
+    if candidate.trigger in FAKEOUT_ONE_MINUTE_TRIGGERS:
+        candidate.score_reasons.append("RELAXED_FAKEOUT_SCORE_FLOOR")
+        return max(6.0, configured_minimum - 2.0)
+    return configured_minimum
+
+
+def _selection_priority(candidate: OneMinuteCandidate) -> int:
+    if candidate.reaction_type in {"fakeout", "respect"}:
+        return 2
+    if candidate.reaction_type == "break":
+        return 1
+    return 0
 
 
 def _build_candidates(
@@ -607,8 +907,12 @@ def _build_candidates(
     *,
     tolerance: float,
     minimum_stop_distance: float,
+    current_spread_price: float,
+    minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     boost_max_stop_distance: float,
+    min_candidate_score: float,
+    volume_boost_enabled: bool,
     risk_reward: float,
 ) -> list[OneMinuteCandidate]:
     latest = history[-1]
@@ -662,6 +966,8 @@ def _build_candidates(
             latest,
             tolerance=tolerance,
             minimum_stop_distance=minimum_stop_distance,
+            current_spread_price=current_spread_price,
+            minimum_stop_spread_multiple=minimum_stop_spread_multiple,
             max_stop_distance=max_stop_distance,
             boost_max_stop_distance=boost_max_stop_distance,
             risk_reward=risk_reward,
@@ -682,12 +988,15 @@ def _build_candidates(
                 latest,
                 is_chop=is_chop,
                 boost_max_stop_distance=boost_max_stop_distance,
+                min_candidate_score=min_candidate_score,
+                volume_boost_enabled=volume_boost_enabled,
             )
         )
     return sorted(
         candidates,
         key=lambda item: (
             item.approved,
+            _selection_priority(item),
             item.score,
             item.level.touch_count,
             item.level.last_touch_index,
@@ -789,6 +1098,7 @@ def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
         "level_type": candidate.level.level_type,
         "touch_count": candidate.level.touch_count,
         "score": round(candidate.score, 2),
+        "minimum_required_score": round(candidate.minimum_required_score, 2),
         "approved": candidate.approved,
         "score_reasons": list(candidate.score_reasons),
         "rejection_reasons": list(candidate.rejection_reasons),
@@ -910,9 +1220,31 @@ def analyze_one_minute_entry(
         config.get("minimum_stop_distance_price"),
         0.0,
     )
+    minimum_stop_spread_multiple = max(
+        _positive_float(
+            config.get("minimum_stop_spread_multiple"),
+            DEFAULT_MIN_STOP_SPREAD_MULTIPLE,
+        ),
+        _positive_float(
+            config.get("fast_min_stop_spread_multiple"),
+            DEFAULT_MIN_STOP_SPREAD_MULTIPLE,
+        ),
+    )
+    current_spread_price = _positive_float(
+        config.get("current_spread_price", config.get("spread_price")),
+        0.0,
+    )
     boost_max_stop_distance = _positive_float(
         config.get("fast_boost_max_stop_distance_price"),
         DEFAULT_BOOST_MAX_STOP_DISTANCE,
+    )
+    min_candidate_score = _positive_float(
+        config.get("fast_min_candidate_score"),
+        DEFAULT_MIN_CANDIDATE_SCORE,
+    )
+    volume_boost_enabled = _bool_value(
+        config.get("fast_volume_boost_enabled"),
+        False,
     )
     risk_reward = _positive_float(
         config.get("fast_risk_reward"),
@@ -926,12 +1258,36 @@ def analyze_one_minute_entry(
     all_candles = normalize_candles(timeframe_data.get("1m"))
     history = all_candles[-history_window:]
     tolerance = _recent_tolerance(history)
+    openings = _build_opening_memory(history, tolerance) if len(history) >= 2 else []
+    latest_relation = (
+        _latest_candle_relation(history, tolerance, openings)
+        if len(history) >= 2
+        else OneMinuteCandleRelation(
+            equal_high=False,
+            equal_low=False,
+            higher_high=False,
+            higher_low=False,
+            lower_high=False,
+            lower_low=False,
+            broke_high_zone=False,
+            broke_low_zone=False,
+            rejected_high_zone=False,
+            rejected_low_zone=False,
+            failed_high_break=False,
+            failed_low_break=False,
+        )
+    )
     story = {
         "model_name": MODEL_NAME,
         "classification": "UNCLEAR",
         "history_candles": len(history),
         "history_window_candles": history_window,
         "tolerance": round(tolerance, 4),
+        "min_candidate_score": round(min_candidate_score, 2),
+        "current_spread_price": round(current_spread_price, 4),
+        "minimum_stop_spread_multiple": round(minimum_stop_spread_multiple, 4),
+        "latest_candle_relation": asdict(latest_relation),
+        "active_openings": [_opening_to_dict(opening) for opening in openings],
     }
     market_context = {
         "entry_profile": "fast",
@@ -991,8 +1347,12 @@ def analyze_one_minute_entry(
         history,
         tolerance=tolerance,
         minimum_stop_distance=minimum_stop_distance,
+        current_spread_price=current_spread_price,
+        minimum_stop_spread_multiple=minimum_stop_spread_multiple,
         max_stop_distance=max_stop_distance,
         boost_max_stop_distance=boost_max_stop_distance,
+        min_candidate_score=min_candidate_score,
+        volume_boost_enabled=volume_boost_enabled,
         risk_reward=risk_reward,
     )
     candidate_evaluations = [_candidate_to_telemetry(candidate) for candidate in candidates]
