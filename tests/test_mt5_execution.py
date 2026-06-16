@@ -1166,7 +1166,7 @@ def test_executor_uses_proposal_dynamic_partial_thresholds(tmp_path):
     assert broker.modified_stops[0]["stop_loss"] == 2449.9
 
 
-def test_executor_partially_closes_sell_on_closed_bullish_rejection_candle(tmp_path):
+def test_executor_fully_closes_unprotected_sell_on_closed_bullish_rejection_candle(tmp_path):
     broker = FakeBroker()
     broker.positions = [
         {
@@ -1204,15 +1204,16 @@ def test_executor_partially_closes_sell_on_closed_bullish_rejection_candle(tmp_p
 
     result = executor.manage_open_positions()
 
-    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
-    assert result["actions"][0]["reason"] == "CANDLE_REJECTION_PARTIAL_EXIT"
+    assert result["status"] == "POSITION_CLOSED_REJECTION"
+    assert result["actions"][0]["action"] == "FULL_CLOSE"
+    assert result["actions"][0]["reason"] == "CANDLE_REJECTION_FULL_EXIT_UNPROTECTED"
     assert broker.closed_positions[0] == (
         dict(broker.positions[0]),
-        "TA candle rejection partial",
-        0.75,
+        "TA candle rejection full",
+        None,
     )
     state = executor.state.load()
-    assert state["rejection_exit_state"]["777014"]["stage"] == "PARTIAL"
+    assert state["rejection_exit_state"]["777014"]["stage"] == "CLOSED"
     assert state["rejection_exit_state"]["777014"]["last_candle_timestamp"] == (
         "2026-06-11T12:01:00+00:00"
     )
@@ -1273,7 +1274,9 @@ def test_executor_closes_remaining_sell_on_second_closed_bullish_rejection_candl
     )
 
 
-def test_executor_partially_closes_buy_on_closed_bearish_rejection_candle(tmp_path):
+def test_executor_partially_closes_and_protects_buy_on_profitable_rejection_candle(
+    tmp_path,
+):
     broker = FakeBroker()
     broker.positions = [
         {
@@ -1285,7 +1288,7 @@ def test_executor_partially_closes_buy_on_closed_bearish_rejection_candle(tmp_pa
             "entry_price": 2450.0,
             "stop_loss": 2447.0,
             "take_profit": 2456.0,
-            "current_price": 2449.6,
+            "current_price": 2450.6,
         }
     ]
     broker.closed_rates = [
@@ -1297,7 +1300,16 @@ def test_executor_partially_closes_buy_on_closed_bearish_rejection_candle(tmp_pa
             "close": 2449.5,
         }
     ]
-    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            candle_rejection_exit_enabled=True,
+            candle_rejection_partial_fraction=0.5,
+            break_even_lock_points=0.09,
+        ),
+    )
     executor.state.save(
         {
             "symbol": "XAUUSD",
@@ -1313,11 +1325,16 @@ def test_executor_partially_closes_buy_on_closed_bearish_rejection_candle(tmp_pa
 
     assert result["status"] == "POSITION_PARTIALLY_CLOSED"
     assert result["actions"][0]["reason"] == "CANDLE_REJECTION_PARTIAL_EXIT"
+    assert result["actions"][1]["action"] == "MODIFY_STOP"
+    assert result["actions"][1]["reason"] == "CANDLE_REJECTION_PROTECT_REMAINDER"
+    assert result["actions"][1]["stop_loss"] == 2450.09
     assert broker.closed_positions[0] == (
         dict(broker.positions[0]),
         "TA candle rejection partial",
         0.5,
     )
+    assert broker.modified_stops[0]["position_ticket"] == 777016
+    assert broker.modified_stops[0]["stop_loss"] == 2450.09
 
 
 def test_executor_ignores_rejection_candle_before_fast_order_was_placed(tmp_path):

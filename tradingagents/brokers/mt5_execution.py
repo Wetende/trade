@@ -328,19 +328,24 @@ class MT5Executor:
         partial = False
         moved = False
         for position in positions:
-            action = self._manage_position(position, management)
-            if action is None:
+            managed_action = self._manage_position(position, management)
+            if managed_action is None:
                 continue
-            if legacy_mode and action.get("management_action") == "MOVE_TO_BREAK_EVEN":
-                action = {**action, "action": "MOVE_TO_BREAK_EVEN"}
-            actions.append(action)
-            closed = closed or action.get("action") == "CLOSE_POSITION"
-            closed_scalp = closed_scalp or action.get("reason") == "SCALP_PROFIT_EXIT"
-            closed_rejection = closed_rejection or action.get("reason") == (
-                "CANDLE_REJECTION_FULL_EXIT"
+            position_actions = (
+                managed_action if isinstance(managed_action, list) else [managed_action]
             )
-            partial = partial or action.get("action") == "PARTIAL_CLOSE"
-            moved = moved or action.get("action") == "MODIFY_STOP"
+            for action in position_actions:
+                if legacy_mode and action.get("management_action") == "MOVE_TO_BREAK_EVEN":
+                    action = {**action, "action": "MOVE_TO_BREAK_EVEN"}
+                actions.append(action)
+                closed = closed or action.get("action") in {"CLOSE_POSITION", "FULL_CLOSE"}
+                closed_scalp = closed_scalp or action.get("reason") == "SCALP_PROFIT_EXIT"
+                closed_rejection = closed_rejection or action.get("reason") in {
+                    "CANDLE_REJECTION_FULL_EXIT",
+                    "CANDLE_REJECTION_FULL_EXIT_UNPROTECTED",
+                }
+                partial = partial or action.get("action") == "PARTIAL_CLOSE"
+                moved = moved or action.get("action") == "MODIFY_STOP"
 
         if legacy_mode:
             status = "MANAGED" if actions else "NO_POSITION_ACTION"
@@ -397,7 +402,7 @@ class MT5Executor:
         self,
         position: dict[str, Any],
         management: MT5ExitManagementConfig,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
         side = str(position.get("side") or "").upper()
         if side not in {"BUY", "SELL"}:
             return None
@@ -511,7 +516,7 @@ class MT5Executor:
         position: dict[str, Any],
         side: str,
         management: MT5ExitManagementConfig,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
         if not management.candle_rejection_exit_enabled:
             return None
         state = self.state.load()
@@ -535,6 +540,11 @@ class MT5Executor:
         volume = _first_float(position, "volume", "volume_current")
         if volume is None or volume <= 0:
             return None
+        entry = _first_float(position, "entry_price", "price_open")
+        current = _first_float(position, "current_price", "price_current")
+        if entry is None or current is None:
+            return None
+        favorable_points = current - entry if side == "BUY" else entry - current
 
         if position_state.get("stage") == "PARTIAL":
             close_result = self.broker.close_position(
@@ -554,6 +564,31 @@ class MT5Executor:
                 "ticket": position.get("ticket"),
                 "action": "CLOSE_POSITION",
                 "reason": "CANDLE_REJECTION_FULL_EXIT",
+                "candle": candle,
+                "result": close_result,
+            }
+            self.journal.append("POSITION_CLOSED_REJECTION", action)
+            return action
+
+        if favorable_points <= 0:
+            close_result = self.broker.close_position(
+                position,
+                comment="TA candle rejection full",
+            )
+            position_state.update(
+                {
+                    "stage": "CLOSED",
+                    "last_candle_timestamp": candle_timestamp,
+                    "side": side,
+                }
+            )
+            rejection_state[position_key] = position_state
+            self.state.save(state)
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "FULL_CLOSE",
+                "reason": "CANDLE_REJECTION_FULL_EXIT_UNPROTECTED",
+                "favorable_points": round(favorable_points, 2),
                 "candle": candle,
                 "result": close_result,
             }
@@ -586,10 +621,63 @@ class MT5Executor:
             "reason": "CANDLE_REJECTION_PARTIAL_EXIT",
             "closed_volume": close_volume,
             "remaining_volume": round(volume - close_volume, 8),
+            "favorable_points": round(favorable_points, 2),
             "candle": candle,
             "result": close_result,
         }
         self.journal.append("POSITION_PARTIALLY_CLOSED", action)
+        protect_action = self._protect_rejection_remainder(
+            position,
+            side,
+            entry,
+            current,
+            management,
+        )
+        if protect_action is None:
+            return action
+        return [action, protect_action]
+
+    def _protect_rejection_remainder(
+        self,
+        position: dict[str, Any],
+        side: str,
+        entry: float,
+        current: float,
+        management: MT5ExitManagementConfig,
+    ) -> dict[str, Any] | None:
+        target = _first_float(position, "take_profit", "tp")
+        stop = _first_float(position, "stop_loss", "sl")
+        ticket = position.get("ticket")
+        if target is None or stop is None or ticket in (None, ""):
+            return None
+        candidate = (
+            entry + management.break_even_lock_points
+            if side == "BUY"
+            else entry - management.break_even_lock_points
+        )
+        connection = self.broker.connect()
+        symbol_info = connection["symbol"]
+        rounded_stop = self.builder._round_price(candidate, symbol_info)
+        rounded_target = self.builder._round_price(target, symbol_info)
+        if not _is_valid_managed_stop(side, rounded_stop, current):
+            return None
+        improvement = _stop_improvement_points(side, rounded_stop, stop)
+        if improvement <= 0:
+            return None
+        result = self.broker.modify_position_stops(
+            int(ticket),
+            rounded_stop,
+            rounded_target,
+        )
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "MODIFY_STOP",
+            "reason": "CANDLE_REJECTION_PROTECT_REMAINDER",
+            "stop_loss": rounded_stop,
+            "take_profit": rounded_target,
+            "result": result,
+        }
+        self.journal.append("POSITION_STOP_MOVED", action)
         return action
 
     def _latest_rejection_candle(
