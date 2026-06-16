@@ -229,7 +229,7 @@ def test_one_minute_scalper_rejects_clean_impulse_when_live_quote_moved_too_far(
             + [
                 _candle(57, 99.8, 101.0, 99.4, 100.4),
                 _candle(58, 100.2, 100.95, 99.9, 100.6),
-                _candle(59, 100.7, 100.9, 99.2, 99.5),
+                _candle(59, 100.7, 100.9, 99.75, 100.05),
             ],
         ),
         (
@@ -249,7 +249,7 @@ def test_one_minute_scalper_rejects_clean_impulse_when_live_quote_moved_too_far(
             + [
                 _candle(57, 99.8, 101.0, 99.5, 100.3),
                 _candle(58, 100.2, 100.95, 99.8, 100.5),
-                _candle(59, 100.7, 101.6, 99.3, 99.6),
+                _candle(59, 100.7, 101.6, 99.75, 100.0),
             ],
         ),
     ],
@@ -274,7 +274,7 @@ def test_one_minute_model_emits_explicit_trigger_name_and_direction(
             + [
                 _candle(57, 99.8, 101.0, 99.4, 100.4),
                 _candle(58, 100.2, 100.95, 99.9, 100.6),
-                _candle(59, 100.7, 100.9, 99.2, 99.5),
+                _candle(59, 100.7, 100.9, 99.75, 100.05),
             ],
         ),
         (
@@ -292,7 +292,7 @@ def test_one_minute_model_emits_explicit_trigger_name_and_direction(
             + [
                 _candle(57, 99.8, 101.0, 99.5, 100.3),
                 _candle(58, 100.2, 100.95, 99.8, 100.5),
-                _candle(59, 100.7, 101.6, 99.3, 99.6),
+                _candle(59, 100.7, 101.6, 99.75, 100.0),
             ],
         ),
     ],
@@ -358,7 +358,7 @@ def test_one_minute_scalper_rejects_late_raw_break_entries():
     assert candidate["volume_decision"] == "REJECTED"
 
 
-def test_one_minute_scalper_disables_tight_decisive_raw_break_execution():
+def test_one_minute_scalper_allows_tight_decisive_break_as_clean_impulse():
     candles = [
         _candle(0, 100.0, 100.95, 99.7, 100.2),
         _candle(1, 100.2, 100.90, 99.9, 100.1),
@@ -372,14 +372,15 @@ def test_one_minute_scalper_disables_tight_decisive_raw_break_execution():
         minimum_stop_distance_price=0.25,
     )
 
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
-    candidate = _candidate_by_trigger(payload, "HIGH_BREAK_BUY")
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "CLEAN_HIGH_IMPULSE_BUY"
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
     assert candidate["level_type"] == "three_touch"
     assert "BREAK_ENTRY_TIGHT" in candidate["score_reasons"]
     assert "DECISIVE_CLOSE" in candidate["score_reasons"]
-    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
-    assert candidate["volume_decision"] == "REJECTED"
+    assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+    assert candidate["volume_decision"] == "BASE_1_0"
 
 
 def test_one_minute_model_respects_configured_minimum_stop_distance():
@@ -388,7 +389,7 @@ def test_one_minute_model_respects_configured_minimum_stop_distance():
         + [
             _candle(57, 99.8, 101.0, 99.4, 100.4),
             _candle(58, 100.2, 100.95, 99.9, 100.6),
-            _candle(59, 100.7, 100.9, 99.2, 99.5),
+            _candle(59, 100.7, 100.9, 99.75, 100.05),
         ],
         minimum_stop_distance_price=0.4,
     )
@@ -519,7 +520,7 @@ def test_one_minute_scalper_keeps_strict_high_confidence_candidate_at_base_volum
         _candle(56, 100.4, 100.8, 99.0, 99.7),
         _candle(57, 99.8, 100.3, 99.05, 99.4),
         _candle(58, 99.5, 100.2, 99.02, 99.3),
-        _candle(59, 99.2, 101.0, 98.45, 100.8),
+        _candle(59, 99.2, 100.25, 98.45, 100.15),
     ]
 
     payload = _payload(candles, minimum_stop_distance_price=0.25)

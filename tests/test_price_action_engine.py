@@ -545,14 +545,12 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
         },
     )
 
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
-    candidate = next(
-        item
-        for item in payload["telemetry"]["candidate_evaluations"]
-        if item["trigger"] == "LOW_BREAK_SELL"
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["market_context"]["one_minute_story"]["classification"] == (
+        "CLEAN_LOW_IMPULSE_SELL"
     )
-    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_low_break_sell_when_two_lows_fail():
@@ -589,14 +587,12 @@ def test_one_minute_low_break_sell_when_two_lows_fail():
         },
     )
 
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
-    candidate = next(
-        item
-        for item in payload["telemetry"]["candidate_evaluations"]
-        if item["trigger"] == "LOW_BREAK_SELL"
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["market_context"]["one_minute_story"]["classification"] == (
+        "CLEAN_LOW_IMPULSE_SELL"
     )
-    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_high_rejection_switches_to_sell_trigger():
@@ -673,14 +669,12 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
         },
     )
 
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
-    candidate = next(
-        item
-        for item in payload["telemetry"]["candidate_evaluations"]
-        if item["trigger"] == "LOW_BREAK_SELL"
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["market_context"]["one_minute_story"]["classification"] == (
+        "CLEAN_LOW_IMPULSE_SELL"
     )
-    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
