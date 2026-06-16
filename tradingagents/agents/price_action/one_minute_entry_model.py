@@ -41,6 +41,8 @@ LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
 LOW_BREAK_SELL = "LOW_BREAK_SELL"
 HIGH_BREAK_BUY = "HIGH_BREAK_BUY"
+CLEAN_LOW_IMPULSE_SELL = "CLEAN_LOW_IMPULSE_SELL"
+CLEAN_HIGH_IMPULSE_BUY = "CLEAN_HIGH_IMPULSE_BUY"
 FAILED_LOW_BREAK_BUY = "FAILED_LOW_BREAK_BUY"
 FAILED_HIGH_BREAK_SELL = "FAILED_HIGH_BREAK_SELL"
 
@@ -61,9 +63,19 @@ FAKEOUT_ONE_MINUTE_TRIGGERS = {
     FAILED_HIGH_BREAK_SELL,
 }
 
-BREAK_ONE_MINUTE_TRIGGERS = {
+RAW_BREAK_ONE_MINUTE_TRIGGERS = {
     LOW_BREAK_SELL,
     HIGH_BREAK_BUY,
+}
+
+CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS = {
+    CLEAN_LOW_IMPULSE_SELL,
+    CLEAN_HIGH_IMPULSE_BUY,
+}
+
+BREAK_ONE_MINUTE_TRIGGERS = {
+    *RAW_BREAK_ONE_MINUTE_TRIGGERS,
+    *CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS,
 }
 
 
@@ -453,11 +465,38 @@ def _confirmation_type(trigger: str, previous: Candle, latest: Candle) -> str:
         if _strong_bearish_close(latest):
             return "strong_close"
         return "mixed"
-    if trigger == HIGH_BREAK_BUY and _strong_bullish_close(latest):
+    if (
+        trigger in {HIGH_BREAK_BUY, CLEAN_HIGH_IMPULSE_BUY}
+        and _strong_bullish_close(latest)
+    ):
         return "strong_close"
-    if trigger == LOW_BREAK_SELL and _strong_bearish_close(latest):
+    if (
+        trigger in {LOW_BREAK_SELL, CLEAN_LOW_IMPULSE_SELL}
+        and _strong_bearish_close(latest)
+    ):
         return "strong_close"
     return "mixed"
+
+
+def _is_clean_impulse_break(
+    *,
+    direction: str,
+    level: OneMinuteLevel,
+    latest: Candle,
+    tolerance: float,
+    current_spread_price: float,
+) -> bool:
+    if level.touch_count < 2:
+        return False
+    extension = abs(float(latest.close) - float(level.level))
+    max_extension = max(tolerance * 3.0, current_spread_price * 2.0, 0.45)
+    if extension > max_extension:
+        return False
+    if direction == "BUY":
+        return _decisive_directional_close("BUY", latest)
+    if direction == "SELL":
+        return _decisive_directional_close("SELL", latest)
+    return False
 
 
 def _is_overlapping_chop(candles: list[Candle]) -> bool:
@@ -542,7 +581,12 @@ def _bearish_rejection(candle: Candle) -> bool:
 def _entry_price(trigger: dict[str, Any], latest: Candle) -> float:
     name = trigger["name"]
     level = float(trigger["level"])
-    if name in {LOW_BREAK_SELL, HIGH_BREAK_BUY}:
+    if name in {
+        LOW_BREAK_SELL,
+        HIGH_BREAK_BUY,
+        CLEAN_LOW_IMPULSE_SELL,
+        CLEAN_HIGH_IMPULSE_BUY,
+    }:
         return float(latest.close)
     return level
 
@@ -677,9 +721,19 @@ def _candidate_from_level(
             direction = "BUY"
             reaction_type = "fakeout"
         elif float(latest.close) < level.level - break_margin:
-            trigger_name = LOW_BREAK_SELL
             direction = "SELL"
-            reaction_type = "break"
+            if _is_clean_impulse_break(
+                direction=direction,
+                level=level,
+                latest=latest,
+                tolerance=tolerance,
+                current_spread_price=current_spread_price,
+            ):
+                trigger_name = CLEAN_LOW_IMPULSE_SELL
+                reaction_type = "impulse_break"
+            else:
+                trigger_name = LOW_BREAK_SELL
+                reaction_type = "break"
         elif (
             abs(float(latest.low) - level.level) <= tolerance
             and float(latest.close) > level.level
@@ -698,9 +752,19 @@ def _candidate_from_level(
             direction = "SELL"
             reaction_type = "fakeout"
         elif float(latest.close) > level.level + break_margin:
-            trigger_name = HIGH_BREAK_BUY
             direction = "BUY"
-            reaction_type = "break"
+            if _is_clean_impulse_break(
+                direction=direction,
+                level=level,
+                latest=latest,
+                tolerance=tolerance,
+                current_spread_price=current_spread_price,
+            ):
+                trigger_name = CLEAN_HIGH_IMPULSE_BUY
+                reaction_type = "impulse_break"
+            else:
+                trigger_name = HIGH_BREAK_BUY
+                reaction_type = "break"
         elif (
             abs(float(latest.high) - level.level) <= tolerance
             and float(latest.close) < level.level
@@ -799,7 +863,20 @@ def _score_candidate(
 
     if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
         extension = abs(float(candidate.entry_price) - float(candidate.level.level))
-        max_extension = max(float(candidate.level.tolerance) * 2.0, 0.30)
+        if candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS:
+            current_spread_price = float(
+                candidate.risk.get("fast_trigger_quality", {}).get(
+                    "current_spread_price",
+                    0.0,
+                )
+            )
+            max_extension = max(
+                float(candidate.level.tolerance) * 3.0,
+                current_spread_price * 2.0,
+                0.45,
+            )
+        else:
+            max_extension = max(float(candidate.level.tolerance) * 2.0, 0.30)
         tight_break = extension <= max_extension
         candidate.risk["fast_trigger_quality"] = {
             **candidate.risk.get("fast_trigger_quality", {}),
@@ -811,13 +888,17 @@ def _score_candidate(
             candidate.score_reasons.append("BREAK_ENTRY_TIGHT")
         else:
             candidate.rejection_reasons.append("BREAK_ENTRY_TOO_EXTENDED")
-        if candidate.level.touch_count < 3:
-            candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_THIRD_TOUCH")
-        if "DECISIVE_CLOSE" not in candidate.score_reasons:
-            candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_DECISIVE_CLOSE")
-        if candidate.risk_distance > boost_max_stop_distance:
-            candidate.rejection_reasons.append("BREAK_ENTRY_STOP_TOO_WIDE")
-        candidate.rejection_reasons.append(RAW_BREAK_EXECUTION_DISABLED)
+        if candidate.trigger in RAW_BREAK_ONE_MINUTE_TRIGGERS:
+            if candidate.level.touch_count < 3:
+                candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_THIRD_TOUCH")
+            if "DECISIVE_CLOSE" not in candidate.score_reasons:
+                candidate.rejection_reasons.append("BREAK_ENTRY_REQUIRES_DECISIVE_CLOSE")
+            if candidate.risk_distance > boost_max_stop_distance:
+                candidate.rejection_reasons.append("BREAK_ENTRY_STOP_TOO_WIDE")
+            candidate.rejection_reasons.append(RAW_BREAK_EXECUTION_DISABLED)
+        elif candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS:
+            candidate.score += 2
+            candidate.score_reasons.append("CLEAN_IMPULSE_BREAK")
 
     if candidate.confirmation_type == "mixed":
         candidate.score -= 3
@@ -895,6 +976,8 @@ def _minimum_required_score(
 
 
 def _selection_priority(candidate: OneMinuteCandidate) -> int:
+    if candidate.reaction_type == "impulse_break":
+        return 3
     if candidate.reaction_type in {"fakeout", "respect"}:
         return 2
     if candidate.reaction_type == "break":
@@ -1308,6 +1391,8 @@ def analyze_one_minute_entry(
                 HIGH_RESPECT_SELL,
                 LOW_BREAK_SELL,
                 HIGH_BREAK_BUY,
+                CLEAN_LOW_IMPULSE_SELL,
+                CLEAN_HIGH_IMPULSE_BUY,
                 FAILED_LOW_BREAK_BUY,
                 FAILED_HIGH_BREAK_SELL,
             ],

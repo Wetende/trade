@@ -132,6 +132,68 @@ def test_one_minute_scalper_journals_low_zone_memory_and_latest_relation():
     assert low_openings[0]["state"] == "broken_down"
 
 
+def test_one_minute_scalper_allows_clean_high_impulse_buy_from_remembered_two_highs():
+    payload = _payload(
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=102.48,
+        current_ask_price=102.68,
+    )
+
+    candidate = payload["telemetry"]["selected_candidate"]
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["reaction_type"] == "impulse_break"
+    assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
+    assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+
+
+def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lows():
+    payload = _payload(
+        _two_low_then_impulse_sell_history(),
+        fast_history_window_candles=6,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=97.35,
+        current_ask_price=97.55,
+    )
+
+    candidate = payload["telemetry"]["selected_candidate"]
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert candidate["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert candidate["reaction_type"] == "impulse_break"
+    assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
+    assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+
+
+def test_one_minute_scalper_still_rejects_messy_raw_break_without_clean_impulse():
+    candles = _base_history() + [
+        _candle(57, 99.8, 101.0, 99.5, 100.3),
+        _candle(58, 100.2, 100.95, 99.8, 100.5),
+        _candle(59, 100.6, 103.8, 100.4, 101.1),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.0,
+        current_ask_price=101.2,
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "HIGH_BREAK_BUY")
+    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
+
+
 @pytest.mark.parametrize(
     ("trigger_name", "direction", "candles"),
     [

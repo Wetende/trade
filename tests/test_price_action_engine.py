@@ -382,10 +382,10 @@ def test_engine_routes_fast_profile_to_one_minute_entry_model():
             "2026-06-10 09:51:00,2000.8,2002.0,2000.0,2001.4,1000"
         ),
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
@@ -431,10 +431,10 @@ def test_one_minute_low_respect_buy_from_equal_lows():
             "2026-06-10 09:51:00,2000.8,2002.0,2000.0,2001.4,1000"
         ),
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
@@ -469,6 +469,49 @@ def test_one_minute_low_respect_buy_from_equal_lows():
     assert payload["market_context"]["fast_microstructure"]["window_timeframe"] == "1m"
 
 
+def test_one_minute_engine_executes_clean_high_impulse_buy_without_extra_context():
+    data = {
+        "1m": candles(
+            "2026-06-10 20:30:00,100.0,100.6,99.7,100.3,1000\n"
+            "2026-06-10 20:31:00,100.3,101.0,100.1,100.8,1000\n"
+            "2026-06-10 20:35:00,100.8,101.95,100.4,101.7,1000\n"
+            "2026-06-10 20:36:00,101.7,101.8,100.3,100.6,1000\n"
+            "2026-06-10 20:52:00,100.6,101.9,100.2,101.5,1000\n"
+            "2026-06-10 20:53:00,101.5,101.6,100.7,100.9,1000\n"
+            "2026-06-10 20:58:00,100.9,102.55,100.8,102.45,1000"
+        ),
+    }
+
+    payload = analyze_playbook(
+        "XAUUSD",
+        "2026-06-10 20:59",
+        data,
+        market_timezone="America/New_York",
+        session_config={
+            "time_filter_mode": "allow",
+            "entry_profile": "fast",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "zone_timeframes": ("1m",),
+            "context_timeframes": ("1m",),
+            "governing_timeframes": ("1m",),
+            "minimum_setup_grade": "B_PLUS",
+            "minimum_stop_distance_price": 0.25,
+            "current_spread_price": 0.20,
+            "current_bid_price": 102.48,
+            "current_ask_price": 102.68,
+        },
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert (
+        payload["market_context"]["one_minute_story"]["classification"]
+        == "CLEAN_HIGH_IMPULSE_BUY"
+    )
+
+
 def test_one_minute_low_break_sell_after_recent_support_fails():
     data = {
         "3m": candles(
@@ -477,11 +520,10 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
             "2026-06-10 10:06:00,2002.0,2003.0,1999.0,1999.6,1000"
         ),
         "1m": candles(
-            "2026-06-10 10:02:00,2002.0,2005.0,2001.0,2002.1,1000\n"
-            "2026-06-10 10:03:00,2002.1,2003.0,2000.7,2001.0,1000\n"
-            "2026-06-10 10:04:00,2001.0,2004.9,2000.9,2001.7,1000\n"
-            "2026-06-10 10:05:00,2001.7,2002.2,2000.8,2001.0,1000\n"
-            "2026-06-10 10:06:00,2001.0,2001.2,1999.4,1999.7,1000"
+            "2026-06-10 10:03:00,2000.8,2001.2,2000.05,2000.6,1000\n"
+            "2026-06-10 10:04:00,2000.6,2001.5,2000.10,2000.7,1000\n"
+            "2026-06-10 10:05:00,2000.7,2001.8,2000.08,2000.6,1000\n"
+            "2026-06-10 10:06:00,2000.6,2000.65,1999.82,1999.88,1000"
         ),
     }
 
@@ -503,12 +545,14 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "LOW_BREAK_SELL"
-    assert payload["risk"]["approved"] is True
-    assert payload["risk"]["risk_reward"] >= 1.4
-    assert payload["checklist"]["confirmation_context_clear"] == "passed"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "LOW_BREAK_SELL"
+    )
+    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_low_break_sell_when_two_lows_fail():
@@ -545,11 +589,14 @@ def test_one_minute_low_break_sell_when_two_lows_fail():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "LOW_BREAK_SELL"
-    assert payload["setups"][0]["zone"]["type"] == "support"
-    assert payload["risk"]["approved"] is True
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "LOW_BREAK_SELL"
+    )
+    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_high_rejection_switches_to_sell_trigger():
@@ -600,11 +647,11 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
             "2026-06-10 11:06:00,99.7,100.5,97.2,99.0,1000"
         ),
         "1m": candles(
-            "2026-06-10 11:02:00,100.2,101.0,99.00,99.6,1000\n"
-            "2026-06-10 11:03:00,99.6,100.4,98.95,100.0,1000\n"
-            "2026-06-10 11:04:00,100.0,100.7,99.2,99.5,1000\n"
-            "2026-06-10 11:05:00,99.5,100.0,98.4,98.6,1000\n"
-            "2026-06-10 11:06:00,99.0,99.3,97.2,97.6,1000"
+            "2026-06-10 11:02:00,101.0,101.3,100.5,100.8,1000\n"
+            "2026-06-10 11:03:00,100.8,101.2,100.05,100.6,1000\n"
+            "2026-06-10 11:04:00,100.6,101.5,100.10,100.7,1000\n"
+            "2026-06-10 11:05:00,100.7,101.8,100.08,100.6,1000\n"
+            "2026-06-10 11:06:00,100.6,100.65,99.82,99.88,1000"
         ),
     }
 
@@ -626,10 +673,14 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "LOW_BREAK_SELL"
-    assert payload["market_context"]["one_minute_story"]["classification"] == "LOW_BREAK_SELL"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "LOW_BREAK_SELL"
+    )
+    assert "RAW_BREAK_EXECUTION_DISABLED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
@@ -640,10 +691,10 @@ def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
             "2026-06-10 09:51:00,1999.7,2001.4,1998.0,2000.2,1000"
         ),
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
@@ -700,10 +751,10 @@ def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
 def test_one_minute_profile_uses_one_minute_history_window_without_extra_data():
     data = {
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
@@ -817,8 +868,8 @@ def test_fast_microstructure_can_trigger_from_clean_story_beyond_ten_candles():
     data = {
         "1m": candles(
             "2026-06-10 09:40:00,100.0,100.8,99.00,100.0,1000\n"
-            "2026-06-10 09:41:00,100.0,100.7,99.60,100.2,1000\n"
-            "2026-06-10 09:42:00,100.2,100.9,99.70,100.3,1000\n"
+            "2026-06-10 09:41:00,100.0,100.7,99.10,100.2,1000\n"
+            "2026-06-10 09:42:00,100.2,100.9,99.20,100.3,1000\n"
             "2026-06-10 09:43:00,100.3,101.0,99.80,100.4,1000\n"
             "2026-06-10 09:44:00,100.4,101.1,99.90,100.5,1000\n"
             "2026-06-10 09:45:00,100.5,101.2,100.0,100.6,1000\n"
@@ -900,10 +951,10 @@ def test_one_minute_profile_does_not_require_extra_confirmation_context():
             "2026-06-10 09:51:00,1999.7,2001.4,1998.0,2000.2,1000"
         ),
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
@@ -936,10 +987,10 @@ def test_one_minute_profile_does_not_require_extra_confirmation_context():
 def test_one_minute_profile_does_not_use_higher_timeframe_bias_filter():
     data = {
         "1m": candles(
-            "2026-06-10 09:50:00,2000.0,2000.8,1998.6,1999.4,1000\n"
+            "2026-06-10 09:50:00,2000.0,2000.8,1998.3,1999.4,1000\n"
             "2026-06-10 09:51:00,1999.4,2001.0,1998.0,2000.7,1000\n"
             "2026-06-10 09:52:00,2000.7,2001.4,1999.7,2001.0,1000\n"
-            "2026-06-10 09:53:00,2001.0,2001.2,1999.2,1999.8,1000\n"
+            "2026-06-10 09:53:00,2001.0,2001.2,1998.2,1999.8,1000\n"
             "2026-06-10 09:54:00,1999.8,2000.7,1998.1,2000.4,1000"
         ),
     }
