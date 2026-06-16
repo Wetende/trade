@@ -231,6 +231,50 @@ def test_runner_summary_records_one_minute_scalper_candidate_triggers(tmp_path):
         "LATEST_CANDLE_NOT_CONFIRMING": 1,
         "MIXED_CONFIRMATION": 1,
     }
+    assert summary["candidate_rejection_by_strategy_counts"] == {
+        "HIGH_RESPECT_SELL": {
+            "LATEST_CANDLE_NOT_CONFIRMING": 1,
+            "MIXED_CONFIRMATION": 1,
+        }
+    }
+
+
+def test_runner_summary_records_clean_impulse_candidate_triggers(tmp_path):
+    store = RunnerSummaryStore(tmp_path)
+
+    summary = store.record_cycle(
+        {
+            "status": "NO_TRADE",
+            "analysis": {
+                "telemetry": {
+                    "candidate_evaluations": [
+                        {
+                            "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+                            "approved": True,
+                            "rejection_reasons": [],
+                        },
+                        {
+                            "trigger": "HIGH_BREAK_BUY",
+                            "approved": False,
+                            "rejection_reasons": ["RAW_BREAK_EXECUTION_DISABLED"],
+                        },
+                    ],
+                },
+                "data_status": {"healthy": True},
+            },
+            "proposal": {
+                "reason": "One Minute Scalper found candidates but none passed scoring."
+            },
+        }
+    )
+
+    assert summary["candidate_strategy_counts"]["CLEAN_HIGH_IMPULSE_BUY"] == 1
+    assert summary["approved_candidate_strategy_counts"]["CLEAN_HIGH_IMPULSE_BUY"] == 1
+    assert summary["candidate_strategy_counts"]["HIGH_BREAK_BUY"] == 1
+    assert summary["candidate_rejection_reason_counts"]["RAW_BREAK_EXECUTION_DISABLED"] == 1
+    assert summary["candidate_rejection_by_strategy_counts"]["HIGH_BREAK_BUY"] == {
+        "RAW_BREAK_EXECUTION_DISABLED": 1
+    }
 
 
 def test_runner_summary_records_rejection_retcode_comment(tmp_path):
