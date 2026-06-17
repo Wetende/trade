@@ -382,12 +382,54 @@ def test_mt5_request_builder_uses_configured_order_comment():
     assert request["comment"] == "TradingAgents contest"
 
 
-def test_mt5_request_builder_uses_proposal_cancel_time_as_server_expiration():
+def test_mt5_request_builder_defaults_one_minute_orders_to_gtc():
     config = MT5ConnectionConfig(
         login=123456789,
         password="secret",
         server="ExampleBroker-Demo",
         symbol="XAUUSD",
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="AUTO",
+        entry_price=2450.12,
+        stop_loss=2447.99,
+        take_profit=2456.79,
+        valid_until="2026-05-28T12:00:00Z",
+        activation_window_minutes=1,
+        cancel_if_not_triggered_after="2026-05-28T12:01:00Z",
+        timeframe="1m",
+        confirmation_timeframe="1m",
+        status=OrderStatus.PROPOSED,
+        reason="one-minute setup",
+    )
+
+    request = MT5OrderRequestBuilder(config).build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "bid": 2450.20,
+            "ask": 2450.40,
+        },
+    )
+
+    assert request["type_time"] == "ORDER_TIME_GTC"
+    assert "expiration" not in request
+
+
+def test_mt5_request_builder_can_opt_into_server_expiration():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        use_server_expiration=True,
     )
     proposal = OrderProposal(
         symbol="XAUUSD",

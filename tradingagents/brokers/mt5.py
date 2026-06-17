@@ -84,6 +84,7 @@ class MT5ConnectionConfig:
     deviation: int = 20
     magic: int = 150015
     order_comment: str = "TradingAgents"
+    use_server_expiration: bool = False
     max_entry_distance_points: float = 10.0
     min_stop_distance_price: float = 0.0
     min_stop_spread_multiple: float = 4.0
@@ -93,6 +94,8 @@ class MT5ConnectionConfig:
             raise MT5BrokerError("allow_real_orders must be a boolean")
         if not isinstance(self.require_demo_account, bool):
             raise MT5BrokerError("require_demo_account must be a boolean")
+        if not isinstance(self.use_server_expiration, bool):
+            raise MT5BrokerError("use_server_expiration must be a boolean")
 
         if self.expected_login is None:
             object.__setattr__(self, "expected_login", self.login)
@@ -187,6 +190,10 @@ class MT5ConnectionConfig:
             magic=_nonnegative_int_env("TRADINGAGENTS_MT5_MAGIC", 150015),
             order_comment=os.environ.get(
                 "TRADINGAGENTS_MT5_ORDER_COMMENT", "TradingAgents"
+            ),
+            use_server_expiration=_bool_env(
+                "TRADINGAGENTS_MT5_USE_SERVER_EXPIRATION",
+                False,
             ),
             max_entry_distance_points=_float_env(
                 "TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS",
@@ -421,7 +428,10 @@ class MT5OrderRequestBuilder:
             "type_time": "ORDER_TIME_GTC",
             "type_filling": "ORDER_FILLING_RETURN",
         }
-        if str(proposal.timeframe).strip().lower() in {"1m", "m1"}:
+        if (
+            self.config.use_server_expiration
+            and str(proposal.timeframe).strip().lower() in {"1m", "m1"}
+        ):
             expiration = _parse_pending_expiration_epoch(
                 proposal.cancel_if_not_triggered_after or proposal.valid_until
             )
