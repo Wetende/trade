@@ -106,6 +106,9 @@ class OrderProposal(BaseModel):
     break_even_lock_points: Optional[float] = None
     trailing_trigger_points: Optional[float] = None
     trailing_distance_points: Optional[float] = None
+    min_stop_update_points: Optional[float] = None
+    early_loss_exit_points: Optional[float] = None
+    scalp_profit_points: Optional[float] = None
     partial_first_trigger_points: Optional[float] = None
     partial_first_target_volume: Optional[float] = None
     partial_second_trigger_points: Optional[float] = None
@@ -135,6 +138,9 @@ class OrderProposal(BaseModel):
             "break_even_lock_points",
             "trailing_trigger_points",
             "trailing_distance_points",
+            "min_stop_update_points",
+            "early_loss_exit_points",
+            "scalp_profit_points",
             "partial_first_trigger_points",
             "partial_first_target_volume",
             "partial_second_trigger_points",
@@ -209,6 +215,9 @@ def render_order_proposal(proposal: OrderProposal) -> str:
         ("Break Even Lock Points", proposal.break_even_lock_points),
         ("Trailing Trigger Points", proposal.trailing_trigger_points),
         ("Trailing Distance Points", proposal.trailing_distance_points),
+        ("Min Stop Update Points", proposal.min_stop_update_points),
+        ("Early Loss Exit Points", proposal.early_loss_exit_points),
+        ("Scalp Profit Points", proposal.scalp_profit_points),
         ("Partial First Trigger Points", proposal.partial_first_trigger_points),
         ("Partial First Target Volume", proposal.partial_first_target_volume),
         ("Partial Second Trigger Points", proposal.partial_second_trigger_points),

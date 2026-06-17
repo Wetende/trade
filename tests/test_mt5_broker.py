@@ -31,6 +31,7 @@ class FakeMT5:
     POSITION_TYPE_BUY = 0
     POSITION_TYPE_SELL = 1
     ORDER_TIME_GTC = 0
+    ORDER_TIME_SPECIFIED = 2
     ORDER_FILLING_FOK = 0
     ORDER_FILLING_IOC = 1
     ORDER_FILLING_RETURN = 2
@@ -63,6 +64,10 @@ class FakeMT5:
         self.history_deals = []
         self.history_deals_calls = []
         self.checked_requests = []
+        self.terminal_trade_allowed = True
+        self.terminal_tradeapi_disabled = False
+        self.account_trade_allowed = True
+        self.account_trade_expert = True
         self.orders = [
             SimpleNamespace(ticket=111222, symbol="XAUUSD", price_open=2450.12)
         ]
@@ -98,6 +103,8 @@ class FakeMT5:
             balance=100000.0,
             equity=100000.0,
             trade_mode=self.account_trade_mode,
+            trade_allowed=getattr(self, "account_trade_allowed", True),
+            trade_expert=getattr(self, "account_trade_expert", True),
         )
 
     @property
@@ -131,7 +138,11 @@ class FakeMT5:
         self.account.trade_mode = value
 
     def terminal_info(self):
-        return SimpleNamespace(connected=self.terminal_connected)
+        return SimpleNamespace(
+            connected=self.terminal_connected,
+            trade_allowed=self.terminal_trade_allowed,
+            tradeapi_disabled=self.terminal_tradeapi_disabled,
+        )
 
     def symbol_select(self, symbol, visible):
         self.selected_symbols.append((symbol, visible))
@@ -369,6 +380,82 @@ def test_mt5_request_builder_uses_configured_order_comment():
     )
 
     assert request["comment"] == "TradingAgents contest"
+
+
+def test_mt5_request_builder_uses_proposal_cancel_time_as_server_expiration():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="AUTO",
+        entry_price=2450.12,
+        stop_loss=2447.99,
+        take_profit=2456.79,
+        valid_until="2026-05-28T12:00:00Z",
+        activation_window_minutes=1,
+        cancel_if_not_triggered_after="2026-05-28T12:01:00Z",
+        timeframe="1m",
+        confirmation_timeframe="1m",
+        status=OrderStatus.PROPOSED,
+        reason="one-minute setup",
+    )
+
+    request = MT5OrderRequestBuilder(config).build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "bid": 2450.20,
+            "ask": 2450.40,
+        },
+    )
+
+    assert request["type_time"] == "ORDER_TIME_SPECIFIED"
+    assert request["expiration"] == 1779969660
+
+
+def test_mt5_broker_materializes_specified_pending_order_expiration():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        volume=0.01,
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.place_pending_order(
+        {
+            "action": "TRADE_ACTION_PENDING",
+            "symbol": "XAUUSD",
+            "volume": 0.01,
+            "type": "BUY_LIMIT",
+            "price": 2450.12,
+            "sl": 2447.99,
+            "tp": 2456.79,
+            "deviation": 20,
+            "magic": 150015,
+            "comment": "TradingAgents",
+            "type_time": "ORDER_TIME_SPECIFIED",
+            "expiration": 1779969660,
+            "type_filling": "ORDER_FILLING_RETURN",
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["request"]["type_time"] == FakeMT5.ORDER_TIME_SPECIFIED
+    assert result["request"]["expiration"] == 1779969660
 
 
 def test_mt5_request_builder_rejects_stop_distance_below_gold_guard():
@@ -1259,6 +1346,78 @@ def test_mt5_broker_rejects_missing_terminal_info_before_order_send():
     assert fake_mt5.sent_requests == []
 
 
+def test_mt5_broker_rejects_terminal_with_trading_disabled_before_order_send():
+    fake_mt5 = FakeMT5()
+    fake_mt5.terminal_trade_allowed = False
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 terminal trading is not allowed"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rejects_terminal_with_trade_api_disabled_before_order_send():
+    fake_mt5 = FakeMT5()
+    fake_mt5.terminal_tradeapi_disabled = True
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 terminal trade API is disabled"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rejects_account_with_trading_disabled_before_order_send():
+    fake_mt5 = FakeMT5()
+    fake_mt5.account_trade_allowed = False
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 account trading is not allowed"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
+def test_mt5_broker_rejects_account_with_expert_trading_disabled_before_order_send():
+    fake_mt5 = FakeMT5()
+    fake_mt5.account_trade_expert = False
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    with pytest.raises(MT5BrokerError, match="MT5 account expert trading is not allowed"):
+        broker.place_pending_order(_valid_pending_request())
+
+    assert fake_mt5.sent_requests == []
+
+
 def test_mt5_broker_connects_real_account_as_metadata_without_sending():
     fake_mt5 = FakeMT5()
     fake_mt5.account_trade_mode = FakeMT5.ACCOUNT_TRADE_MODE_REAL
@@ -1791,6 +1950,7 @@ def test_mt5_broker_closes_partial_position_volume():
     assert fake_mt5.sent_requests[-1]["position"] == 333444
     assert fake_mt5.sent_requests[-1]["volume"] == 0.5
     assert fake_mt5.sent_requests[-1]["comment"] == "TA partial 1"
+
 
 def test_mt5_broker_accepts_placed_retcode():
     fake_mt5 = FakeMT5()

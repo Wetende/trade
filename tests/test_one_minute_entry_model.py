@@ -151,6 +151,9 @@ def test_one_minute_scalper_allows_clean_high_impulse_buy_from_remembered_two_hi
     assert candidate["reaction_type"] == "impulse_break"
     assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+    assert payload["risk"]["early_loss_exit_points"] > 0
+    assert payload["risk"]["scalp_profit_points"] > 0
+    assert payload["risk"]["min_stop_update_points"] > 0
 
 
 def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lows():
@@ -640,3 +643,84 @@ def test_one_minute_scalper_only_executes_when_latest_closed_candle_confirms_can
         or "MIXED_CONFIRMATION" in item["rejection_reasons"]
         for item in payload["telemetry"]["candidate_evaluations"]
     )
+
+
+def test_one_minute_scalper_rejects_conflicted_two_sided_memory():
+    candles = [
+        _candle(0, 99.6, 100.15, 99.4, 99.9),
+        _candle(1, 99.8, 100.20, 99.5, 100.0),
+        _candle(2, 102.4, 103.1, 102.15, 102.8),
+        _candle(3, 102.7, 103.0, 102.20, 102.5),
+        _candle(4, 102.5, 102.8, 101.2, 101.5),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=5,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.45,
+        current_ask_price=101.65,
+    )
+
+    relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
+    assert relation["broke_high_zone"] is True
+    assert relation["broke_low_zone"] is True
+    assert payload["status"] == "NO_SETUP"
+    assert payload["telemetry"]["approved_candidate_count"] == 0
+    assert any(
+        "CONFLICTED_ONE_MINUTE_MEMORY" in item["rejection_reasons"]
+        for item in payload["telemetry"]["candidate_evaluations"]
+    )
+
+
+def test_one_minute_scalper_rejects_high_respect_sell_into_bullish_pressure():
+    candles = _base_history() + [
+        _candle(57, 99.8, 101.00, 99.4, 100.4),
+        _candle(58, 100.2, 100.92, 99.9, 100.6),
+        _candle(59, 100.9, 100.94, 100.2, 100.35),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=100.30,
+        current_ask_price=100.50,
+    )
+
+    relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
+    assert relation["higher_high"] is True
+    assert relation["higher_low"] is True
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "HIGH_RESPECT_SELL")
+    assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" in candidate[
+        "rejection_reasons"
+    ]
+
+
+def test_one_minute_scalper_allows_low_respect_buy_when_rejection_confirms():
+    candles = _base_history() + [
+        _candle(57, 100.4, 100.8, 99.00, 99.7),
+        _candle(58, 99.8, 100.4, 99.05, 99.4),
+        _candle(59, 99.2, 100.1, 99.03, 99.75),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=98.85,
+        current_ask_price=99.05,
+    )
+
+    relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
+    assert relation["lower_high"] is True
+    assert relation["lower_low"] is True
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    candidate = _candidate_by_trigger(payload, "LOW_RESPECT_BUY")
+    assert candidate["approved"] is True
+    assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" not in candidate[
+        "rejection_reasons"
+    ]

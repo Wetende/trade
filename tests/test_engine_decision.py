@@ -243,6 +243,49 @@ def test_engine_decision_returns_market_health_hold_for_wide_spread(
     assert payload["market_health"]["reasons"] == ["spread_too_wide"]
 
 
+def test_engine_decision_blocks_entries_during_rollover_window(monkeypatch, tmp_path):
+    snapshot = PriceActionSnapshot(
+        candles=_candles(),
+        data_status=_healthy_status(),
+        market_metadata={
+            "symbol": {
+                "name": "XAUUSD",
+                "bid": 4500.0,
+                "ask": 4500.2,
+                "spread_price": 0.2,
+            },
+            "tick": {"bid": 4500.0, "ask": 4500.2},
+        },
+    )
+
+    def fail_analyze(*args, **kwargs):
+        raise AssertionError("rollover block should not reach analyze_playbook")
+
+    monkeypatch.setattr(decision, "analyze_playbook", fail_analyze)
+
+    state = decision.run_engine_decision(
+        "XAUUSD",
+        broker_symbol="XAUUSD",
+        as_of="2026-06-16 16:54:00",
+        results_dir=tmp_path,
+        snapshot=snapshot,
+        session_config={
+            "market_rollover_block_enabled": True,
+            "market_rollover_close_time": "17:00",
+            "market_rollover_reopen_time": "18:00",
+            "market_rollover_pre_close_minutes": 15,
+            "market_rollover_post_reopen_minutes": 15,
+            "max_tick_age_seconds": 0,
+        },
+    )
+
+    payload = state["engine_payload"]
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    assert payload["telemetry"]["decision_stage"] == "market_health"
+    assert payload["market_health"]["reasons"] == ["market_rollover_block"]
+
+
 def test_engine_decision_passes_live_bid_ask_into_one_minute_profile(
     monkeypatch,
     tmp_path,

@@ -31,6 +31,33 @@ _MISSING = object()
 _MT5_COMMENT_MAX_LENGTH = 20
 
 
+def _parse_pending_expiration_epoch(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    tz_abbreviations = {
+        "EDT": timezone(timedelta(hours=-4)),
+        "EST": timezone(timedelta(hours=-5)),
+        "UTC": timezone.utc,
+    }
+    parsed: datetime
+    parts = text.rsplit(" ", 1)
+    if len(parts) == 2 and parts[1].upper() in tz_abbreviations:
+        try:
+            parsed = datetime.fromisoformat(parts[0].replace(" ", "T"))
+        except ValueError:
+            return None
+        parsed = parsed.replace(tzinfo=tz_abbreviations[parts[1].upper()])
+    else:
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.astimezone(timezone.utc).timestamp())
+
+
 def _safe_mt5_comment(value: Any, *, fallback: str = "TA close") -> str:
     text = str(value or fallback)
     text = "".join(
@@ -380,7 +407,7 @@ class MT5OrderRequestBuilder:
         if request_type in {"SELL_LIMIT", "SELL_STOP"} and not (target < entry < stop):
             raise ValueError("invalid SELL levels for MT5 pending order")
 
-        return {
+        request = {
             "action": "TRADE_ACTION_PENDING",
             "symbol": self.config.symbol,
             "volume": self._request_volume(proposal),
@@ -394,6 +421,14 @@ class MT5OrderRequestBuilder:
             "type_time": "ORDER_TIME_GTC",
             "type_filling": "ORDER_FILLING_RETURN",
         }
+        if str(proposal.timeframe).strip().lower() in {"1m", "m1"}:
+            expiration = _parse_pending_expiration_epoch(
+                proposal.cancel_if_not_triggered_after or proposal.valid_until
+            )
+            if expiration is not None:
+                request["type_time"] = "ORDER_TIME_SPECIFIED"
+                request["expiration"] = expiration
+        return request
 
     def build_pending_limit_request(
         self,
@@ -673,6 +708,7 @@ class MT5Broker:
             "BUY_STOP": self._constant("ORDER_TYPE_BUY_STOP"),
             "SELL_STOP": self._constant("ORDER_TYPE_SELL_STOP"),
             "ORDER_TIME_GTC": self._constant("ORDER_TIME_GTC"),
+            "ORDER_TIME_SPECIFIED": self._constant("ORDER_TIME_SPECIFIED"),
             "ORDER_FILLING_FOK": self._constant("ORDER_FILLING_FOK"),
             "ORDER_FILLING_IOC": self._constant("ORDER_FILLING_IOC"),
             "ORDER_FILLING_RETURN": self._constant("ORDER_FILLING_RETURN"),
@@ -704,7 +740,10 @@ class MT5Broker:
                 "BUY_STOP": constants["BUY_STOP"],
                 "SELL_STOP": constants["SELL_STOP"],
             },
-            "type_time": {"ORDER_TIME_GTC": constants["ORDER_TIME_GTC"]},
+            "type_time": {
+                "ORDER_TIME_GTC": constants["ORDER_TIME_GTC"],
+                "ORDER_TIME_SPECIFIED": constants["ORDER_TIME_SPECIFIED"],
+            },
             "type_filling": {
                 "ORDER_FILLING_FOK": constants["ORDER_FILLING_FOK"],
                 "ORDER_FILLING_IOC": constants["ORDER_FILLING_IOC"],
@@ -765,7 +804,16 @@ class MT5Broker:
     def _assert_order_send_allowed(self) -> None:
         self._assert_active_session()
         mt5 = self._module()
+        terminal = _asdict(mt5.terminal_info())
+        if terminal.get("trade_allowed") is False:
+            raise MT5BrokerError("MT5 terminal trading is not allowed")
+        if terminal.get("tradeapi_disabled") is True:
+            raise MT5BrokerError("MT5 terminal trade API is disabled")
         account = _asdict(mt5.account_info())
+        if account.get("trade_allowed") is False:
+            raise MT5BrokerError("MT5 account trading is not allowed")
+        if account.get("trade_expert") is False:
+            raise MT5BrokerError("MT5 account expert trading is not allowed")
         trade_mode_label = self._trade_mode_label(account.get("trade_mode"))
         if trade_mode_label == "UNKNOWN":
             raise MT5BrokerError(
@@ -841,6 +889,8 @@ class MT5Broker:
             "type_filling",
         )
         allowed_fields = set(required_fields)
+        if request.get("type_time") == "ORDER_TIME_SPECIFIED":
+            allowed_fields.add("expiration")
         extra_fields = sorted(set(request) - allowed_fields)
         if extra_fields:
             raise MT5BrokerError(
@@ -858,6 +908,12 @@ class MT5Broker:
 
         for field in ("action", "type", "type_time", "type_filling"):
             self._symbolic_value(request[field], field)
+        if request["type_time"] == "ORDER_TIME_SPECIFIED":
+            if "expiration" not in request:
+                raise MT5BrokerError("missing required MT5 request field: expiration")
+            expiration = self._int_value(request["expiration"], "expiration")
+        else:
+            expiration = None
 
         if request["symbol"] != self.config.symbol:
             raise MT5BrokerError(
@@ -891,7 +947,10 @@ class MT5Broker:
             raise MT5BrokerError("magic must match configured MT5 magic")
         if deviation != self.config.deviation:
             raise MT5BrokerError("deviation must match configured MT5 deviation")
-        return {**request, **numbers, "magic": magic, "deviation": deviation}
+        validated = {**request, **numbers, "magic": magic, "deviation": deviation}
+        if expiration is not None:
+            validated["expiration"] = expiration
+        return validated
 
     @staticmethod
     def _symbolic_value(value: Any, field: str) -> str:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tradingagents.agents.price_action.engine import analyze_playbook
 from tradingagents.agents.utils.price_action_tools import (
@@ -75,21 +76,123 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _bool_config(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _parse_clock(value: Any) -> time | None:
+    try:
+        parts = [int(part) for part in str(value).split(":")]
+    except (TypeError, ValueError):
+        return None
+    if len(parts) == 2:
+        hour, minute = parts
+        second = 0
+    elif len(parts) == 3:
+        hour, minute, second = parts
+    else:
+        return None
+    try:
+        return time(hour, minute, second)
+    except ValueError:
+        return None
+
+
+def _local_datetime(value: str, market_timezone: str) -> datetime | None:
+    try:
+        tz = ZoneInfo(market_timezone)
+        parsed = datetime.fromisoformat(str(value).strip().replace(" ", "T"))
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz)
+
+
+def _market_rollover_block(
+    as_of: str,
+    market_timezone: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    if not _bool_config(config.get("market_rollover_block_enabled"), False):
+        return {"blocked": False}
+    current = _local_datetime(as_of, market_timezone)
+    close_time = _parse_clock(config.get("market_rollover_close_time", "17:00"))
+    reopen_time = _parse_clock(config.get("market_rollover_reopen_time", "18:00"))
+    if current is None or close_time is None or reopen_time is None:
+        return {"blocked": False, "unknown": True}
+    try:
+        pre_close_minutes = max(
+            int(config.get("market_rollover_pre_close_minutes", 15)),
+            0,
+        )
+        post_reopen_minutes = max(
+            int(config.get("market_rollover_post_reopen_minutes", 15)),
+            0,
+        )
+    except (TypeError, ValueError):
+        return {"blocked": False, "unknown": True}
+
+    close_at = current.replace(
+        hour=close_time.hour,
+        minute=close_time.minute,
+        second=close_time.second,
+        microsecond=0,
+    )
+    reopen_at = current.replace(
+        hour=reopen_time.hour,
+        minute=reopen_time.minute,
+        second=reopen_time.second,
+        microsecond=0,
+    )
+    pre_close_start = close_at - timedelta(minutes=pre_close_minutes)
+    post_reopen_end = reopen_at + timedelta(minutes=post_reopen_minutes)
+    blocked = pre_close_start <= current < close_at or reopen_at <= current < post_reopen_end
+    return {
+        "blocked": blocked,
+        "close_time": close_time.isoformat(),
+        "reopen_time": reopen_time.isoformat(),
+        "pre_close_minutes": pre_close_minutes,
+        "post_reopen_minutes": post_reopen_minutes,
+    }
+
+
 def _market_health(
     market_metadata: dict[str, Any],
     config: dict[str, Any],
     *,
+    as_of: str = "",
+    market_timezone: str = "America/New_York",
     now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     """Evaluate live MT5 tick/symbol metadata before setup analysis."""
+    reasons: list[str] = []
+    rollover = _market_rollover_block(as_of, market_timezone, config)
+    if rollover.get("blocked"):
+        reasons.append("market_rollover_block")
     if not market_metadata:
-        return {"passed": True, "reasons": [], "metadata_available": False}
+        return {
+            "passed": not reasons,
+            "reasons": reasons,
+            "metadata_available": False,
+            "market_rollover": rollover,
+        }
     if market_metadata.get("error"):
         return {
             "passed": False,
-            "reasons": ["market_metadata_error"],
+            "reasons": [*reasons, "market_metadata_error"],
             "error": str(market_metadata["error"]),
             "metadata_available": True,
+            "market_rollover": rollover,
         }
 
     symbol = market_metadata.get("symbol") or {}
@@ -100,7 +203,6 @@ def _market_health(
     if spread_price is None and bid is not None and ask is not None:
         spread_price = ask - bid
 
-    reasons: list[str] = []
     if bid is None or ask is None or spread_price is None or spread_price < 0:
         reasons.append("live_tick_missing_or_invalid")
 
@@ -138,6 +240,7 @@ def _market_health(
         "max_entry_spread_price": max_spread,
         "tick_age_seconds": tick_age_seconds,
         "max_tick_age_seconds": max_tick_age,
+        "market_rollover": rollover,
     }
 
 
@@ -290,7 +393,12 @@ def run_engine_decision(
         )
     data_status = snapshot.data_status
     market_metadata = getattr(snapshot, "market_metadata", {}) or {}
-    market_health = _market_health(market_metadata, profile_config)
+    market_health = _market_health(
+        market_metadata,
+        profile_config,
+        as_of=as_of,
+        market_timezone=market_timezone,
+    )
 
     if not data_is_healthy(data_status):
         payload = _data_health_payload(

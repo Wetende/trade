@@ -45,6 +45,11 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 1.2
     assert dc.DEFAULT_CONFIG["trading_mode"] == "OFF"
     assert dc.DEFAULT_CONFIG["require_demo_account"] is True
+    assert dc.DEFAULT_CONFIG["market_rollover_block_enabled"] is True
+    assert dc.DEFAULT_CONFIG["market_rollover_close_time"] == "17:00"
+    assert dc.DEFAULT_CONFIG["market_rollover_reopen_time"] == "18:00"
+    assert dc.DEFAULT_CONFIG["market_rollover_pre_close_minutes"] == 15
+    assert dc.DEFAULT_CONFIG["market_rollover_post_reopen_minutes"] == 15
     assert dc.DEFAULT_CONFIG["entry_profile_mode"] == "auto"
     assert dc.DEFAULT_CONFIG["price_action"]["minimum_setup_grade"] == "B_PLUS"
     assert dc.DEFAULT_CONFIG["price_action"]["b_plus_min_rr"] == 1.1
@@ -133,6 +138,22 @@ def test_fast_one_minute_window_env_overrides(monkeypatch):
     assert dc.DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] == 45
 
 
+def test_fast_one_minute_quality_env_overrides(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE="9.5",
+        TRADINGAGENTS_FAST_MIN_STOP_SPREAD_MULTIPLE="2.5",
+        TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED="true",
+    )
+
+    assert dc.DEFAULT_CONFIG["fast_min_candidate_score"] == 9.5
+    assert dc.DEFAULT_CONFIG["fast_min_stop_spread_multiple"] == 2.5
+    assert dc.DEFAULT_CONFIG["fast_volume_boost_enabled"] is True
+    assert dc.DEFAULT_CONFIG["price_action"]["fast_min_candidate_score"] == 9.5
+    assert dc.DEFAULT_CONFIG["price_action"]["fast_min_stop_spread_multiple"] == 2.5
+    assert dc.DEFAULT_CONFIG["price_action"]["fast_volume_boost_enabled"] is True
+
+
 def test_trading_mode_env_override(monkeypatch):
     dc = _reload_with_env(monkeypatch, TRADINGAGENTS_TRADING_MODE="AUTO_GATED")
 
@@ -156,6 +177,28 @@ def test_time_filter_mode_env_updates_price_action_config(monkeypatch):
     dc = _reload_with_env(monkeypatch, TRADINGAGENTS_TIME_FILTER_MODE="allow")
 
     assert dc.DEFAULT_CONFIG["price_action"]["time_filter_mode"] == "allow"
+
+
+def test_rollover_guard_env_updates_price_action_config(monkeypatch):
+    dc = _reload_with_env(
+        monkeypatch,
+        TRADINGAGENTS_MARKET_ROLLOVER_BLOCK_ENABLED="false",
+        TRADINGAGENTS_MARKET_ROLLOVER_CLOSE_TIME="16:58",
+        TRADINGAGENTS_MARKET_ROLLOVER_REOPEN_TIME="18:05",
+        TRADINGAGENTS_MARKET_ROLLOVER_PRE_CLOSE_MINUTES="20",
+        TRADINGAGENTS_MARKET_ROLLOVER_POST_REOPEN_MINUTES="10",
+    )
+
+    assert dc.DEFAULT_CONFIG["market_rollover_block_enabled"] is False
+    assert dc.DEFAULT_CONFIG["market_rollover_close_time"] == "16:58"
+    assert dc.DEFAULT_CONFIG["market_rollover_reopen_time"] == "18:05"
+    assert dc.DEFAULT_CONFIG["market_rollover_pre_close_minutes"] == 20
+    assert dc.DEFAULT_CONFIG["market_rollover_post_reopen_minutes"] == 10
+    assert dc.DEFAULT_CONFIG["price_action"]["market_rollover_block_enabled"] is False
+    assert dc.DEFAULT_CONFIG["price_action"]["market_rollover_close_time"] == "16:58"
+    assert dc.DEFAULT_CONFIG["price_action"]["market_rollover_reopen_time"] == "18:05"
+    assert dc.DEFAULT_CONFIG["price_action"]["market_rollover_pre_close_minutes"] == 20
+    assert dc.DEFAULT_CONFIG["price_action"]["market_rollover_post_reopen_minutes"] == 10
 
 
 def test_setup_grade_env_updates_price_action_config(monkeypatch):

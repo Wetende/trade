@@ -316,6 +316,9 @@ def test_engine_order_proposal_carries_dynamic_fast_exit_settings(tmp_path):
                 "partial_second_target_volume": 0.4,
                 "trailing_trigger_points": 2.06,
                 "trailing_distance_points": 0.66,
+                "min_stop_update_points": 0.22,
+                "early_loss_exit_points": 0.74,
+                "scalp_profit_points": 1.10,
             },
         },
     }
@@ -331,6 +334,9 @@ def test_engine_order_proposal_carries_dynamic_fast_exit_settings(tmp_path):
     assert proposal["partial_second_target_volume"] == 0.4
     assert proposal["trailing_trigger_points"] == 2.06
     assert proposal["trailing_distance_points"] == 0.66
+    assert proposal["min_stop_update_points"] == 0.22
+    assert proposal["early_loss_exit_points"] == 0.74
+    assert proposal["scalp_profit_points"] == 1.10
 
 
 @pytest.mark.unit

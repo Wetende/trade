@@ -76,6 +76,9 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
         "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
         "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
+        "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
+        "TRADINGAGENTS_FAST_MIN_STOP_SPREAD_MULTIPLE": "fast_min_stop_spread_multiple",
+        "TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED": "fast_volume_boost_enabled",
         "TRADINGAGENTS_NORMAL_ACTIVATION_WINDOW_MINUTES": "normal_activation_window_minutes",
         "TRADINGAGENTS_FAST_ACTIVATION_WINDOW_MINUTES": "fast_activation_window_minutes",
         "TRADINGAGENTS_FAST_COUNTER_BIAS_MIN_GRADE": "fast_counter_bias_minimum_grade",
@@ -83,6 +86,11 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_MIN_STOP_SPREAD_MULTIPLE": "minimum_stop_spread_multiple",
         "TRADINGAGENTS_MAX_ENTRY_SPREAD_PRICE": "max_entry_spread_price",
         "TRADINGAGENTS_MAX_TICK_AGE_SECONDS": "max_tick_age_seconds",
+        "TRADINGAGENTS_MARKET_ROLLOVER_BLOCK_ENABLED": "market_rollover_block_enabled",
+        "TRADINGAGENTS_MARKET_ROLLOVER_CLOSE_TIME": "market_rollover_close_time",
+        "TRADINGAGENTS_MARKET_ROLLOVER_REOPEN_TIME": "market_rollover_reopen_time",
+        "TRADINGAGENTS_MARKET_ROLLOVER_PRE_CLOSE_MINUTES": "market_rollover_pre_close_minutes",
+        "TRADINGAGENTS_MARKET_ROLLOVER_POST_REOPEN_MINUTES": "market_rollover_post_reopen_minutes",
         "TRADINGAGENTS_EXIT_SCALP_PROFIT_POINTS": "exit_scalp_profit_points",
         "TRADINGAGENTS_EXIT_EARLY_LOSS_POINTS": "exit_early_loss_points",
         "TRADINGAGENTS_EXIT_BREAK_EVEN_TRIGGER_POINTS": "exit_break_even_trigger_points",
@@ -132,6 +140,15 @@ def _load_runtime_env() -> None:
     DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
         "fast_history_window_candles"
     ]
+    DEFAULT_CONFIG["price_action"]["fast_min_candidate_score"] = DEFAULT_CONFIG[
+        "fast_min_candidate_score"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_min_stop_spread_multiple"] = DEFAULT_CONFIG[
+        "fast_min_stop_spread_multiple"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_volume_boost_enabled"] = DEFAULT_CONFIG[
+        "fast_volume_boost_enabled"
+    ]
     DEFAULT_CONFIG["price_action"]["normal_activation_window_minutes"] = DEFAULT_CONFIG[
         "normal_activation_window_minutes"
     ]
@@ -152,6 +169,21 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["max_tick_age_seconds"] = DEFAULT_CONFIG[
         "max_tick_age_seconds"
+    ]
+    DEFAULT_CONFIG["price_action"]["market_rollover_block_enabled"] = DEFAULT_CONFIG[
+        "market_rollover_block_enabled"
+    ]
+    DEFAULT_CONFIG["price_action"]["market_rollover_close_time"] = DEFAULT_CONFIG[
+        "market_rollover_close_time"
+    ]
+    DEFAULT_CONFIG["price_action"]["market_rollover_reopen_time"] = DEFAULT_CONFIG[
+        "market_rollover_reopen_time"
+    ]
+    DEFAULT_CONFIG["price_action"]["market_rollover_pre_close_minutes"] = DEFAULT_CONFIG[
+        "market_rollover_pre_close_minutes"
+    ]
+    DEFAULT_CONFIG["price_action"]["market_rollover_post_reopen_minutes"] = DEFAULT_CONFIG[
+        "market_rollover_post_reopen_minutes"
     ]
 
 

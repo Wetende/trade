@@ -184,6 +184,7 @@ class RunnerSummaryStore:
             "candidate_strategy_counts": {},
             "approved_candidate_strategy_counts": {},
             "candidate_rejection_reason_counts": {},
+            "candidate_rejection_by_strategy_counts": {},
             "market_state_counts": {},
             "market_health_reason_counts": {},
             "data_health": {
@@ -285,6 +286,13 @@ class RunnerSummaryStore:
         rejection_reason_counts = Counter(
             summary.get("candidate_rejection_reason_counts", {})
         )
+        rejection_by_strategy_counts = {
+            str(setup_name): Counter(reason_counts)
+            for setup_name, reason_counts in (
+                summary.get("candidate_rejection_by_strategy_counts", {}) or {}
+            ).items()
+            if isinstance(reason_counts, dict)
+        }
         market_state_counts = Counter(summary.get("market_state_counts", {}))
         market_health_reason_counts = Counter(
             summary.get("market_health_reason_counts", {})
@@ -298,6 +306,10 @@ class RunnerSummaryStore:
                 else:
                     for reason in _candidate_rejection_reasons(item):
                         rejection_reason_counts[reason] += 1
+                        rejection_by_strategy_counts.setdefault(
+                            setup_name,
+                            Counter(),
+                        )[reason] += 1
             for timeframe, state in (telemetry_source.get("market_state") or {}).items():
                 if not isinstance(state, dict):
                     continue
@@ -311,6 +323,10 @@ class RunnerSummaryStore:
         summary["candidate_strategy_counts"] = dict(candidate_counts)
         summary["approved_candidate_strategy_counts"] = dict(approved_candidate_counts)
         summary["candidate_rejection_reason_counts"] = dict(rejection_reason_counts)
+        summary["candidate_rejection_by_strategy_counts"] = {
+            setup_name: dict(reason_counts)
+            for setup_name, reason_counts in rejection_by_strategy_counts.items()
+        }
         summary["market_state_counts"] = dict(market_state_counts)
         summary["market_health_reason_counts"] = dict(market_health_reason_counts)
 

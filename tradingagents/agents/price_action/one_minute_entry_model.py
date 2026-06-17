@@ -36,6 +36,10 @@ THREE_TOUCH = "three_touch"
 RAW_BREAK_EXECUTION_DISABLED = "RAW_BREAK_EXECUTION_DISABLED"
 SPREAD_SAFE_STOP_TOO_WIDE = "SPREAD_SAFE_STOP_TOO_WIDE"
 SPREAD_SAFE_STOP_ADJUSTED = "SPREAD_SAFE_STOP_ADJUSTED"
+CONFLICTED_ONE_MINUTE_MEMORY = "CONFLICTED_ONE_MINUTE_MEMORY"
+RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
+    "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION"
+)
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -864,6 +868,7 @@ def _score_candidate(
     candidate: OneMinuteCandidate,
     latest: Candle,
     *,
+    latest_relation: OneMinuteCandleRelation,
     is_chop: bool,
     boost_max_stop_distance: float,
     min_candidate_score: float,
@@ -943,6 +948,13 @@ def _score_candidate(
         candidate.rejection_reasons.append("OVERLAPPING_CHOP")
     if candidate.risk_distance <= 0:
         candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
+    relation_reason = _latest_relation_rejection(candidate, latest_relation)
+    if relation_reason is not None:
+        candidate.rejection_reasons.append(relation_reason)
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "latest_relation_rejection": relation_reason,
+        }
 
     candidate.minimum_required_score = _minimum_required_score(
         candidate,
@@ -990,6 +1002,22 @@ def _score_candidate(
     return candidate
 
 
+def _latest_relation_rejection(
+    candidate: OneMinuteCandidate,
+    latest_relation: OneMinuteCandleRelation,
+) -> str | None:
+    if latest_relation.broke_high_zone and latest_relation.broke_low_zone:
+        return CONFLICTED_ONE_MINUTE_MEMORY
+    if candidate.trigger == HIGH_RESPECT_SELL and (
+        latest_relation.broke_high_zone
+        or (latest_relation.higher_high and latest_relation.higher_low)
+    ):
+        return RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION
+    if candidate.trigger == LOW_RESPECT_BUY and latest_relation.broke_low_zone:
+        return RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION
+    return None
+
+
 def _minimum_required_score(
     candidate: OneMinuteCandidate,
     configured_minimum: float,
@@ -1034,6 +1062,7 @@ def _build_candidates(
     min_candidate_score: float,
     volume_boost_enabled: bool,
     risk_reward: float,
+    latest_relation: OneMinuteCandleRelation,
 ) -> list[OneMinuteCandidate]:
     latest = history[-1]
     previous = history[-2]
@@ -1109,6 +1138,7 @@ def _build_candidates(
             _score_candidate(
                 candidate,
                 latest,
+                latest_relation=latest_relation,
                 is_chop=is_chop,
                 boost_max_stop_distance=boost_max_stop_distance,
                 min_candidate_score=min_candidate_score,
@@ -1133,9 +1163,14 @@ def _dynamic_fast_exit_settings(risk_distance: float) -> dict[str, float]:
     break_even_trigger = max(0.4, min(1.2, risk_distance * 0.60))
     partial_first = max(break_even_trigger, min(1.5, risk_distance * 0.75))
     partial_second = max(partial_first + 0.1, min(2.5, risk_distance * 1.25))
+    early_loss = max(0.25, min(0.75, risk_distance * 0.55))
+    scalp_profit = max(partial_first, min(1.5, risk_distance * 1.0))
     return {
         "break_even_trigger_points": round(break_even_trigger, 2),
         "break_even_lock_points": round(max(0.05, min(0.25, risk_distance * 0.12)), 2),
+        "min_stop_update_points": round(max(0.05, min(0.25, risk_distance * 0.15)), 2),
+        "early_loss_exit_points": round(early_loss, 2),
+        "scalp_profit_points": round(scalp_profit, 2),
         "partial_first_trigger_points": round(partial_first, 2),
         "partial_first_target_volume": 1.0,
         "partial_second_trigger_points": round(partial_second, 2),
@@ -1172,6 +1207,9 @@ def _setup_to_dict(
         "fast_trigger_quality",
         "break_even_trigger_points",
         "break_even_lock_points",
+        "min_stop_update_points",
+        "early_loss_exit_points",
+        "scalp_profit_points",
         "partial_first_trigger_points",
         "partial_first_target_volume",
         "partial_second_trigger_points",
@@ -1491,6 +1529,7 @@ def analyze_one_minute_entry(
         min_candidate_score=min_candidate_score,
         volume_boost_enabled=volume_boost_enabled,
         risk_reward=risk_reward,
+        latest_relation=latest_relation,
     )
     candidate_evaluations = [_candidate_to_telemetry(candidate) for candidate in candidates]
     approved_candidates = [candidate for candidate in candidates if candidate.approved]
