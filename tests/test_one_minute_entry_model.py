@@ -49,6 +49,28 @@ def _two_low_then_impulse_sell_history():
     ]
 
 
+def _bullish_pressure_failed_high_sell_history():
+    candles = []
+    price = 100.0
+    for index in range(55):
+        open_ = price
+        close = price + 0.08
+        high = close + 0.12
+        low = open_ - 0.08
+        candles.append(_candle(index, open_, high, low, close))
+        price = close
+    candles.extend(
+        [
+            _candle(55, 104.35, 104.90, 104.10, 104.65),
+            _candle(56, 104.62, 104.88, 104.30, 104.55),
+            _candle(57, 104.50, 104.92, 104.20, 104.72),
+            _candle(58, 104.70, 104.95, 104.45, 104.80),
+            _candle(59, 104.85, 105.35, 104.30, 104.60),
+        ]
+    )
+    return candles
+
+
 def _payload(candles, **config):
     return analyze_one_minute_entry(
         "XAUUSD",
@@ -175,6 +197,41 @@ def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lo
     assert candidate["reaction_type"] == "impulse_break"
     assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+
+
+def test_one_minute_scalper_rejects_sell_against_bullish_sixty_candle_pressure():
+    payload = _payload(
+        _bullish_pressure_failed_high_sell_history(),
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=104.55,
+        current_ask_price=104.75,
+    )
+
+    story = payload["market_context"]["one_minute_story"]
+    assert story["pressure"]["direction"] == "bullish"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["approved"] is False
+    assert "ONE_MINUTE_PRESSURE_CONFLICT" in candidate["rejection_reasons"]
+    assert payload["telemetry"]["approved_candidate_count"] == 0
+
+
+def test_one_minute_scalper_clamps_activation_window_to_one_minute():
+    payload = _payload(
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
+        fast_activation_window_minutes=6,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=102.48,
+        current_ask_price=102.68,
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["activation_window_minutes"] == 1
+    assert payload["market_context"]["activation_window_minutes"] == 1
 
 
 def test_one_minute_scalper_reprices_favorable_impulse_sell_to_continuation_stop():
