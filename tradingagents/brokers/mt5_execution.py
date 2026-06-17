@@ -247,6 +247,28 @@ class MT5Executor:
         if sync_result is not None:
             return sync_result
 
+        invalidation = self._pending_opening_invalidation(state)
+        if invalidation is not None:
+            broker_result = self.broker.cancel_order(ticket)
+            ok = bool(broker_result.get("ok"))
+            if ok:
+                self.state.clear_pending_order()
+            result = {
+                "status": "CANCELLED" if ok else "CANCEL_FAILED",
+                "ticket": ticket,
+                "reason": invalidation["reason"],
+                "candle": invalidation["candle"],
+                "proposal": state.get("proposal"),
+                "result": broker_result,
+            }
+            self.journal.append(
+                "ORDER_CANCELLED_OPENING_INVALIDATED"
+                if ok
+                else "ORDER_CANCEL_FAILED",
+                result,
+            )
+            return result
+
         current = (
             datetime.fromisoformat(now_utc)
             if now_utc
@@ -279,6 +301,65 @@ class MT5Executor:
         }
         self.journal.append("ORDER_CANCELLED" if ok else "ORDER_CANCEL_FAILED", result)
         return result
+
+    def _pending_opening_invalidation(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        proposal = state.get("proposal")
+        if not isinstance(proposal, dict):
+            return None
+        if not self._one_minute_rejection_lifecycle_enabled(proposal):
+            return None
+        side = str(proposal.get("side") or "").strip().upper()
+        if side not in {"BUY", "SELL"}:
+            return None
+        fetch_rates = getattr(self.broker, "fetch_closed_rates", None)
+        if not callable(fetch_rates):
+            return None
+        try:
+            candles = fetch_rates("1m", 3)
+        except Exception as exc:  # pragma: no cover - defensive live guard
+            self.journal.append(
+                "PENDING_OPENING_INVALIDATION_CHECK_FAILED",
+                {"reason": str(exc), "timeframe": "1m", "proposal": proposal},
+            )
+            return None
+        ordered = sorted(
+            (candle for candle in candles if isinstance(candle, dict)),
+            key=lambda candle: str(candle.get("timestamp") or ""),
+        )
+        if not ordered:
+            return None
+        placed_at = _parse_utc_datetime(state.get("placed_at_utc"))
+        if placed_at is None:
+            return None
+        invalidating_candle = None
+        for candle in ordered:
+            candle_time = _parse_utc_datetime(candle.get("timestamp"))
+            if candle_time is None or candle_time <= placed_at:
+                continue
+            if self._closed_candle_rejects_side(candle, side):
+                invalidating_candle = candle
+                break
+        if invalidating_candle is None:
+            return None
+        reason = (
+            "OPENING_INVALIDATED_BEARISH_CANDLE"
+            if side == "BUY"
+            else "OPENING_INVALIDATED_BULLISH_CANDLE"
+        )
+        return {
+            "reason": reason,
+            "candle": {
+                "timestamp": invalidating_candle.get("timestamp"),
+                "open": _first_float(invalidating_candle, "open"),
+                "high": _first_float(invalidating_candle, "high"),
+                "low": _first_float(invalidating_candle, "low"),
+                "close": _first_float(invalidating_candle, "close"),
+                "timeframe": "1m",
+            },
+        }
 
     def manage_open_positions(
         self,

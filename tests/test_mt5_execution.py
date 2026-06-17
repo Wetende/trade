@@ -922,6 +922,188 @@ def test_executor_leaves_non_stale_active_pending_order(tmp_path):
     assert executor.state.load()["active_order_ticket"] == 111
 
 
+def test_executor_cancels_one_minute_pending_buy_when_next_candle_rejects(tmp_path):
+    broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-05-27T14:01:00+00:00",
+            "open": 2451.20,
+            "high": 2451.40,
+            "low": 2450.70,
+            "close": 2450.82,
+        }
+    ]
+    proposal = _proposal(TradeAction.BUY).model_copy(
+        update={
+            "timeframe": "1m",
+            "confirmation_timeframe": "60 candles",
+            "trigger_name": "CLEAN_HIGH_IMPULSE_BUY",
+            "position_lifecycle": "FAST_PARTIAL_SCALE",
+            "activation_window_minutes": 10,
+        }
+    )
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "placed_at_utc": "2026-05-27T14:00:00+00:00",
+            "cancel_after_utc": "2026-05-27T14:10:00+00:00",
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:30+00:00"
+    )
+
+    assert result["status"] == "CANCELLED"
+    assert result["reason"] == "OPENING_INVALIDATED_BEARISH_CANDLE"
+    assert result["ticket"] == 111
+    assert broker.cancelled == [111]
+    assert broker.closed_rate_calls == [("1m", 3)]
+    assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_cancels_one_minute_pending_sell_when_next_candle_rejects(tmp_path):
+    broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-05-27T14:01:00+00:00",
+            "open": 2450.10,
+            "high": 2450.88,
+            "low": 2449.95,
+            "close": 2450.80,
+        }
+    ]
+    proposal = _proposal(TradeAction.SELL).model_copy(
+        update={
+            "timeframe": "1m",
+            "confirmation_timeframe": "60 candles",
+            "trigger_name": "CLEAN_LOW_IMPULSE_SELL",
+            "position_lifecycle": "FAST_PARTIAL_SCALE",
+            "activation_window_minutes": 10,
+        }
+    )
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "placed_at_utc": "2026-05-27T14:00:00+00:00",
+            "cancel_after_utc": "2026-05-27T14:10:00+00:00",
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:30+00:00"
+    )
+
+    assert result["status"] == "CANCELLED"
+    assert result["reason"] == "OPENING_INVALIDATED_BULLISH_CANDLE"
+    assert result["ticket"] == 111
+    assert broker.cancelled == [111]
+    assert broker.closed_rate_calls == [("1m", 3)]
+    assert executor.state.load()["active_order_ticket"] is None
+
+
+def test_executor_keeps_one_minute_pending_when_next_candle_continues(tmp_path):
+    broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-05-27T14:01:00+00:00",
+            "open": 2450.10,
+            "high": 2451.05,
+            "low": 2450.00,
+            "close": 2450.94,
+        }
+    ]
+    proposal = _proposal(TradeAction.BUY).model_copy(
+        update={
+            "timeframe": "1m",
+            "confirmation_timeframe": "60 candles",
+            "trigger_name": "CLEAN_HIGH_IMPULSE_BUY",
+            "position_lifecycle": "FAST_PARTIAL_SCALE",
+            "activation_window_minutes": 10,
+        }
+    )
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "placed_at_utc": "2026-05-27T14:00:00+00:00",
+            "cancel_after_utc": "2026-05-27T14:10:00+00:00",
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:01:30+00:00"
+    )
+
+    assert result["status"] == "ORDER_STILL_ACTIVE"
+    assert broker.cancelled == []
+    assert broker.closed_rate_calls == [("1m", 3)]
+    assert executor.state.load()["active_order_ticket"] == 111
+
+
+def test_executor_cancels_one_minute_pending_when_any_post_placement_candle_rejects(
+    tmp_path,
+):
+    broker = FakeBroker()
+    broker.pending_orders = [{"ticket": 111, "symbol": "XAUUSD"}]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-05-27T14:01:00+00:00",
+            "open": 2451.20,
+            "high": 2451.40,
+            "low": 2450.70,
+            "close": 2450.82,
+        },
+        {
+            "timestamp": "2026-05-27T14:02:00+00:00",
+            "open": 2450.82,
+            "high": 2451.08,
+            "low": 2450.76,
+            "close": 2451.02,
+        },
+    ]
+    proposal = _proposal(TradeAction.BUY).model_copy(
+        update={
+            "timeframe": "1m",
+            "confirmation_timeframe": "60 candles",
+            "trigger_name": "CLEAN_HIGH_IMPULSE_BUY",
+            "position_lifecycle": "FAST_PARTIAL_SCALE",
+            "activation_window_minutes": 10,
+        }
+    )
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": 111,
+            "placed_at_utc": "2026-05-27T14:00:00+00:00",
+            "cancel_after_utc": "2026-05-27T14:10:00+00:00",
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.cancel_stale_pending_orders(
+        now_utc="2026-05-27T14:02:30+00:00"
+    )
+
+    assert result["status"] == "CANCELLED"
+    assert result["reason"] == "OPENING_INVALIDATED_BEARISH_CANDLE"
+    assert result["candle"]["timestamp"] == "2026-05-27T14:01:00+00:00"
+    assert broker.cancelled == [111]
+    assert executor.state.load()["active_order_ticket"] is None
+
+
 def test_executor_cancel_stale_handles_no_active_order(tmp_path):
     broker = FakeBroker()
     executor = MT5Executor(_config(), tmp_path, broker=broker)
