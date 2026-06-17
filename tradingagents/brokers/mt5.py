@@ -1107,7 +1107,7 @@ class MT5Broker:
             last_response = response
             if response.get("ok"):
                 return response
-            if not self._is_unsupported_filling_response(response):
+            if not self._is_retryable_close_response(response):
                 return response
         return last_response or {
             "ok": False,
@@ -1123,6 +1123,13 @@ class MT5Broker:
     def _is_unsupported_filling_response(response: dict[str, Any]) -> bool:
         comment = str(response.get("comment") or "").lower()
         return "filling" in comment and "unsupported" in comment
+
+    @classmethod
+    def _is_retryable_close_response(cls, response: dict[str, Any]) -> bool:
+        if cls._is_unsupported_filling_response(response):
+            return True
+        comment = str(response.get("comment") or "").lower()
+        return response.get("retcode") == 10013 and "invalid request" in comment
 
     def open_orders(self, symbol: str) -> list[dict[str, Any]]:
         self._assert_active_session()

@@ -212,6 +212,28 @@ def test_one_minute_scalper_rejects_clean_impulse_when_live_quote_moved_too_far(
     assert "IMPULSE_ENTRY_MOVED_AWAY" in candidate["rejection_reasons"]
 
 
+def test_one_minute_scalper_reprices_clean_impulse_when_quote_still_tight():
+    payload = _payload(
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=103.05,
+        current_ask_price=103.25,
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert payload["setups"][0]["name"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert payload["risk"]["entry_price"] > 102.45
+    assert payload["risk"]["entry_price"] == pytest.approx(103.30)
+    assert payload["risk"]["risk_distance"] <= 2.0
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    assert candidate["approved"] is True
+    assert "IMPULSE_ENTRY_MOVED_AWAY" not in candidate["rejection_reasons"]
+    assert payload["risk"]["fast_trigger_quality"]["live_repriced"] is True
+
+
 @pytest.mark.parametrize(
     ("trigger_name", "direction", "candles"),
     [
@@ -672,6 +694,36 @@ def test_one_minute_scalper_rejects_conflicted_two_sided_memory():
         "CONFLICTED_ONE_MINUTE_MEMORY" in item["rejection_reasons"]
         for item in payload["telemetry"]["candidate_evaluations"]
     )
+
+
+def test_one_minute_scalper_allows_strong_reversal_when_memory_is_conflicted():
+    candles = [
+        _candle(0, 99.6, 100.15, 99.4, 99.9),
+        _candle(1, 99.8, 100.20, 99.5, 100.0),
+        _candle(2, 102.4, 103.1, 102.15, 102.8),
+        _candle(3, 102.7, 103.0, 102.20, 102.5),
+        _candle(4, 102.65, 102.85, 101.65, 101.75),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=5,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.72,
+        current_ask_price=101.92,
+    )
+
+    relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
+    assert relation["broke_high_zone"] is True
+    assert relation["broke_low_zone"] is True
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    candidate = _candidate_by_trigger(payload, "CLEAN_LOW_IMPULSE_SELL")
+    assert candidate["approved"] is True
+    assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]
+    assert "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL" in candidate["score_reasons"]
 
 
 def test_one_minute_scalper_rejects_high_respect_sell_into_bullish_pressure():

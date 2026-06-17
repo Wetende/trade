@@ -2450,6 +2450,40 @@ def test_mt5_broker_close_position_retries_next_filling_mode_when_fok_is_rejecte
     assert result["request"]["type_filling"] == fake_mt5.ORDER_FILLING_IOC
 
 
+def test_mt5_broker_close_position_retries_next_filling_mode_on_invalid_request():
+    fake_mt5 = FakeMT5()
+    fake_mt5.deal_results_by_filling = {
+        fake_mt5.ORDER_FILLING_FOK: (10013, "Invalid request"),
+        fake_mt5.ORDER_FILLING_IOC: (fake_mt5.TRADE_RETCODE_DONE, "Request executed"),
+    }
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+    broker.connect()
+
+    result = broker.close_position(
+        {
+            "ticket": 333444,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 0.01,
+        },
+        comment="TA early loss",
+    )
+
+    assert result["ok"] is True
+    assert [request["type_filling"] for request in fake_mt5.sent_requests[-2:]] == [
+        fake_mt5.ORDER_FILLING_FOK,
+        fake_mt5.ORDER_FILLING_IOC,
+    ]
+    assert result["filling_attempts"][0]["retcode"] == 10013
+    assert result["request"]["type_filling"] == fake_mt5.ORDER_FILLING_IOC
+
+
 @pytest.mark.parametrize(
     ("position", "match"),
     (

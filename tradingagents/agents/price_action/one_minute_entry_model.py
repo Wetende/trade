@@ -77,6 +77,11 @@ CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS = {
     CLEAN_HIGH_IMPULSE_BUY,
 }
 
+MEMORY_OVERRIDE_ONE_MINUTE_TRIGGERS = {
+    *FAKEOUT_ONE_MINUTE_TRIGGERS,
+    *CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS,
+}
+
 BREAK_ONE_MINUTE_TRIGGERS = {
     *RAW_BREAK_ONE_MINUTE_TRIGGERS,
     *CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS,
@@ -701,6 +706,62 @@ def _risk_for_trigger(
     return risk
 
 
+def _reprice_risk_to_live_quote(
+    risk: dict[str, Any],
+    *,
+    direction: str,
+    current_bid_price: float,
+    current_ask_price: float,
+    current_spread_price: float,
+    minimum_stop_spread_multiple: float,
+    max_stop_distance: float,
+    risk_reward: float,
+) -> dict[str, Any] | None:
+    quote = current_ask_price if direction == "BUY" else current_bid_price
+    if quote <= 0:
+        return None
+    stop = float(risk["stop_loss"])
+    buffer = max(0.05, current_spread_price * 0.25)
+    entry = quote + buffer if direction == "BUY" else quote - buffer
+    if direction == "BUY" and stop >= entry:
+        return None
+    if direction == "SELL" and stop <= entry:
+        return None
+
+    risk_distance = abs(entry - stop)
+    spread_floor = (
+        current_spread_price * minimum_stop_spread_multiple
+        if current_spread_price > 0 and minimum_stop_spread_multiple > 0
+        else 0.0
+    )
+    if spread_floor > 0 and risk_distance < spread_floor:
+        return None
+    if risk_distance <= 0 or risk_distance > max_stop_distance:
+        return None
+
+    reward_distance = risk_distance * risk_reward
+    reward_sign = 1 if direction == "BUY" else -1
+    repriced = dict(risk)
+    repriced.update(
+        {
+            "entry_price": round(entry, 4),
+            "take_profit": round(entry + (reward_distance * reward_sign), 4),
+            "risk_distance": round(risk_distance, 4),
+            "reward_distance": round(reward_distance, 4),
+            "risk_reward": round(risk_reward, 2),
+            "available_risk_reward": round(risk_reward, 2),
+        }
+    )
+    repriced["fast_trigger_quality"] = {
+        **risk.get("fast_trigger_quality", {}),
+        "live_repriced": True,
+        "live_reprice_quote": round(quote, 4),
+        "live_reprice_buffer": round(buffer, 4),
+        "live_reprice_entry": round(entry, 4),
+    }
+    return repriced
+
+
 def _candidate_from_level(
     level: OneMinuteLevel,
     previous: Candle,
@@ -822,6 +883,33 @@ def _candidate_from_level(
     if quote > 0:
         drift = abs(quote - float(risk["entry_price"]))
         if drift > max_live_entry_drift:
+            repriced_risk = None
+            if trigger_name in MEMORY_OVERRIDE_ONE_MINUTE_TRIGGERS:
+                repriced_risk = _reprice_risk_to_live_quote(
+                    risk,
+                    direction=direction,
+                    current_bid_price=current_bid_price,
+                    current_ask_price=current_ask_price,
+                    current_spread_price=current_spread_price,
+                    minimum_stop_spread_multiple=minimum_stop_spread_multiple,
+                    max_stop_distance=max_stop_distance,
+                    risk_reward=risk_reward,
+                )
+            if repriced_risk is not None:
+                risk = repriced_risk
+                return OneMinuteCandidate(
+                    trigger=trigger_name,
+                    direction=direction,
+                    reaction_type=reaction_type,
+                    confirmation_type=confirmation,
+                    level=level,
+                    entry_price=float(risk["entry_price"]),
+                    stop_loss=float(risk["stop_loss"]),
+                    take_profit=float(risk["take_profit"]),
+                    risk_distance=float(risk["risk_distance"]),
+                    reward_distance=float(risk["reward_distance"]),
+                    risk=risk,
+                )
             candidate = OneMinuteCandidate(
                 trigger=trigger_name,
                 direction=direction,
@@ -870,6 +958,7 @@ def _score_candidate(
     *,
     latest_relation: OneMinuteCandleRelation,
     is_chop: bool,
+    max_stop_distance: float,
     boost_max_stop_distance: float,
     min_candidate_score: float,
     volume_boost_enabled: bool,
@@ -902,6 +991,9 @@ def _score_candidate(
 
     if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
         extension = abs(float(candidate.entry_price) - float(candidate.level.level))
+        live_repriced = bool(
+            candidate.risk.get("fast_trigger_quality", {}).get("live_repriced")
+        )
         if candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS:
             current_spread_price = float(
                 candidate.risk.get("fast_trigger_quality", {}).get(
@@ -916,11 +1008,18 @@ def _score_candidate(
             )
         else:
             max_extension = max(float(candidate.level.tolerance) * 2.0, 0.30)
-        tight_break = extension <= max_extension
+        tight_break = (
+            candidate.risk_distance <= max_stop_distance
+            if live_repriced
+            else extension <= max_extension
+        )
         candidate.risk["fast_trigger_quality"] = {
             **candidate.risk.get("fast_trigger_quality", {}),
             "break_extension": round(extension, 4),
             "max_break_extension": round(max_extension, 4),
+            "break_tightness_basis": (
+                "repriced_risk_distance" if live_repriced else "level_extension"
+            ),
         }
         if tight_break:
             candidate.score += 1
@@ -950,11 +1049,23 @@ def _score_candidate(
         candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
     relation_reason = _latest_relation_rejection(candidate, latest_relation)
     if relation_reason is not None:
-        candidate.rejection_reasons.append(relation_reason)
-        candidate.risk["fast_trigger_quality"] = {
-            **candidate.risk.get("fast_trigger_quality", {}),
-            "latest_relation_rejection": relation_reason,
-        }
+        if relation_reason == CONFLICTED_ONE_MINUTE_MEMORY and (
+            _can_override_memory_conflict(candidate)
+        ):
+            candidate.score += 1
+            candidate.score_reasons.append(
+                "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL"
+            )
+            candidate.risk["fast_trigger_quality"] = {
+                **candidate.risk.get("fast_trigger_quality", {}),
+                "memory_conflict_overridden": True,
+            }
+        else:
+            candidate.rejection_reasons.append(relation_reason)
+            candidate.risk["fast_trigger_quality"] = {
+                **candidate.risk.get("fast_trigger_quality", {}),
+                "latest_relation_rejection": relation_reason,
+            }
 
     candidate.minimum_required_score = _minimum_required_score(
         candidate,
@@ -1000,6 +1111,15 @@ def _score_candidate(
         "volume_decision": candidate.volume_decision,
     }
     return candidate
+
+
+def _can_override_memory_conflict(candidate: OneMinuteCandidate) -> bool:
+    return (
+        candidate.trigger in MEMORY_OVERRIDE_ONE_MINUTE_TRIGGERS
+        and candidate.confirmation_type in {"engulfing", "rejection", "strong_close"}
+        and candidate.risk_distance > 0
+        and "MIXED_CONFIRMATION" not in candidate.rejection_reasons
+    )
 
 
 def _latest_relation_rejection(
@@ -1140,6 +1260,7 @@ def _build_candidates(
                 latest,
                 latest_relation=latest_relation,
                 is_chop=is_chop,
+                max_stop_distance=max_stop_distance,
                 boost_max_stop_distance=boost_max_stop_distance,
                 min_candidate_score=min_candidate_score,
                 volume_boost_enabled=volume_boost_enabled,
