@@ -177,6 +177,27 @@ def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lo
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
 
 
+def test_one_minute_scalper_reprices_favorable_impulse_sell_to_continuation_stop():
+    payload = _payload(
+        _two_low_then_impulse_sell_history(),
+        fast_history_window_candles=6,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=97.35,
+        current_ask_price=97.55,
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
+    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["risk"]["entry_price"] < 97.35
+    assert payload["risk"]["fast_trigger_quality"]["live_repriced"] is True
+    assert (
+        payload["risk"]["fast_trigger_quality"]["live_reprice_reason"]
+        == "favorable_impulse_continuation"
+    )
+
+
 def test_one_minute_scalper_still_rejects_messy_raw_break_without_clean_impulse():
     candles = _base_history() + [
         _candle(57, 99.8, 101.0, 99.5, 100.3),

@@ -716,6 +716,7 @@ def _reprice_risk_to_live_quote(
     minimum_stop_spread_multiple: float,
     max_stop_distance: float,
     risk_reward: float,
+    reason: str,
 ) -> dict[str, Any] | None:
     quote = current_ask_price if direction == "BUY" else current_bid_price
     if quote <= 0:
@@ -758,6 +759,7 @@ def _reprice_risk_to_live_quote(
         "live_reprice_quote": round(quote, 4),
         "live_reprice_buffer": round(buffer, 4),
         "live_reprice_entry": round(entry, 4),
+        "live_reprice_reason": reason,
     }
     return repriced
 
@@ -880,6 +882,56 @@ def _candidate_from_level(
         return candidate
 
     quote = current_ask_price if direction == "BUY" else current_bid_price
+    if quote > 0 and trigger_name in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS:
+        entry = float(risk["entry_price"])
+        favorable_continuation = (
+            (direction == "BUY" and quote > entry)
+            or (direction == "SELL" and quote < entry)
+        )
+        if favorable_continuation:
+            repriced_risk = _reprice_risk_to_live_quote(
+                risk,
+                direction=direction,
+                current_bid_price=current_bid_price,
+                current_ask_price=current_ask_price,
+                current_spread_price=current_spread_price,
+                minimum_stop_spread_multiple=minimum_stop_spread_multiple,
+                max_stop_distance=max_stop_distance,
+                risk_reward=risk_reward,
+                reason="favorable_impulse_continuation",
+            )
+            if repriced_risk is None:
+                candidate = OneMinuteCandidate(
+                    trigger=trigger_name,
+                    direction=direction,
+                    reaction_type=reaction_type,
+                    confirmation_type=confirmation,
+                    level=level,
+                    entry_price=float(risk["entry_price"]),
+                    stop_loss=float(risk["stop_loss"]),
+                    take_profit=float(risk["take_profit"]),
+                    risk_distance=float(risk["risk_distance"]),
+                    reward_distance=float(risk["reward_distance"]),
+                    risk=risk,
+                )
+                candidate.rejection_reasons.extend(
+                    ["IMPULSE_ENTRY_MOVED_AWAY", "IMPULSE_CONTINUATION_REPRICE_INVALID"]
+                )
+                return candidate
+            risk = repriced_risk
+            return OneMinuteCandidate(
+                trigger=trigger_name,
+                direction=direction,
+                reaction_type=reaction_type,
+                confirmation_type=confirmation,
+                level=level,
+                entry_price=float(risk["entry_price"]),
+                stop_loss=float(risk["stop_loss"]),
+                take_profit=float(risk["take_profit"]),
+                risk_distance=float(risk["risk_distance"]),
+                reward_distance=float(risk["reward_distance"]),
+                risk=risk,
+            )
     if quote > 0:
         drift = abs(quote - float(risk["entry_price"]))
         if drift > max_live_entry_drift:
@@ -894,6 +946,7 @@ def _candidate_from_level(
                     minimum_stop_spread_multiple=minimum_stop_spread_multiple,
                     max_stop_distance=max_stop_distance,
                     risk_reward=risk_reward,
+                    reason="late_but_valid",
                 )
             if repriced_risk is not None:
                 risk = repriced_risk
