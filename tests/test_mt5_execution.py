@@ -289,7 +289,7 @@ def test_build_auto_rejects_stale_buy_entry_between_bid_and_ask():
         )
 
 
-def test_build_auto_rejects_entry_inside_broker_stop_level():
+def test_build_auto_reprices_buy_entry_inside_broker_stop_level():
     builder = MT5OrderRequestBuilder(_config())
     proposal = _proposal(TradeAction.BUY)
     proposal.order_type = "AUTO"
@@ -297,19 +297,58 @@ def test_build_auto_rejects_entry_inside_broker_stop_level():
     proposal.stop_loss = 4506.00
     proposal.take_profit = 4512.00
 
-    with pytest.raises(ValueError, match="entry price is inside broker stop level"):
-        builder.build_pending_order_request(
-            proposal,
-            {
-                "name": "XAUUSD",
-                "digits": 2,
-                "point": 0.01,
-                "trade_tick_size": 0.01,
-                "trade_stops_level": 50,
-                "bid": 4506.99,
-                "ask": 4507.32,
-            },
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 50,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "BUY_STOP"
+    assert request["price"] == 4507.83
+    assert request["sl"] == 4506.00
+    assert request["tp"] == 4512.00
+
+
+def test_build_auto_reprices_entry_inside_broker_stop_level_by_one_tick():
+    builder = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+            min_stop_spread_multiple=0.0,
         )
+    )
+    proposal = _proposal(TradeAction.SELL)
+    proposal.order_type = "AUTO"
+    proposal.entry_price = 4506.99
+    proposal.stop_loss = 4508.00
+    proposal.take_profit = 4504.00
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == "SELL_STOP"
+    assert request["price"] == 4506.97
+    assert request["sl"] == 4508.00
+    assert request["tp"] == 4504.00
 
 
 def test_build_request_rejects_broker_symbol_mismatch():

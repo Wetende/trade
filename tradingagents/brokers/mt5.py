@@ -332,6 +332,60 @@ class MT5OrderRequestBuilder:
         if distance is not None and distance < min_distance:
             raise ValueError("entry price is inside broker stop level")
 
+    def _stop_level_min_distance(self, symbol_info: dict[str, Any]) -> float:
+        raw_stops_level = symbol_info.get("trade_stops_level")
+        if raw_stops_level in (None, ""):
+            return 0.0
+        try:
+            stops_level = float(raw_stops_level)
+            point = float(symbol_info.get("point") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        minimum = stops_level * point
+        return minimum if math.isfinite(minimum) and minimum > 0 else 0.0
+
+    def _stop_level_distance(
+        self,
+        request_type: str,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> float | None:
+        bid, ask = self._quote(symbol_info)
+        distances = {
+            "BUY_LIMIT": ask - entry,
+            "SELL_LIMIT": entry - bid,
+            "BUY_STOP": entry - ask,
+            "SELL_STOP": bid - entry,
+        }
+        return distances.get(request_type)
+
+    def _reprice_entry_outside_stop_level(
+        self,
+        request_type: str,
+        entry: float,
+        symbol_info: dict[str, Any],
+    ) -> float:
+        minimum = self._stop_level_min_distance(symbol_info)
+        if minimum <= 0:
+            return entry
+        distance = self._stop_level_distance(request_type, entry, symbol_info)
+        if distance is None or distance >= minimum:
+            return entry
+
+        bid, ask = self._quote(symbol_info)
+        tick_size = float(symbol_info.get("trade_tick_size") or 0)
+        point = float(symbol_info.get("point") or 0)
+        buffer = max(tick_size, point, 0.0)
+        if request_type == "BUY_STOP":
+            return self._round_price(ask + minimum + buffer, symbol_info)
+        if request_type == "SELL_STOP":
+            return self._round_price(bid - minimum - buffer, symbol_info)
+        if request_type == "BUY_LIMIT":
+            return self._round_price(ask - minimum - buffer, symbol_info)
+        if request_type == "SELL_LIMIT":
+            return self._round_price(bid + minimum + buffer, symbol_info)
+        return entry
+
     def _assert_entry_near_quote(
         self,
         entry: float,
@@ -405,9 +459,15 @@ class MT5OrderRequestBuilder:
         entry = self._round_price(proposal.entry_price, symbol_info)
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
+        request_type = self._resolve_order_type(proposal, entry, symbol_info)
+        if str(getattr(proposal, "order_type", "")).strip().upper() == "AUTO":
+            entry = self._reprice_entry_outside_stop_level(
+                request_type,
+                entry,
+                symbol_info,
+            )
         self._assert_stop_distance(entry, stop, symbol_info)
         self._assert_entry_near_quote(entry, symbol_info)
-        request_type = self._resolve_order_type(proposal, entry, symbol_info)
         self._assert_stop_level_distance(request_type, entry, symbol_info)
         if request_type in {"BUY_LIMIT", "BUY_STOP"} and not (stop < entry < target):
             raise ValueError("invalid BUY levels for MT5 pending order")
