@@ -71,6 +71,28 @@ def _bullish_pressure_failed_high_sell_history():
     return candles
 
 
+def _neutral_pulse_high_impulse_buy_history():
+    candles = []
+    for index in range(50):
+        base = 100.0 + (0.03 if index % 2 else 0.0)
+        candles.append(_candle(index, base, base + 0.45, base - 0.35, base + 0.04))
+    candles.extend(
+        [
+            _candle(50, 100.10, 100.65, 99.85, 100.25),
+            _candle(51, 100.25, 100.75, 100.00, 100.10),
+            _candle(52, 100.10, 100.70, 99.95, 100.30),
+            _candle(53, 100.30, 100.78, 100.05, 100.15),
+            _candle(54, 100.15, 100.72, 99.90, 100.20),
+            _candle(55, 100.20, 101.00, 100.00, 100.80),
+            _candle(56, 100.80, 100.92, 100.25, 100.35),
+            _candle(57, 100.35, 100.98, 100.15, 100.75),
+            _candle(58, 100.75, 100.88, 100.30, 100.45),
+            _candle(59, 100.45, 101.35, 100.42, 101.30),
+        ]
+    )
+    return candles
+
+
 def _payload(candles, **config):
     return analyze_one_minute_entry(
         "XAUUSD",
@@ -232,6 +254,23 @@ def test_one_minute_scalper_clamps_activation_window_to_one_minute():
     assert payload["status"] == "SETUP_FOUND"
     assert payload["activation_window_minutes"] == 1
     assert payload["market_context"]["activation_window_minutes"] == 1
+
+
+def test_one_minute_scalper_rejects_impulse_without_active_recent_pulse():
+    payload = _payload(
+        _neutral_pulse_high_impulse_buy_history(),
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.25,
+        current_ask_price=101.45,
+    )
+
+    story = payload["market_context"]["one_minute_story"]
+    assert story["active_pulse"]["direction"] == "neutral"
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    assert candidate["approved"] is False
+    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_scalper_reprices_favorable_impulse_sell_to_continuation_stop():

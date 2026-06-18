@@ -30,6 +30,7 @@ DEFAULT_MIN_CANDIDATE_SCORE = 8.0
 DEFAULT_MIN_STOP_SPREAD_MULTIPLE = 2.0
 DEFAULT_RISK_REWARD = 1.5
 MINIMUM_STOP_DISTANCE_BUFFER = 0.05
+ACTIVE_PULSE_LOOKBACK_CANDLES = 12
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -38,6 +39,7 @@ SPREAD_SAFE_STOP_TOO_WIDE = "SPREAD_SAFE_STOP_TOO_WIDE"
 SPREAD_SAFE_STOP_ADJUSTED = "SPREAD_SAFE_STOP_ADJUSTED"
 CONFLICTED_ONE_MINUTE_MEMORY = "CONFLICTED_ONE_MINUTE_MEMORY"
 ONE_MINUTE_PRESSURE_CONFLICT = "ONE_MINUTE_PRESSURE_CONFLICT"
+ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED = "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
 RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
     "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION"
 )
@@ -157,6 +159,21 @@ class OneMinuteOpeningMemory:
 @dataclass(frozen=True)
 class OneMinutePressure:
     direction: str
+    net_move: float
+    median_range: float
+    threshold: float
+    bullish_candles: int
+    bearish_candles: int
+    rising_steps: int
+    falling_steps: int
+    score: int
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class OneMinuteActivePulse:
+    direction: str
+    sample_size: int
     net_move: float
     median_range: float
     threshold: float
@@ -405,6 +422,103 @@ def _one_minute_pressure(history: list[Candle]) -> OneMinutePressure:
 
     return OneMinutePressure(
         direction=direction,
+        net_move=round(net_move, 4),
+        median_range=round(median_range, 4),
+        threshold=round(threshold, 4),
+        bullish_candles=bullish_candles,
+        bearish_candles=bearish_candles,
+        rising_steps=rising_steps,
+        falling_steps=falling_steps,
+        score=score,
+        reasons=reasons,
+    )
+
+
+def _one_minute_active_pulse(history: list[Candle]) -> OneMinuteActivePulse:
+    recent = history[-(ACTIVE_PULSE_LOOKBACK_CANDLES + 1):-1]
+    if len(recent) < 8:
+        return OneMinuteActivePulse(
+            direction="neutral",
+            sample_size=len(recent),
+            net_move=0.0,
+            median_range=0.0,
+            threshold=0.0,
+            bullish_candles=0,
+            bearish_candles=0,
+            rising_steps=0,
+            falling_steps=0,
+            score=0,
+            reasons=("INSUFFICIENT_ACTIVE_PULSE_HISTORY",),
+        )
+
+    ranges = [candle_range(candle) for candle in recent if candle_range(candle) > 0]
+    median_range = median(ranges) if ranges else 0.0
+    threshold = max(median_range * 1.2, 0.80)
+    net_move = float(recent[-1].close) - float(recent[0].close)
+    bullish_candles = sum(1 for candle in recent if is_bullish(candle))
+    bearish_candles = sum(1 for candle in recent if is_bearish(candle))
+    rising_steps = sum(
+        1
+        for left, right in zip(recent, recent[1:])
+        if float(right.close) > float(left.close)
+    )
+    falling_steps = sum(
+        1
+        for left, right in zip(recent, recent[1:])
+        if float(right.close) < float(left.close)
+    )
+    segment = max(3, len(recent) // 3)
+    early_median = median(float(candle.close) for candle in recent[:segment])
+    late_median = median(float(candle.close) for candle in recent[-segment:])
+    median_shift = late_median - early_median
+    directional_delta = max(2, len(recent) // 4)
+
+    bullish_score = 0
+    bullish_reasons: list[str] = []
+    if net_move >= threshold:
+        bullish_score += 2
+        bullish_reasons.append("ACTIVE_NET_MOVE_UP")
+    if median_shift >= threshold * 0.70:
+        bullish_score += 1
+        bullish_reasons.append("ACTIVE_MEDIAN_SHIFT_UP")
+    if bullish_candles - bearish_candles >= directional_delta:
+        bullish_score += 1
+        bullish_reasons.append("ACTIVE_BULLISH_CANDLE_BALANCE")
+    if rising_steps - falling_steps >= directional_delta:
+        bullish_score += 1
+        bullish_reasons.append("ACTIVE_RISING_CLOSE_STEPS")
+
+    bearish_score = 0
+    bearish_reasons: list[str] = []
+    if net_move <= -threshold:
+        bearish_score += 2
+        bearish_reasons.append("ACTIVE_NET_MOVE_DOWN")
+    if median_shift <= -(threshold * 0.70):
+        bearish_score += 1
+        bearish_reasons.append("ACTIVE_MEDIAN_SHIFT_DOWN")
+    if bearish_candles - bullish_candles >= directional_delta:
+        bearish_score += 1
+        bearish_reasons.append("ACTIVE_BEARISH_CANDLE_BALANCE")
+    if falling_steps - rising_steps >= directional_delta:
+        bearish_score += 1
+        bearish_reasons.append("ACTIVE_FALLING_CLOSE_STEPS")
+
+    if bullish_score >= 3 and bullish_score > bearish_score:
+        direction = "bullish"
+        score = bullish_score
+        reasons = tuple(bullish_reasons)
+    elif bearish_score >= 3 and bearish_score > bullish_score:
+        direction = "bearish"
+        score = bearish_score
+        reasons = tuple(bearish_reasons)
+    else:
+        direction = "neutral"
+        score = max(bullish_score, bearish_score)
+        reasons = ("NO_ACTIVE_DIRECTIONAL_PULSE",)
+
+    return OneMinuteActivePulse(
+        direction=direction,
+        sample_size=len(recent),
         net_move=round(net_move, 4),
         median_range=round(median_range, 4),
         threshold=round(threshold, 4),
@@ -1123,6 +1237,7 @@ def _score_candidate(
     *,
     latest_relation: OneMinuteCandleRelation,
     pressure: OneMinutePressure,
+    active_pulse: OneMinuteActivePulse,
     is_chop: bool,
     max_stop_distance: float,
     boost_max_stop_distance: float,
@@ -1159,6 +1274,7 @@ def _score_candidate(
     candidate.risk["fast_trigger_quality"] = {
         **candidate.risk.get("fast_trigger_quality", {}),
         "one_minute_pressure": asdict(pressure),
+        "one_minute_active_pulse": asdict(active_pulse),
     }
     if (
         pressure_direction == "bullish"
@@ -1170,6 +1286,17 @@ def _score_candidate(
     elif pressure_direction in {"bullish", "bearish"}:
         candidate.score += 1
         candidate.score_reasons.append("ONE_MINUTE_PRESSURE_ALIGNED")
+
+    if (
+        candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS
+        and active_pulse.sample_size >= 8
+    ):
+        expected_pulse = "bullish" if candidate.direction == "BUY" else "bearish"
+        if active_pulse.direction != expected_pulse:
+            candidate.rejection_reasons.append(ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED)
+        else:
+            candidate.score += 1
+            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
 
     if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
         extension = abs(float(candidate.entry_price) - float(candidate.level.level))
@@ -1366,6 +1493,7 @@ def _build_candidates(
     risk_reward: float,
     latest_relation: OneMinuteCandleRelation,
     pressure: OneMinutePressure,
+    active_pulse: OneMinuteActivePulse,
 ) -> list[OneMinuteCandidate]:
     latest = history[-1]
     previous = history[-2]
@@ -1443,6 +1571,7 @@ def _build_candidates(
                 latest,
                 latest_relation=latest_relation,
                 pressure=pressure,
+                active_pulse=active_pulse,
                 is_chop=is_chop,
                 max_stop_distance=max_stop_distance,
                 boost_max_stop_distance=boost_max_stop_distance,
@@ -1577,6 +1706,9 @@ def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
         "volume_multiplier": candidate.volume_multiplier,
         "pressure": candidate.risk.get("fast_trigger_quality", {}).get(
             "one_minute_pressure"
+        ),
+        "active_pulse": candidate.risk.get("fast_trigger_quality", {}).get(
+            "one_minute_active_pulse"
         ),
     }
 
@@ -1736,6 +1868,7 @@ def analyze_one_minute_entry(
     tolerance = _recent_tolerance(history)
     openings = _build_opening_memory(history, tolerance) if len(history) >= 2 else []
     pressure = _one_minute_pressure(history)
+    active_pulse = _one_minute_active_pulse(history)
     latest_relation = (
         _latest_candle_relation(history, tolerance, openings)
         if len(history) >= 2
@@ -1767,6 +1900,7 @@ def analyze_one_minute_entry(
         "max_live_entry_drift": round(max_live_entry_drift, 4),
         "minimum_stop_spread_multiple": round(minimum_stop_spread_multiple, 4),
         "pressure": asdict(pressure),
+        "active_pulse": asdict(active_pulse),
         "latest_candle_relation": asdict(latest_relation),
         "active_openings": [_opening_to_dict(opening) for opening in openings],
     }
@@ -1843,6 +1977,7 @@ def analyze_one_minute_entry(
         risk_reward=risk_reward,
         latest_relation=latest_relation,
         pressure=pressure,
+        active_pulse=active_pulse,
     )
     candidate_evaluations = [_candidate_to_telemetry(candidate) for candidate in candidates]
     approved_candidates = [candidate for candidate in candidates if candidate.approved]
