@@ -240,6 +240,82 @@ def test_one_minute_scalper_rejects_sell_against_bullish_sixty_candle_pressure()
     assert payload["telemetry"]["approved_candidate_count"] == 0
 
 
+def test_one_minute_scalper_rejects_two_sided_fakeout_memory():
+    candles = [
+        _candle(0, 102.65, 103.05, 102.82, 102.90),
+        _candle(1, 102.90, 103.08, 102.86, 102.96),
+        _candle(2, 102.96, 103.02, 102.83, 102.92),
+        _candle(3, 103.10, 103.35, 102.75, 102.95),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=4,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=102.96,
+        current_ask_price=103.16,
+    )
+
+    relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
+    assert relation["failed_high_break"] is True
+    assert relation["failed_low_break"] is True
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["approved"] is False
+    assert "CONFLICTED_ONE_MINUTE_MEMORY" in candidate["rejection_reasons"]
+    assert "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL" not in candidate[
+        "score_reasons"
+    ]
+
+
+def test_one_minute_scalper_rejects_default_stop_above_scalp_cap():
+    candles = [
+        _candle(0, 99.0, 100.0, 97.0, 99.5),
+        _candle(1, 99.5, 100.2, 97.2, 99.8),
+        _candle(2, 99.8, 100.1, 97.1, 99.2),
+        _candle(3, 99.2, 101.6, 99.1, 101.45),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=4,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    assert candidate["approved"] is False
+    assert any(
+        reason.startswith("Stop distance exceeds one-minute maximum")
+        for reason in candidate["rejection_reasons"]
+    )
+
+
+def test_one_minute_scalper_rejects_two_touch_fakeout_with_rejection_only():
+    candles = [
+        _candle(57, 99.8, 101.00, 99.5, 100.3),
+        _candle(58, 100.6, 100.95, 99.8, 100.4),
+        _candle(59, 100.8, 101.60, 99.3, 100.0),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=3,
+        minimum_stop_distance_price=0.25,
+    )
+
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["level_type"] == "two_touch"
+    assert candidate["confirmation_type"] == "rejection"
+    assert candidate["approved"] is False
+    assert "LOW_ONE_MINUTE_SCORE" in candidate["rejection_reasons"]
+    assert "RELAXED_FAKEOUT_SCORE_FLOOR" not in candidate["score_reasons"]
+
+
 def test_one_minute_scalper_clamps_activation_window_to_one_minute():
     payload = _payload(
         _two_high_then_impulse_buy_history(),
@@ -333,6 +409,7 @@ def test_one_minute_scalper_reprices_clean_impulse_when_quote_still_tight():
     payload = _payload(
         _two_high_then_impulse_buy_history(),
         fast_history_window_candles=7,
+        fast_max_stop_distance_price=1.7,
         minimum_stop_distance_price=0.25,
         current_spread_price=0.20,
         current_bid_price=103.05,
@@ -344,7 +421,7 @@ def test_one_minute_scalper_reprices_clean_impulse_when_quote_still_tight():
     assert payload["setups"][0]["name"] == "CLEAN_HIGH_IMPULSE_BUY"
     assert payload["risk"]["entry_price"] > 102.45
     assert payload["risk"]["entry_price"] == pytest.approx(103.30)
-    assert payload["risk"]["risk_distance"] <= 2.0
+    assert payload["risk"]["risk_distance"] <= 1.7
     candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
     assert candidate["approved"] is True
     assert "IMPULSE_ENTRY_MOVED_AWAY" not in candidate["rejection_reasons"]
@@ -594,7 +671,7 @@ def test_one_minute_scalper_journals_multiple_candidates_and_selects_best_valid_
         _candle(5, 100.4, 100.9, 99.2, 99.8),
         _candle(6, 99.8, 100.5, 99.15, 100.0),
         _candle(7, 100.0, 100.4, 99.1, 99.6),
-        _candle(8, 99.6, 100.7, 98.7, 100.4),
+        _candle(8, 99.6, 100.5, 98.7, 100.4),
     ]
 
     payload = _payload(candles, minimum_stop_distance_price=0.25)
@@ -679,7 +756,7 @@ def test_one_minute_scalper_does_not_boost_without_decisive_close():
         _candle(56, 99.8, 101.0, 99.5, 100.3),
         _candle(57, 100.2, 100.95, 99.8, 100.5),
         _candle(58, 100.4, 101.05, 99.9, 100.8),
-        _candle(59, 100.8, 101.6, 99.3, 100.0),
+        _candle(59, 100.8, 101.6, 99.75, 100.0),
     ]
 
     payload = _payload(candles, minimum_stop_distance_price=0.25)
@@ -697,7 +774,7 @@ def test_one_minute_scalper_allows_clean_two_touch_fakeout_engulfing_confirmatio
     candles = [
         _candle(57, 99.8, 101.0, 99.5, 100.3),
         _candle(58, 100.2, 100.95, 99.8, 100.5),
-        _candle(59, 100.7, 101.6, 99.3, 100.1),
+        _candle(59, 100.7, 101.6, 99.75, 100.1),
     ]
 
     payload = _payload(
@@ -722,7 +799,7 @@ def test_one_minute_scalper_adjusts_respect_fakeout_stop_to_clear_live_spread():
     candles = _base_history() + [
         _candle(57, 100.4, 100.8, 99.0, 99.7),
         _candle(58, 99.8, 100.3, 99.05, 99.4),
-        _candle(59, 99.2, 101.0, 98.45, 100.8),
+        _candle(59, 99.2, 100.55, 98.45, 100.2),
     ]
 
     payload = _payload(

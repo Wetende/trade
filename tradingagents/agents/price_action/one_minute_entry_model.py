@@ -24,7 +24,7 @@ UNKNOWN = "unknown"
 
 DEFAULT_FAST_HISTORY_WINDOW_CANDLES = 60
 MINIMUM_CANDLES_FOR_COMPARISON = 2
-DEFAULT_MAX_STOP_DISTANCE = 2.0
+DEFAULT_MAX_STOP_DISTANCE = 1.0
 DEFAULT_BOOST_MAX_STOP_DISTANCE = 1.2
 DEFAULT_MIN_CANDIDATE_SCORE = 8.0
 DEFAULT_MIN_STOP_SPREAD_MULTIPLE = 2.0
@@ -1424,7 +1424,7 @@ def _score_candidate(
 
 def _can_override_memory_conflict(candidate: OneMinuteCandidate) -> bool:
     return (
-        candidate.trigger in MEMORY_OVERRIDE_ONE_MINUTE_TRIGGERS
+        candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS
         and candidate.confirmation_type in {"engulfing", "rejection", "strong_close"}
         and candidate.risk_distance > 0
         and "MIXED_CONFIRMATION" not in candidate.rejection_reasons
@@ -1435,7 +1435,12 @@ def _latest_relation_rejection(
     candidate: OneMinuteCandidate,
     latest_relation: OneMinuteCandleRelation,
 ) -> str | None:
-    if latest_relation.broke_high_zone and latest_relation.broke_low_zone:
+    if (
+        latest_relation.broke_high_zone
+        and latest_relation.broke_low_zone
+        or latest_relation.failed_high_break
+        and latest_relation.failed_low_break
+    ):
         return CONFLICTED_ONE_MINUTE_MEMORY
     if candidate.trigger == HIGH_RESPECT_SELL and (
         latest_relation.broke_high_zone
@@ -1461,6 +1466,11 @@ def _minimum_required_score(
         candidate.score_reasons.append("RELAXED_RESPECT_SCORE_FLOOR")
         return max(6.0, configured_minimum - 2.0)
     if candidate.trigger in FAKEOUT_ONE_MINUTE_TRIGGERS:
+        if (
+            candidate.level.touch_count < 3
+            and candidate.confirmation_type != "engulfing"
+        ):
+            return configured_minimum
         candidate.score_reasons.append("RELAXED_FAKEOUT_SCORE_FLOOR")
         return max(6.0, configured_minimum - 2.0)
     return configured_minimum
