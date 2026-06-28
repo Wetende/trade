@@ -943,6 +943,7 @@ def _reprice_risk_to_live_quote(
     max_stop_distance: float,
     risk_reward: float,
     reason: str,
+    allow_spread_safe_continuation_stop: bool = False,
 ) -> dict[str, Any] | None:
     quote = current_ask_price if direction == "BUY" else current_bid_price
     if quote <= 0:
@@ -963,6 +964,20 @@ def _reprice_risk_to_live_quote(
     )
     if spread_floor > 0 and risk_distance < spread_floor:
         return None
+    if (
+        allow_spread_safe_continuation_stop
+        and risk_distance > max_stop_distance
+        and spread_floor > 0
+    ):
+        tightened_risk_distance = spread_floor + MINIMUM_STOP_DISTANCE_BUFFER
+        if 0 < tightened_risk_distance <= max_stop_distance:
+            risk_distance = tightened_risk_distance
+            stop = (
+                entry - risk_distance
+                if direction == "BUY"
+                else entry + risk_distance
+            )
+            reason = "fast_spread_safe_continuation"
     if risk_distance <= 0 or risk_distance > max_stop_distance:
         return None
 
@@ -972,6 +987,7 @@ def _reprice_risk_to_live_quote(
     repriced.update(
         {
             "entry_price": round(entry, 4),
+            "stop_loss": round(stop, 4),
             "take_profit": round(entry + (reward_distance * reward_sign), 4),
             "risk_distance": round(risk_distance, 4),
             "reward_distance": round(reward_distance, 4),
@@ -986,6 +1002,7 @@ def _reprice_risk_to_live_quote(
         "live_reprice_buffer": round(buffer, 4),
         "live_reprice_entry": round(entry, 4),
         "live_reprice_reason": reason,
+        "live_reprice_stop": round(stop, 4),
     }
     return repriced
 
@@ -1115,6 +1132,31 @@ def _candidate_from_level(
             or (direction == "SELL" and quote < entry)
         )
         if favorable_continuation:
+            drift = abs(quote - entry)
+            max_continuation_drift = max(max_live_entry_drift, max_stop_distance)
+            if drift > max_continuation_drift:
+                candidate = OneMinuteCandidate(
+                    trigger=trigger_name,
+                    direction=direction,
+                    reaction_type=reaction_type,
+                    confirmation_type=confirmation,
+                    level=level,
+                    entry_price=float(risk["entry_price"]),
+                    stop_loss=float(risk["stop_loss"]),
+                    take_profit=float(risk["take_profit"]),
+                    risk_distance=float(risk["risk_distance"]),
+                    reward_distance=float(risk["reward_distance"]),
+                    risk=risk,
+                )
+                candidate.rejection_reasons.append("IMPULSE_ENTRY_MOVED_AWAY")
+                candidate.risk["fast_trigger_quality"] = {
+                    **candidate.risk.get("fast_trigger_quality", {}),
+                    "live_quote": round(quote, 4),
+                    "live_entry_drift": round(drift, 4),
+                    "max_live_entry_drift": round(max_live_entry_drift, 4),
+                    "max_continuation_drift": round(max_continuation_drift, 4),
+                }
+                return candidate
             repriced_risk = _reprice_risk_to_live_quote(
                 risk,
                 direction=direction,
@@ -1125,6 +1167,7 @@ def _candidate_from_level(
                 max_stop_distance=max_stop_distance,
                 risk_reward=risk_reward,
                 reason="favorable_impulse_continuation",
+                allow_spread_safe_continuation_stop=True,
             )
             if repriced_risk is None:
                 candidate = OneMinuteCandidate(
@@ -1358,23 +1401,11 @@ def _score_candidate(
         candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
     relation_reason = _latest_relation_rejection(candidate, latest_relation)
     if relation_reason is not None:
-        if relation_reason == CONFLICTED_ONE_MINUTE_MEMORY and (
-            _can_override_memory_conflict(candidate)
-        ):
-            candidate.score += 1
-            candidate.score_reasons.append(
-                "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL"
-            )
-            candidate.risk["fast_trigger_quality"] = {
-                **candidate.risk.get("fast_trigger_quality", {}),
-                "memory_conflict_overridden": True,
-            }
-        else:
-            candidate.rejection_reasons.append(relation_reason)
-            candidate.risk["fast_trigger_quality"] = {
-                **candidate.risk.get("fast_trigger_quality", {}),
-                "latest_relation_rejection": relation_reason,
-            }
+        candidate.rejection_reasons.append(relation_reason)
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "latest_relation_rejection": relation_reason,
+        }
 
     candidate.minimum_required_score = _minimum_required_score(
         candidate,
@@ -1420,15 +1451,6 @@ def _score_candidate(
         "volume_decision": candidate.volume_decision,
     }
     return candidate
-
-
-def _can_override_memory_conflict(candidate: OneMinuteCandidate) -> bool:
-    return (
-        candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS
-        and candidate.confirmation_type in {"engulfing", "rejection", "strong_close"}
-        and candidate.risk_distance > 0
-        and "MIXED_CONFIRMATION" not in candidate.rejection_reasons
-    )
 
 
 def _latest_relation_rejection(
