@@ -1340,6 +1340,18 @@ def _score_candidate(
         else:
             candidate.score += 1
             candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
+    elif (
+        candidate.trigger in FAKEOUT_ONE_MINUTE_TRIGGERS
+        | RESPECT_ONE_MINUTE_TRIGGERS
+        and active_pulse.sample_size >= 8
+        and active_pulse.score >= 4
+    ):
+        expected_pulse = "bullish" if candidate.direction == "BUY" else "bearish"
+        if active_pulse.direction not in {"neutral", expected_pulse}:
+            candidate.rejection_reasons.append(ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED)
+        elif active_pulse.direction == expected_pulse:
+            candidate.score += 1
+            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
 
     if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
         extension = abs(float(candidate.entry_price) - float(candidate.level.level))

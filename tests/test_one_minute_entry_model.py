@@ -71,6 +71,42 @@ def _bullish_pressure_failed_high_sell_history():
     return candles
 
 
+def _bullish_active_pulse_failed_high_sell_history():
+    candles = []
+    price = 100.0
+    for index in range(47):
+        open_ = price
+        close = price + 0.08 if index % 2 == 0 else price - 0.08
+        high = max(open_, close) + 0.25
+        low = min(open_, close) - 0.25
+        candles.append(_candle(index, open_, high, low, close))
+        price = close
+
+    pulse = [
+        (100.00, 100.40),
+        (100.35, 100.80),
+        (100.75, 101.20),
+        (101.10, 101.65),
+        (101.55, 102.05),
+        (102.00, 102.45),
+        (102.35, 102.90),
+        (102.80, 103.20),
+        (103.10, 103.55),
+        (103.45, 103.95),
+        (103.85, 104.25),
+        (104.15, 104.55),
+    ]
+    for offset, (open_, close) in enumerate(pulse, start=47):
+        high = max(open_, close) + 0.35
+        low = min(open_, close) - 0.25
+        candles.append(_candle(offset, open_, high, low, close))
+
+    candles[51] = _candle(51, 101.10, 104.85, 101.00, 101.70)
+    candles[55] = _candle(55, 103.45, 104.82, 103.20, 103.95)
+    candles.append(_candle(59, 104.70, 105.18, 104.20, 104.65))
+    return candles
+
+
 def _neutral_pulse_high_impulse_buy_history():
     candles = []
     for index in range(50):
@@ -972,6 +1008,23 @@ def test_one_minute_scalper_rejects_high_respect_sell_into_bullish_pressure():
     assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" in candidate[
         "rejection_reasons"
     ]
+
+
+def test_one_minute_scalper_rejects_fakeout_sell_against_bullish_active_pulse():
+    payload = _payload(
+        _bullish_active_pulse_failed_high_sell_history(),
+        minimum_stop_distance_price=0.35,
+        current_spread_price=0.33,
+        current_bid_price=104.62,
+        current_ask_price=104.95,
+    )
+
+    story = payload["market_context"]["one_minute_story"]
+    assert story["active_pulse"]["direction"] == "bullish"
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["approved"] is False
+    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" in candidate["rejection_reasons"]
 
 
 def test_one_minute_scalper_allows_low_respect_buy_when_rejection_confirms():
