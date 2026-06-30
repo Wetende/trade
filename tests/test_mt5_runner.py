@@ -668,6 +668,38 @@ def test_runner_forever_stops_when_session_loss_limit_is_reached(tmp_path, monke
     assert sleeps == []
 
 
+def test_runner_maintains_active_trade_each_second_between_full_cycles(
+    tmp_path,
+    monkeypatch,
+):
+    executor = FakeExecutor(active=True)
+    sleeps = []
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            maintenance_poll_seconds=1,
+            max_cycles=2,
+        ),
+        executor=executor,
+        analysis_func=lambda: (_ for _ in ()).throw(
+            AssertionError("analysis should not run while a trade is active")
+        ),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_CYCLES"
+    assert sleeps == [1.0, 1.0, 1.0, 1.0, 1.0]
+    assert executor.cancel_calls == 6
+    assert executor.manage_calls == 6
+
+
 def test_runner_runtime_deadline_takes_precedence_over_max_cycles(tmp_path, monkeypatch):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE

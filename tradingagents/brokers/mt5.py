@@ -1201,6 +1201,7 @@ class MT5Broker:
         self._assert_active_session()
         mt5 = self._module()
         positions = mt5.positions_get(symbol=symbol) or []
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
         buy_type = getattr(mt5, "POSITION_TYPE_BUY", 0)
         sell_type = getattr(mt5, "POSITION_TYPE_SELL", 1)
         normalized = []
@@ -1213,6 +1214,19 @@ class MT5Broker:
                 side = "SELL"
             else:
                 side = str(item.get("side", "")).upper()
+            opened_at_utc = None
+            raw_time_msc = item.get("time_msc")
+            raw_time = item.get("time")
+            if raw_time_msc not in (None, ""):
+                opened_at_utc = datetime.fromtimestamp(
+                    (float(raw_time_msc) / 1000.0) - server_time_offset_seconds,
+                    tz=timezone.utc,
+                ).isoformat()
+            elif raw_time not in (None, ""):
+                opened_at_utc = datetime.fromtimestamp(
+                    float(raw_time) - server_time_offset_seconds,
+                    tz=timezone.utc,
+                ).isoformat()
             normalized.append(
                 {
                     **item,
@@ -1221,6 +1235,7 @@ class MT5Broker:
                     "current_price": item.get("price_current"),
                     "stop_loss": item.get("sl"),
                     "take_profit": item.get("tp"),
+                    "opened_at_utc": opened_at_utc,
                 }
             )
         return normalized

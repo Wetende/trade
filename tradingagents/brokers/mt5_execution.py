@@ -71,6 +71,80 @@ class MT5ExitManagementConfig:
             raise ValueError("candle_rejection_partial_fraction must be <= 1")
 
 
+@dataclass(frozen=True)
+class MT5OneMinuteLifecycleConfig:
+    """Execution timing rules for one-minute scalper proposals."""
+
+    reaction_pending_seconds: float = 20.0
+    impulse_pending_seconds: float = 45.0
+    candle_boundary_lead_seconds: float = 1.0
+    early_loss_grace_seconds: float = 5.0
+
+    def __post_init__(self) -> None:
+        for name in (
+            "reaction_pending_seconds",
+            "impulse_pending_seconds",
+            "candle_boundary_lead_seconds",
+            "early_loss_grace_seconds",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative number")
+            object.__setattr__(self, name, value)
+
+
+def _is_one_minute_scalper_proposal(proposal: OrderProposal) -> bool:
+    timeframe = str(proposal.timeframe or "").strip().lower()
+    lifecycle = str(proposal.position_lifecycle or "").strip().upper()
+    return timeframe == "1m" and lifecycle == "FAST_PARTIAL_SCALE"
+
+
+def build_pending_order_policy(
+    proposal: OrderProposal,
+    placed_at_utc: datetime,
+    lifecycle: MT5OneMinuteLifecycleConfig,
+) -> dict[str, Any]:
+    """Return the effective deterministic expiry policy for a proposal."""
+    placed_at = _parse_utc_datetime(placed_at_utc)
+    if placed_at is None:
+        raise ValueError("placed_at_utc must be a valid datetime")
+
+    activation_minutes = int(proposal.activation_window_minutes or 10)
+    if not _is_one_minute_scalper_proposal(proposal):
+        max_age_seconds = float(activation_minutes * 60)
+        cancel_after = placed_at + timedelta(seconds=max_age_seconds)
+        return {
+            "policy": "ACTIVATION_WINDOW",
+            "max_age_seconds": max_age_seconds,
+            "cancel_after_utc": cancel_after.isoformat(),
+            "candle_boundary_utc": None,
+        }
+
+    reaction_type = str(proposal.reaction_type or "").strip().lower()
+    if reaction_type in {"impulse_break", "break"}:
+        policy_name = "ONE_MINUTE_IMPULSE"
+        max_age_seconds = lifecycle.impulse_pending_seconds
+    else:
+        policy_name = "ONE_MINUTE_REACTION"
+        max_age_seconds = lifecycle.reaction_pending_seconds
+
+    age_expiry = placed_at + timedelta(seconds=max_age_seconds)
+    candle_boundary = placed_at.replace(second=0, microsecond=0) + timedelta(
+        minutes=1
+    )
+    boundary_expiry = candle_boundary - timedelta(
+        seconds=lifecycle.candle_boundary_lead_seconds
+    )
+    cancel_after = min(age_expiry, boundary_expiry)
+    return {
+        "policy": policy_name,
+        "reaction_type": reaction_type or None,
+        "max_age_seconds": max_age_seconds,
+        "cancel_after_utc": cancel_after.isoformat(),
+        "candle_boundary_utc": candle_boundary.isoformat(),
+    }
+
+
 def load_order_proposal(path: str | Path) -> OrderProposal:
     """Load an order proposal JSON artifact from disk."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -92,6 +166,16 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _position_age_seconds(
+    position: dict[str, Any],
+    now_utc: datetime,
+) -> float | None:
+    opened_at = _parse_utc_datetime(position.get("opened_at_utc"))
+    if opened_at is None:
+        return None
+    return max(0.0, (now_utc - opened_at).total_seconds())
+
+
 class MT5Executor:
     """Coordinate one-symbol guarded MT5 proposal execution."""
 
@@ -102,6 +186,7 @@ class MT5Executor:
         broker: Any | None = None,
         journal: ExecutionJournal | None = None,
         exit_management: MT5ExitManagementConfig | None = None,
+        one_minute_lifecycle: MT5OneMinuteLifecycleConfig | None = None,
     ) -> None:
         self.config = config
         self.broker = broker or MT5Broker(config)
@@ -109,6 +194,9 @@ class MT5Executor:
         self.journal = journal or ExecutionJournal(results_dir, config.symbol)
         self.state = ExecutionStateStore(results_dir, config.symbol)
         self.exit_management = exit_management or MT5ExitManagementConfig()
+        self.one_minute_lifecycle = (
+            one_minute_lifecycle or MT5OneMinuteLifecycleConfig()
+        )
 
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)
@@ -214,7 +302,21 @@ class MT5Executor:
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
         self.journal.append(event_type, broker_result)
         if ok:
-            self.state.record_pending_order(broker_result["order"], proposal)
+            placed_at = datetime.now(timezone.utc)
+            pending_policy = build_pending_order_policy(
+                proposal,
+                placed_at,
+                self.one_minute_lifecycle,
+            )
+            self.state.record_pending_order(
+                broker_result["order"],
+                proposal,
+                placed_at_utc=placed_at,
+                cancel_after_utc=_parse_utc_datetime(
+                    pending_policy["cancel_after_utc"]
+                ),
+                pending_policy=pending_policy,
+            )
 
         return {
             "status": "PLACED" if ok else "REJECTED",
@@ -365,6 +467,7 @@ class MT5Executor:
         self,
         break_even_threshold_pips: float | None = None,
         exit_management: MT5ExitManagementConfig | None = None,
+        now_utc: datetime | None = None,
     ) -> dict[str, Any]:
         """Manage active positions with scalp, early-loss, break-even, and trailing rules."""
         connection = self.broker.connect()
@@ -408,8 +511,16 @@ class MT5Executor:
         closed_rejection = False
         partial = False
         moved = False
+        current_time = now_utc or datetime.now(timezone.utc)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=timezone.utc)
+        current_time = current_time.astimezone(timezone.utc)
         for position in positions:
-            managed_action = self._manage_position(position, management)
+            managed_action = self._manage_position(
+                position,
+                management,
+                now_utc=current_time,
+            )
             if managed_action is None:
                 continue
             position_actions = (
@@ -483,6 +594,8 @@ class MT5Executor:
         self,
         position: dict[str, Any],
         management: MT5ExitManagementConfig,
+        *,
+        now_utc: datetime,
     ) -> dict[str, Any] | list[dict[str, Any]] | None:
         side = str(position.get("side") or "").upper()
         if side not in {"BUY", "SELL"}:
@@ -496,6 +609,13 @@ class MT5Executor:
         target = _first_float(position, "take_profit", "tp")
         stop = _first_float(position, "stop_loss", "sl")
         ticket = position.get("ticket")
+        proposal = self.state.load().get("proposal") or {}
+        position_age_seconds = _position_age_seconds(position, now_utc)
+        early_loss_grace_seconds = (
+            self.one_minute_lifecycle.early_loss_grace_seconds
+            if self._one_minute_rejection_lifecycle_enabled(proposal)
+            else 0.0
+        )
         rejection_action = self._candle_rejection_action(position, side, management)
         if rejection_action is not None:
             return rejection_action
@@ -535,6 +655,10 @@ class MT5Executor:
         if (
             management.early_loss_exit_points > 0
             and favorable_points <= -management.early_loss_exit_points
+            and (
+                position_age_seconds is None
+                or position_age_seconds >= early_loss_grace_seconds
+            )
         ):
             close_result = self.broker.close_position(
                 position,
@@ -545,6 +669,12 @@ class MT5Executor:
                 "action": "CLOSE_POSITION",
                 "reason": "EARLY_LOSS_EXIT",
                 "favorable_points": round(favorable_points, 2),
+                "position_age_seconds": (
+                    round(position_age_seconds, 3)
+                    if position_age_seconds is not None
+                    else None
+                ),
+                "early_loss_grace_seconds": early_loss_grace_seconds,
                 "result": close_result,
             }
             self.journal.append("POSITION_CLOSED_EARLY", action)

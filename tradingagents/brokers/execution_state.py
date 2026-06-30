@@ -43,19 +43,28 @@ class ExecutionStateStore:
         ticket: int,
         proposal: OrderProposal,
         placed_at_utc: datetime | None = None,
+        cancel_after_utc: datetime | None = None,
+        pending_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         placed_at = placed_at_utc or datetime.now(timezone.utc)
         if placed_at.tzinfo is None:
             placed_at = placed_at.replace(tzinfo=timezone.utc)
         placed_at = placed_at.astimezone(timezone.utc)
-        activation_window = proposal.activation_window_minutes or 10
-        cancel_after = placed_at + timedelta(minutes=activation_window)
+        if cancel_after_utc is None:
+            activation_window = proposal.activation_window_minutes or 10
+            cancel_after = placed_at + timedelta(minutes=activation_window)
+        else:
+            cancel_after = cancel_after_utc
+            if cancel_after.tzinfo is None:
+                cancel_after = cancel_after.replace(tzinfo=timezone.utc)
+            cancel_after = cancel_after.astimezone(timezone.utc)
         return self.save(
             {
                 "symbol": self.symbol,
                 "active_order_ticket": int(ticket),
                 "placed_at_utc": placed_at.isoformat(),
                 "cancel_after_utc": cancel_after.isoformat(),
+                "pending_policy": dict(pending_policy or {}),
                 "proposal": proposal.model_dump(mode="json"),
             }
         )

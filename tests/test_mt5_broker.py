@@ -753,6 +753,38 @@ def test_mt5_broker_reads_open_orders_and_positions():
     assert positions[0]["take_profit"] == 2456.79
 
 
+def test_mt5_broker_normalizes_position_open_time_from_server_offset():
+    fake_mt5 = FakeMT5()
+    fake_mt5.positions = [
+        SimpleNamespace(
+            ticket=333444,
+            symbol="XAUUSD",
+            type=fake_mt5.POSITION_TYPE_BUY,
+            time=1779610000,
+            time_msc=1779610000123,
+            price_open=2450.12,
+            price_current=2453.12,
+            sl=2447.99,
+            tp=2456.79,
+        )
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake_mt5,
+    )
+    broker.connect()
+    broker._server_time_offset_seconds = lambda mt5: 3 * 3600
+
+    positions = broker.open_positions("XAUUSD")
+
+    assert positions[0]["opened_at_utc"] == "2026-05-24T05:06:40.123000+00:00"
+
+
 def test_mt5_broker_reads_history_deals_for_symbol():
     fake_mt5 = FakeMT5()
     fake_mt5.history_deals = [

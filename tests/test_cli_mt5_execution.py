@@ -66,10 +66,17 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, received_config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            received_config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["executor_config"] = received_config
             calls["executor_results_dir"] = results_dir
             calls["executor_exit_management"] = exit_management
+            calls["executor_one_minute_lifecycle"] = one_minute_lifecycle
 
     class Runner:
         def __init__(self, runner_config, executor, analysis_func, current_as_of_func=None):
@@ -111,6 +118,14 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_first_target_volume", 1.0)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_second_trigger_points", 2.5)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_second_target_volume", 0.4)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_reaction_pending_seconds", 20.0)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_impulse_pending_seconds", 45.0)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_early_loss_grace_seconds", 5.0)
+    monkeypatch.setitem(
+        cli_main.DEFAULT_CONFIG,
+        "runner_maintenance_poll_seconds",
+        1.0,
+    )
     monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
     monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
     monkeypatch.setattr(mt5_runner, "MT5Runner", Runner)
@@ -142,6 +157,10 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     assert calls["executor_exit_management"].partial_first_target_volume == 1.0
     assert calls["executor_exit_management"].partial_second_trigger_points == 2.5
     assert calls["executor_exit_management"].partial_second_target_volume == 0.4
+    assert calls["executor_one_minute_lifecycle"].reaction_pending_seconds == 20.0
+    assert calls["executor_one_minute_lifecycle"].impulse_pending_seconds == 45.0
+    assert calls["executor_one_minute_lifecycle"].early_loss_grace_seconds == 5.0
+    assert calls["runner_config"].maintenance_poll_seconds == 1.0
     assert calls["runner_config"].blocked_strategy_rules == (
         "SUPPORT_RESISTANCE_BOUNCE:SELL",
     )
@@ -197,7 +216,13 @@ def test_auto_gated_mode_runs_autogate_runner(monkeypatch, tmp_path):
     calls = {}
 
     class DirectionalExecutor:
-        def __init__(self, received_config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            received_config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["directional_executor"] = (received_config, results_dir, exit_management)
 
     class StraddleExecutor:
@@ -593,7 +618,13 @@ def test_mt5_run_forever_uses_configured_max_cycles(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -638,7 +669,13 @@ def test_mt5_run_passes_configured_session_loss_limit(monkeypatch, tmp_path):
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -683,7 +720,13 @@ def test_mt5_run_duration_hours_sets_runner_runtime_limit(monkeypatch, tmp_path)
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["executor"] = (config, results_dir)
 
     class Runner:
@@ -732,7 +775,13 @@ def test_mt5_run_tiny_duration_hours_sets_at_least_one_second(monkeypatch, tmp_p
     calls = {}
 
     class Executor:
-        def __init__(self, config, results_dir, exit_management=None):
+        def __init__(
+            self,
+            config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
             calls["executor"] = (config, results_dir)
 
     class Runner:

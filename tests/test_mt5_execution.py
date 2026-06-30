@@ -8,7 +8,9 @@ from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
 from tradingagents.brokers.mt5 import MT5ConnectionConfig, MT5OrderRequestBuilder
 from tradingagents.brokers.mt5_execution import (
     MT5ExitManagementConfig,
+    MT5OneMinuteLifecycleConfig,
     MT5Executor,
+    build_pending_order_policy,
     load_order_proposal,
 )
 
@@ -29,6 +31,88 @@ def _proposal(side: TradeAction = TradeAction.BUY) -> OrderProposal:
         status=OrderStatus.PROPOSED,
         reason="A+ setup passed.",
     )
+
+
+def _one_minute_proposal(
+    *,
+    reaction_type: str,
+    trigger_name: str,
+) -> OrderProposal:
+    return _proposal().model_copy(
+        update={
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "reaction_type": reaction_type,
+            "trigger_name": trigger_name,
+            "position_lifecycle": "FAST_PARTIAL_SCALE",
+            "activation_window_minutes": 1,
+        }
+    )
+
+
+def test_one_minute_reaction_pending_policy_expires_after_twenty_seconds():
+    placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
+
+    policy = build_pending_order_policy(
+        _one_minute_proposal(
+            reaction_type="fakeout",
+            trigger_name="FAILED_HIGH_BREAK_SELL",
+        ),
+        placed_at,
+        MT5OneMinuteLifecycleConfig(),
+    )
+
+    assert policy["policy"] == "ONE_MINUTE_REACTION"
+    assert policy["max_age_seconds"] == 20.0
+    assert policy["cancel_after_utc"] == "2026-06-30T14:00:30+00:00"
+
+
+def test_one_minute_impulse_pending_policy_expires_after_forty_five_seconds():
+    placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
+
+    policy = build_pending_order_policy(
+        _one_minute_proposal(
+            reaction_type="impulse_break",
+            trigger_name="CLEAN_HIGH_IMPULSE_BUY",
+        ),
+        placed_at,
+        MT5OneMinuteLifecycleConfig(),
+    )
+
+    assert policy["policy"] == "ONE_MINUTE_IMPULSE"
+    assert policy["max_age_seconds"] == 45.0
+    assert policy["cancel_after_utc"] == "2026-06-30T14:00:55+00:00"
+
+
+def test_one_minute_pending_policy_expires_before_next_candle_boundary():
+    placed_at = datetime(2026, 6, 30, 14, 0, 30, tzinfo=timezone.utc)
+
+    policy = build_pending_order_policy(
+        _one_minute_proposal(
+            reaction_type="impulse_break",
+            trigger_name="CLEAN_HIGH_IMPULSE_BUY",
+        ),
+        placed_at,
+        MT5OneMinuteLifecycleConfig(),
+    )
+
+    assert policy["policy"] == "ONE_MINUTE_IMPULSE"
+    assert policy["cancel_after_utc"] == "2026-06-30T14:00:59+00:00"
+    assert policy["candle_boundary_utc"] == "2026-06-30T14:01:00+00:00"
+
+
+def test_normal_pending_policy_keeps_activation_window():
+    placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
+
+    policy = build_pending_order_policy(
+        _proposal(),
+        placed_at,
+        MT5OneMinuteLifecycleConfig(),
+    )
+
+    assert policy["policy"] == "ACTIVATION_WINDOW"
+    assert policy["max_age_seconds"] == 600.0
+    assert policy["cancel_after_utc"] == "2026-06-30T14:10:10+00:00"
 
 
 def test_package_exports_only_generic_mt5_executor():
@@ -1707,6 +1791,91 @@ def test_executor_closes_early_adverse_position(tmp_path):
     assert broker.closed_positions[0][0]["ticket"] == 777002
     assert broker.closed_positions[0][1] == "TA early loss"
     assert broker.modified_stops == []
+
+
+def test_executor_defers_one_minute_early_loss_during_grace_period(tmp_path):
+    now = datetime(2026, 6, 30, 14, 0, 5, tzinfo=timezone.utc)
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777020,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "entry_price": 2450.0,
+            "stop_loss": 2454.0,
+            "take_profit": 2444.0,
+            "current_price": 2451.7,
+            "opened_at_utc": "2026-06-30T14:00:02+00:00",
+        }
+    ]
+    proposal = _one_minute_proposal(
+        reaction_type="impulse_break",
+        trigger_name="CLEAN_LOW_IMPULSE_SELL",
+    )
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
+        one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
+            early_loss_grace_seconds=5.0
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions(now_utc=now)
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
+
+
+def test_executor_allows_one_minute_early_loss_after_grace_period(tmp_path):
+    now = datetime(2026, 6, 30, 14, 0, 8, tzinfo=timezone.utc)
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777021,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "entry_price": 2450.0,
+            "stop_loss": 2454.0,
+            "take_profit": 2444.0,
+            "current_price": 2451.7,
+            "opened_at_utc": "2026-06-30T14:00:02+00:00",
+        }
+    ]
+    proposal = _one_minute_proposal(
+        reaction_type="impulse_break",
+        trigger_name="CLEAN_LOW_IMPULSE_SELL",
+    )
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
+        one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
+            early_loss_grace_seconds=5.0
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions(now_utc=now)
+
+    assert result["status"] == "POSITION_CLOSED_EARLY"
+    assert result["actions"][0]["position_age_seconds"] == 6.0
+    assert broker.closed_positions[0][0]["ticket"] == 777021
 
 
 def test_executor_trails_stop_after_favorable_move(tmp_path):

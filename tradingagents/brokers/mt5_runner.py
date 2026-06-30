@@ -20,6 +20,7 @@ from tradingagents.brokers.runner_summary import RunnerSummaryStore
 class MT5RunnerConfig:
     results_dir: str | Path
     poll_seconds: int = 30
+    maintenance_poll_seconds: float = 1.0
     max_cycles: int = 0
     max_runtime_seconds: int = 0
     max_session_loss: float = 0.0
@@ -32,6 +33,7 @@ class MT5RunnerConfig:
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
+        maintenance_poll_seconds = float(self.maintenance_poll_seconds)
         max_cycles = int(self.max_cycles)
         max_runtime_seconds = int(self.max_runtime_seconds)
         max_session_loss = float(self.max_session_loss)
@@ -54,6 +56,13 @@ class MT5RunnerConfig:
         trading_mode = mode_value(self.trading_mode)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
+        if (
+            not math.isfinite(maintenance_poll_seconds)
+            or maintenance_poll_seconds <= 0
+        ):
+            raise ValueError(
+                "maintenance_poll_seconds must be a finite positive number"
+            )
         if max_cycles < 0:
             raise ValueError("max_cycles must be non-negative")
         if max_runtime_seconds < 0:
@@ -61,6 +70,11 @@ class MT5RunnerConfig:
         if not math.isfinite(max_session_loss) or max_session_loss < 0:
             raise ValueError("max_session_loss must be a finite non-negative number")
         object.__setattr__(self, "poll_seconds", poll_seconds)
+        object.__setattr__(
+            self,
+            "maintenance_poll_seconds",
+            maintenance_poll_seconds,
+        )
         object.__setattr__(self, "max_cycles", max_cycles)
         object.__setattr__(self, "max_runtime_seconds", max_runtime_seconds)
         object.__setattr__(self, "max_session_loss", max_session_loss)
@@ -348,6 +362,13 @@ class MT5Runner:
             payload.pop("entry_profile", None)
         return self._write_heartbeat(payload)
 
+    def run_maintenance_once(self) -> dict:
+        return {
+            "status": "ACTIVE_TRADE_MAINTENANCE",
+            "cancel_stale": self.executor.cancel_stale_pending_orders(),
+            "position_management": self.executor.manage_open_positions(),
+        }
+
     def _reconcile_trade_history(self) -> dict:
         reconcile = getattr(self.executor, "reconcile_trade_history", None)
         if not callable(reconcile):
@@ -505,9 +526,34 @@ class MT5Runner:
                         "status": "STOPPED_MAX_RUNTIME_SECONDS",
                         "last_result": last_result,
                     }
-                time.sleep(min(self.config.poll_seconds, remaining_seconds))
+                wait_seconds = min(self.config.poll_seconds, remaining_seconds)
+                self._wait_between_cycles(last_result, wait_seconds)
             else:
-                time.sleep(self.config.poll_seconds)
+                self._wait_between_cycles(last_result, self.config.poll_seconds)
+
+    def _wait_between_cycles(
+        self,
+        last_result: dict,
+        wait_seconds: float,
+    ) -> None:
+        if last_result.get("status") not in {
+            "ACTIVE_TRADE_MONITORED",
+            "ORDER_PLACED",
+        }:
+            time.sleep(wait_seconds)
+            return
+
+        remaining = float(wait_seconds)
+        cadence = min(
+            self.config.maintenance_poll_seconds,
+            float(self.config.poll_seconds),
+        )
+        while remaining > 0:
+            sleep_seconds = min(cadence, remaining)
+            time.sleep(sleep_seconds)
+            remaining -= sleep_seconds
+            if remaining > 1e-9:
+                self.run_maintenance_once()
 
     def _write_heartbeat(self, result: dict) -> dict:
         account_safety = self._nested_account_safety(result)

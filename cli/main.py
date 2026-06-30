@@ -57,6 +57,7 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_CONFIRMATION_TIMEFRAME": "confirmation_timeframe",
         "TRADINGAGENTS_MARKET_TIMEZONE": "market_timezone",
         "TRADINGAGENTS_RUNNER_POLL_SECONDS": "runner_poll_seconds",
+        "TRADINGAGENTS_RUNNER_MAINTENANCE_POLL_SECONDS": "runner_maintenance_poll_seconds",
         "TRADINGAGENTS_RUNNER_MAX_CYCLES": "runner_max_cycles",
         "TRADINGAGENTS_RUNNER_MAX_RUNTIME_SECONDS": "runner_max_runtime_seconds",
         "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "runner_max_session_loss",
@@ -76,6 +77,9 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
         "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
         "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
+        "TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS": "fast_reaction_pending_seconds",
+        "TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS": "fast_impulse_pending_seconds",
+        "TRADINGAGENTS_FAST_EARLY_LOSS_GRACE_SECONDS": "fast_early_loss_grace_seconds",
         "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
         "TRADINGAGENTS_FAST_MIN_STOP_SPREAD_MULTIPLE": "fast_min_stop_spread_multiple",
         "TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED": "fast_volume_boost_enabled",
@@ -139,6 +143,15 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
         "fast_history_window_candles"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_reaction_pending_seconds"] = DEFAULT_CONFIG[
+        "fast_reaction_pending_seconds"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_impulse_pending_seconds"] = DEFAULT_CONFIG[
+        "fast_impulse_pending_seconds"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_early_loss_grace_seconds"] = DEFAULT_CONFIG[
+        "fast_early_loss_grace_seconds"
     ]
     DEFAULT_CONFIG["price_action"]["fast_min_candidate_score"] = DEFAULT_CONFIG[
         "fast_min_candidate_score"
@@ -524,7 +537,10 @@ def _execute_mt5_proposal(proposal_path: Path, config=None) -> dict:
 
 def _monitor_mt5(cancel_stale: bool, manage_stops: bool, config=None) -> dict:
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
-    from tradingagents.brokers.mt5_execution import MT5Executor
+    from tradingagents.brokers.mt5_execution import (
+        MT5Executor,
+        MT5OneMinuteLifecycleConfig,
+    )
 
     try:
         if config is None:
@@ -533,6 +549,17 @@ def _monitor_mt5(cancel_stale: bool, manage_stops: bool, config=None) -> dict:
             config,
             DEFAULT_CONFIG["results_dir"],
             exit_management=_mt5_exit_management_config(),
+            one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
+                reaction_pending_seconds=float(
+                    DEFAULT_CONFIG["fast_reaction_pending_seconds"]
+                ),
+                impulse_pending_seconds=float(
+                    DEFAULT_CONFIG["fast_impulse_pending_seconds"]
+                ),
+                early_loss_grace_seconds=float(
+                    DEFAULT_CONFIG["fast_early_loss_grace_seconds"]
+                ),
+            ),
         )
         results = {}
         if cancel_stale:
@@ -895,7 +922,10 @@ def mt5_run(
     from tradingagents.brokers.mode_gate import TradingMode, parse_trading_mode
     from tradingagents.brokers.mt5_autogate import MT5AutoGateConfig, MT5AutoGateRunner
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
-    from tradingagents.brokers.mt5_execution import MT5Executor
+    from tradingagents.brokers.mt5_execution import (
+        MT5Executor,
+        MT5OneMinuteLifecycleConfig,
+    )
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
     from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
 
@@ -924,6 +954,17 @@ def mt5_run(
             config,
             DEFAULT_CONFIG["results_dir"],
             exit_management=_mt5_exit_management_config(),
+            one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
+                reaction_pending_seconds=float(
+                    DEFAULT_CONFIG["fast_reaction_pending_seconds"]
+                ),
+                impulse_pending_seconds=float(
+                    DEFAULT_CONFIG["fast_impulse_pending_seconds"]
+                ),
+                early_loss_grace_seconds=float(
+                    DEFAULT_CONFIG["fast_early_loss_grace_seconds"]
+                ),
+            ),
         )
         analysis_func = _mt5_runner_engine_analysis_func(config)
         runner_config_kwargs = {
@@ -954,6 +995,12 @@ def mt5_run(
         if trading_mode != TradingMode.AUTO_GATED:
             runner_config_kwargs.update(
                 {
+                    "maintenance_poll_seconds": float(
+                        DEFAULT_CONFIG.get(
+                            "runner_maintenance_poll_seconds",
+                            1.0,
+                        )
+                    ),
                     "post_close_cooldown_seconds": int(
                         DEFAULT_CONFIG.get(
                             "runner_post_close_cooldown_seconds",
