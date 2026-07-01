@@ -437,6 +437,61 @@ def test_build_breakout_sell_below_bid_as_sell_stop():
     assert request["type"] == "SELL_STOP"
 
 
+@pytest.mark.parametrize(
+    ("side", "entry", "stop", "target", "expected_type"),
+    [
+        (TradeAction.BUY, 4507.40, 4506.60, 4508.60, "BUY_STOP"),
+        (TradeAction.SELL, 4506.90, 4507.70, 4505.70, "SELL_STOP"),
+    ],
+)
+def test_confirmed_reaction_uses_near_quote_continuation_pending_order(
+    side,
+    entry,
+    stop,
+    target,
+    expected_type,
+):
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        min_stop_spread_multiple=1.2,
+    )
+    builder = MT5OrderRequestBuilder(config)
+    proposal = _one_minute_proposal(
+        reaction_type="respect",
+        trigger_name=(
+            "LOW_RESPECT_BUY"
+            if side == TradeAction.BUY
+            else "HIGH_RESPECT_SELL"
+        ),
+    ).model_copy(
+        update={
+            "side": side,
+            "order_type": "AUTO",
+            "entry_price": entry,
+            "stop_loss": stop,
+            "take_profit": target,
+        }
+    )
+
+    request = builder.build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "bid": 4506.99,
+            "ask": 4507.32,
+        },
+    )
+
+    assert request["type"] == expected_type
+
+
 def test_build_retest_buy_below_ask_as_buy_limit():
     builder = MT5OrderRequestBuilder(_config())
     proposal = _proposal(TradeAction.BUY)

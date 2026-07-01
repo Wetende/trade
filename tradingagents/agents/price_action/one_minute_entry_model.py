@@ -1202,6 +1202,100 @@ def _candidate_from_level(
                 reward_distance=float(risk["reward_distance"]),
                 risk=risk,
             )
+    if quote > 0 and trigger_name in (
+        RESPECT_ONE_MINUTE_TRIGGERS | FAKEOUT_ONE_MINUTE_TRIGGERS
+    ):
+        drift = abs(quote - float(latest.close))
+        if drift > max_live_entry_drift:
+            candidate = OneMinuteCandidate(
+                trigger=trigger_name,
+                direction=direction,
+                reaction_type=reaction_type,
+                confirmation_type=confirmation,
+                level=level,
+                entry_price=float(risk["entry_price"]),
+                stop_loss=float(risk["stop_loss"]),
+                take_profit=float(risk["take_profit"]),
+                risk_distance=float(risk["risk_distance"]),
+                reward_distance=float(risk["reward_distance"]),
+                risk=risk,
+            )
+            candidate.rejection_reasons.append("LIVE_ENTRY_MOVED_AWAY")
+            candidate.risk["fast_trigger_quality"] = {
+                **candidate.risk.get("fast_trigger_quality", {}),
+                "live_reference_close": round(float(latest.close), 4),
+                "live_quote": round(quote, 4),
+                "live_entry_drift": round(drift, 4),
+                "max_live_entry_drift": round(max_live_entry_drift, 4),
+            }
+            return candidate
+
+        structural_buffer = max(0.01, min(0.05, tolerance * 0.05))
+        structural_reference = (
+            min(level.level, float(latest.low))
+            if direction == "BUY"
+            else max(level.level, float(latest.high))
+        )
+        structural_stop = (
+            structural_reference - structural_buffer
+            if direction == "BUY"
+            else structural_reference + structural_buffer
+        )
+        reaction_risk = {
+            **risk,
+            "stop_loss": round(structural_stop, 4),
+        }
+        repriced_risk = _reprice_risk_to_live_quote(
+            reaction_risk,
+            direction=direction,
+            current_bid_price=current_bid_price,
+            current_ask_price=current_ask_price,
+            current_spread_price=current_spread_price,
+            minimum_stop_spread_multiple=minimum_stop_spread_multiple,
+            max_stop_distance=max_stop_distance,
+            risk_reward=risk_reward,
+            reason="confirmed_reaction",
+        )
+        if repriced_risk is None:
+            candidate = OneMinuteCandidate(
+                trigger=trigger_name,
+                direction=direction,
+                reaction_type=reaction_type,
+                confirmation_type=confirmation,
+                level=level,
+                entry_price=float(risk["entry_price"]),
+                stop_loss=float(structural_stop),
+                take_profit=float(risk["take_profit"]),
+                risk_distance=abs(float(risk["entry_price"]) - structural_stop),
+                reward_distance=float(risk["reward_distance"]),
+                risk=reaction_risk,
+            )
+            candidate.rejection_reasons.append(
+                "CONFIRMED_REACTION_REPRICE_INVALID"
+            )
+            return candidate
+        repriced_risk["fast_trigger_quality"] = {
+            **repriced_risk.get("fast_trigger_quality", {}),
+            "live_repriced": True,
+            "live_reprice_reason": "confirmed_reaction",
+            "live_reference_close": round(float(latest.close), 4),
+            "live_quote": round(quote, 4),
+            "live_entry_drift": round(drift, 4),
+        }
+        risk = repriced_risk
+        return OneMinuteCandidate(
+            trigger=trigger_name,
+            direction=direction,
+            reaction_type=reaction_type,
+            confirmation_type=confirmation,
+            level=level,
+            entry_price=float(risk["entry_price"]),
+            stop_loss=float(risk["stop_loss"]),
+            take_profit=float(risk["take_profit"]),
+            risk_distance=float(risk["risk_distance"]),
+            reward_distance=float(risk["reward_distance"]),
+            risk=risk,
+        )
     if quote > 0:
         drift = abs(quote - float(risk["entry_price"]))
         if drift > max_live_entry_drift:

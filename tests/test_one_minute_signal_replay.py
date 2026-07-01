@@ -21,18 +21,32 @@ def _bars():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))["bars"]
 
 
-def _decision_at(timestamp: str):
+def _decision_at(
+    timestamp: str,
+    *,
+    current_bid_price: float | None = None,
+    current_spread_price: float | None = None,
+):
     bars = _bars()
     index = next(
         index for index, bar in enumerate(bars) if bar["timestamp"] == timestamp
     )
     current = bars[index]
-    spread = max(0.01, float(current["spread"]) * 0.01)
+    spread = (
+        max(0.01, float(current["spread"]) * 0.01)
+        if current_spread_price is None
+        else current_spread_price
+    )
+    bid = (
+        float(current["close"])
+        if current_bid_price is None
+        else current_bid_price
+    )
     config = {
         **DEFAULT_CONFIG["price_action"],
         "current_spread_price": spread,
-        "current_bid_price": float(current["close"]),
-        "current_ask_price": float(current["close"]) + spread,
+        "current_bid_price": bid,
+        "current_ask_price": bid + spread,
     }
     return analyze_one_minute_entry(
         "XAUUSD.vx",
@@ -132,3 +146,60 @@ def test_clean_current_impulse_can_reverse_old_pressure(
         "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
         not in candidate["rejection_reasons"]
     )
+
+
+def test_confirmed_high_respect_sell_is_repriced_near_live_quote():
+    payload = _decision_at(
+        "2026-07-01T21:44:00+00:00",
+        current_bid_price=4033.87,
+        current_spread_price=0.29,
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "HIGH_RESPECT_SELL"
+    )
+
+    assert candidate["approved"] is True
+    assert candidate["entry_price"] < 4034.78
+    assert abs(candidate["entry_price"] - 4033.87) <= 0.35
+    assert candidate["stop_loss"] > candidate["entry_price"]
+    assert candidate["risk_distance"] <= 1.0
+    quality = payload["risk"]["fast_trigger_quality"]
+    assert quality["live_repriced"] is True
+    assert quality["live_reprice_reason"] == "confirmed_reaction"
+    assert quality["live_reference_close"] == 4033.89
+    assert quality["live_quote"] == 4033.87
+    assert quality["live_entry_drift"] == 0.02
+
+
+def test_confirmed_reaction_rejects_live_quote_that_moved_from_confirmation():
+    payload = _decision_at(
+        "2026-07-01T21:44:00+00:00",
+        current_bid_price=4032.50,
+        current_spread_price=0.29,
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "HIGH_RESPECT_SELL"
+    )
+
+    assert candidate["approved"] is False
+    assert "LIVE_ENTRY_MOVED_AWAY" in candidate["rejection_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected_trigger"),
+    [
+        ("2026-07-01T21:03:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
+        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
+        ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
+        ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+    ],
+)
+def test_replay_approves_clean_current_opening(timestamp, expected_trigger):
+    payload = _decision_at(timestamp)
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["setups"][0]["name"] == expected_trigger

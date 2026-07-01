@@ -1036,8 +1036,9 @@ def test_high_respect_relation_gate_is_candidate_local():
     relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
     assert relation["higher_high"] is True
     assert relation["higher_low"] is True
-    assert payload["status"] == "NO_SETUP"
+    assert payload["status"] == "SETUP_FOUND"
     candidate = _candidate_by_trigger(payload, "HIGH_RESPECT_SELL")
+    assert candidate["approved"] is True
     assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" not in candidate[
         "rejection_reasons"
     ]
@@ -1092,8 +1093,8 @@ def test_one_minute_scalper_allows_low_respect_buy_when_rejection_confirms():
         candles,
         minimum_stop_distance_price=0.25,
         current_spread_price=0.20,
-        current_bid_price=98.85,
-        current_ask_price=99.05,
+        current_bid_price=99.55,
+        current_ask_price=99.75,
     )
 
     relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
