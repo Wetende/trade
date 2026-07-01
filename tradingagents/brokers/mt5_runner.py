@@ -364,8 +364,9 @@ class MT5Runner:
 
     def run_maintenance_once(self) -> dict:
         return {
-            "status": "PENDING_ORDER_MAINTENANCE",
+            "status": "ACTIVE_TRADE_MAINTENANCE",
             "cancel_stale": self.executor.cancel_stale_pending_orders(),
+            "position_management": self.executor.manage_open_positions(),
         }
 
     def _reconcile_trade_history(self) -> dict:

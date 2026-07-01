@@ -2266,6 +2266,151 @@ def test_executor_one_minute_ignores_price_only_early_loss(tmp_path):
     assert broker.closed_positions == []
 
 
+def test_executor_m1_intrabar_exit_requires_two_consecutive_observations(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777032,
+            "identifier": 777032,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "active_position_ticket": 777032,
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="HIGH_RESPECT_SELL",
+            ).model_copy(
+                update={
+                    "side": TradeAction.SELL,
+                    "entry_price": 2450.0,
+                    "stop_loss": 2451.0,
+                    "take_profit": 2448.5,
+                }
+            ).model_dump(mode="json"),
+        }
+    )
+
+    first = executor.manage_open_positions()
+    second = executor.manage_open_positions()
+
+    assert first["status"] == "NO_POSITION_ACTION"
+    assert first["monitoring"][0]["intrabar_adverse_observations"] == 1
+    assert second["status"] == "POSITION_CLOSED_EARLY"
+    assert second["actions"][0]["reason"] == "INTRABAR_ADVERSE_EXIT"
+    assert len(broker.closed_positions) == 1
+
+
+def test_executor_m1_intrabar_exit_resets_after_price_recovers(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777033,
+            "identifier": 777033,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    first = executor.manage_open_positions()
+    broker.positions[0]["current_price"] = 2450.2
+    recovered = executor.manage_open_positions()
+    broker.positions[0]["current_price"] = 2450.7
+    third = executor.manage_open_positions()
+
+    assert first["monitoring"][0]["intrabar_adverse_observations"] == 1
+    assert recovered["monitoring"][0]["intrabar_adverse_observations"] == 0
+    assert third["monitoring"][0]["intrabar_adverse_observations"] == 1
+    assert broker.closed_positions == []
+
+
+def test_executor_position_monitoring_persists_mfe_mae_and_thresholds(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_info.update({"bid": 2450.4, "ask": 2450.7})
+    broker.positions = [
+        {
+            "ticket": 777034,
+            "identifier": 777034,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2448.0,
+            "take_profit": 2453.0,
+            "current_price": 2450.4,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=0.5,
+            partial_first_trigger_points=0.7,
+            partial_first_target_volume=1.0,
+            scalp_profit_points=1.0,
+        ),
+    )
+
+    first = executor.manage_open_positions()
+    broker.positions[0]["current_price"] = 2449.7
+    second = executor.manage_open_positions()
+
+    assert first["monitoring"][0]["mfe_points"] == 0.4
+    assert second["monitoring"][0]["mfe_points"] == 0.4
+    assert second["monitoring"][0]["mae_points"] == -0.3
+    assert second["monitoring"][0]["spread_points"] == 0.3
+    assert second["monitoring"][0]["break_even_trigger_points"] == 0.5
+    assert second["monitoring"][0]["intrabar_adverse_threshold_points"] == 1.3
+    state = executor.state.load()["position_excursion_state"]["777034"]
+    assert state["mfe_points"] == 0.4
+    assert state["mae_points"] == -0.3
+
+
+def test_executor_normal_position_does_not_use_m1_intrabar_exit(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777035,
+            "identifier": 777035,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.8,
+            "comment": "TradingAgents",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    executor.manage_open_positions()
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
+
+
 def test_executor_recovers_one_minute_lifecycle_from_broker_comment(tmp_path):
     broker = FakeBroker()
     broker.positions = [

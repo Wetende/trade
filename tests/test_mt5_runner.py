@@ -154,6 +154,26 @@ def test_runner_records_position_management_in_active_trade_heartbeat(tmp_path):
     assert result["account_safety"]["trade_mode"] == "DEMO"
 
 
+def test_runner_maintenance_manages_open_positions(tmp_path):
+    executor = FakeExecutor(active=True)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            maintenance_poll_seconds=1,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_maintenance_once()
+
+    assert result["status"] == "ACTIVE_TRADE_MAINTENANCE"
+    assert result["position_management"] == executor.manage_result
+    assert executor.cancel_calls == 1
+    assert executor.manage_calls == 1
+
+
 def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
     proposal = proposed_order()
     proposal.status = OrderStatus.NO_TRADE
@@ -697,7 +717,7 @@ def test_runner_maintains_active_trade_each_second_between_full_cycles(
     assert result["status"] == "STOPPED_MAX_CYCLES"
     assert sleeps == [1.0, 1.0, 1.0, 1.0, 1.0]
     assert executor.cancel_calls == 6
-    assert executor.manage_calls == 2
+    assert executor.manage_calls == 6
 
 
 def test_runner_runtime_deadline_takes_precedence_over_max_cycles(tmp_path, monkeypatch):

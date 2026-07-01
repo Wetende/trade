@@ -43,6 +43,8 @@ class MT5ExitManagementConfig:
     candle_rejection_exit_enabled: bool = True
     candle_rejection_timeframe: str = "1m"
     candle_rejection_partial_fraction: float = 0.5
+    intrabar_adverse_exit_fraction: float = 0.65
+    intrabar_adverse_confirmations: int = 2
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -66,6 +68,7 @@ class MT5ExitManagementConfig:
             "partial_second_trigger_points",
             "partial_second_target_volume",
             "candle_rejection_partial_fraction",
+            "intrabar_adverse_exit_fraction",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < 0:
@@ -73,6 +76,15 @@ class MT5ExitManagementConfig:
             object.__setattr__(self, name, value)
         if self.candle_rejection_partial_fraction > 1:
             raise ValueError("candle_rejection_partial_fraction must be <= 1")
+        if not 0 < self.intrabar_adverse_exit_fraction <= 1:
+            raise ValueError("intrabar_adverse_exit_fraction must be > 0 and <= 1")
+        confirmations = self.intrabar_adverse_confirmations
+        if (
+            isinstance(confirmations, bool)
+            or not isinstance(confirmations, int)
+            or confirmations < 1
+        ):
+            raise ValueError("intrabar_adverse_confirmations must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -639,6 +651,7 @@ class MT5Executor:
                 "status": "SKIPPED_ACCOUNT_SAFETY",
                 "reason": "ACCOUNT_SAFETY_FAILED",
                 "actions": [],
+                "monitoring": [],
                 "account_safety": account_safety,
             }
         positions = self.broker.open_positions(self.config.symbol)
@@ -666,10 +679,12 @@ class MT5Executor:
             return {
                 "status": "NO_POSITION_ACTION",
                 "actions": [],
+                "monitoring": [],
                 "account_safety": account_safety,
             }
 
         actions = []
+        monitoring = []
         closed = False
         closed_scalp = False
         closed_rejection = False
@@ -682,6 +697,13 @@ class MT5Executor:
                 if legacy_mode or exit_management is not None
                 else self._proposal_exit_management(management, position)
             )
+            monitoring_snapshot = self._record_position_excursion(
+                position,
+                position_management,
+                connection.get("symbol") or {},
+            )
+            if monitoring_snapshot is not None:
+                monitoring.append(monitoring_snapshot)
             managed_action = self._manage_position(position, position_management)
             if managed_action is None:
                 continue
@@ -725,6 +747,7 @@ class MT5Executor:
         return {
             "status": status,
             "actions": actions,
+            "monitoring": monitoring,
             "account_safety": account_safety,
         }
 
@@ -749,6 +772,8 @@ class MT5Executor:
             "partial_first_target_volume",
             "partial_second_trigger_points",
             "partial_second_target_volume",
+            "intrabar_adverse_exit_fraction",
+            "intrabar_adverse_confirmations",
         )
         overrides: dict[str, float] = {}
         for field in fields:
@@ -832,6 +857,14 @@ class MT5Executor:
             self.journal.append("POSITION_CLOSED_SCALP", action)
             return action
 
+        intrabar_action = self._intrabar_adverse_action(
+            position,
+            management,
+            favorable_points,
+        )
+        if intrabar_action is not None:
+            return intrabar_action
+
         if (
             management.early_loss_exit_points > 0
             and not one_minute_partial_scale
@@ -913,6 +946,141 @@ class MT5Executor:
             "result": result,
         }
         self.journal.append("POSITION_STOP_MOVED", action)
+        return action
+
+    def _record_position_excursion(
+        self,
+        position: dict[str, Any],
+        management: MT5ExitManagementConfig,
+        symbol_info: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        side = str(position.get("side") or "").upper()
+        entry = _first_float(position, "entry_price", "price_open")
+        current = _first_float(position, "current_price", "price_current")
+        position_key = self._position_state_key(position)
+        if side not in {"BUY", "SELL"} or entry is None or current is None:
+            return None
+        if position_key is None:
+            return None
+
+        favorable_points = current - entry if side == "BUY" else entry - current
+        bid = _first_float(symbol_info, "bid")
+        ask = _first_float(symbol_info, "ask")
+        spread_points = (
+            max(0.0, ask - bid)
+            if bid is not None and ask is not None
+            else 0.0
+        )
+
+        state = self.state.load()
+        proposal = state.get("proposal") or {}
+        one_minute_lifecycle = self._one_minute_partial_scale_enabled(
+            proposal,
+            position,
+        )
+        proposal_entry = _first_float(proposal, "entry_price")
+        proposal_stop = _first_float(proposal, "stop_loss")
+        if (
+            one_minute_lifecycle
+            and self._state_matches_position(state, position)
+            and proposal_entry is not None
+            and proposal_stop is not None
+        ):
+            initial_risk_points = abs(proposal_entry - proposal_stop)
+        else:
+            position_stop = _first_float(position, "stop_loss", "sl")
+            initial_risk_points = (
+                abs(entry - position_stop) if position_stop is not None else 0.0
+            )
+        adverse_threshold = (
+            initial_risk_points * management.intrabar_adverse_exit_fraction
+            if one_minute_lifecycle
+            else 0.0
+        )
+
+        excursion_state = state.setdefault("position_excursion_state", {})
+        previous = dict(excursion_state.get(position_key) or {})
+        previous_mfe = float(previous.get("mfe_points", 0.0))
+        previous_mae = float(previous.get("mae_points", 0.0))
+        observations = int(previous.get("intrabar_adverse_observations", 0))
+        if adverse_threshold > 0 and favorable_points <= -adverse_threshold:
+            observations += 1
+        else:
+            observations = 0
+
+        snapshot = {
+            "ticket": position.get("ticket"),
+            "side": side,
+            "favorable_points": round(favorable_points, 4),
+            "mfe_points": round(max(0.0, previous_mfe, favorable_points), 4),
+            "mae_points": round(min(0.0, previous_mae, favorable_points), 4),
+            "spread_points": round(spread_points, 4),
+            "break_even_trigger_points": management.break_even_trigger_points,
+            "partial_first_trigger_points": management.partial_first_trigger_points,
+            "scalp_profit_points": management.scalp_profit_points,
+            "initial_risk_points": round(initial_risk_points, 4),
+            "intrabar_adverse_threshold_points": round(adverse_threshold, 4),
+            "intrabar_adverse_observations": observations,
+            "intrabar_adverse_confirmations": management.intrabar_adverse_confirmations,
+            "one_minute_lifecycle": one_minute_lifecycle,
+        }
+        excursion_state[position_key] = dict(snapshot)
+        self.state.save(state)
+        self.journal.append("POSITION_MONITORED", snapshot)
+        return snapshot
+
+    def _intrabar_adverse_action(
+        self,
+        position: dict[str, Any],
+        management: MT5ExitManagementConfig,
+        favorable_points: float,
+    ) -> dict[str, Any] | None:
+        state = self.state.load()
+        proposal = state.get("proposal") or {}
+        if not self._one_minute_partial_scale_enabled(proposal, position):
+            return None
+        position_key = self._position_state_key(position)
+        if position_key is None:
+            return None
+        monitoring = (
+            state.get("position_excursion_state", {}).get(position_key) or {}
+        )
+        observations = int(monitoring.get("intrabar_adverse_observations", 0))
+        threshold = float(
+            monitoring.get("intrabar_adverse_threshold_points", 0.0)
+        )
+        if (
+            threshold <= 0
+            or observations < management.intrabar_adverse_confirmations
+        ):
+            return None
+
+        close_result = self.broker.close_position(
+            position,
+            comment="TA intrabar adverse",
+        )
+        if not bool(close_result.get("ok")):
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "CLOSE_POSITION_FAILED",
+                "reason": "INTRABAR_ADVERSE_EXIT_FAILED",
+                "favorable_points": round(favorable_points, 2),
+                "intrabar_adverse_threshold_points": threshold,
+                "intrabar_adverse_observations": observations,
+                "result": close_result,
+            }
+            self.journal.append("POSITION_CLOSE_FAILED", action)
+            return action
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "CLOSE_POSITION",
+            "reason": "INTRABAR_ADVERSE_EXIT",
+            "favorable_points": round(favorable_points, 2),
+            "intrabar_adverse_threshold_points": threshold,
+            "intrabar_adverse_observations": observations,
+            "result": close_result,
+        }
+        self.journal.append("POSITION_CLOSED_INTRABAR", action)
         return action
 
     def _candle_rejection_action(

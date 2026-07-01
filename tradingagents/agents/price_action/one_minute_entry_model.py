@@ -927,7 +927,7 @@ def _risk_for_trigger(
             "spread_safe_stop_adjusted": spread_safe_stop_adjusted,
         },
         "position_lifecycle": "FAST_PARTIAL_SCALE",
-        **_dynamic_fast_exit_settings(risk_distance),
+        **_dynamic_fast_exit_settings(risk_distance, current_spread_price),
     }
     return risk
 
@@ -1637,11 +1637,27 @@ def _build_candidates(
     )
 
 
-def _dynamic_fast_exit_settings(risk_distance: float) -> dict[str, float]:
-    break_even_trigger = max(0.4, min(1.2, risk_distance * 0.60))
-    partial_first = max(break_even_trigger, min(1.5, risk_distance * 0.75))
-    partial_second = max(partial_first + 0.1, min(2.5, risk_distance * 1.25))
-    scalp_profit = max(partial_first, min(1.5, risk_distance * 1.0))
+def _dynamic_fast_exit_settings(
+    risk_distance: float,
+    current_spread_price: float,
+) -> dict[str, float]:
+    spread = max(0.0, float(current_spread_price))
+    break_even_trigger = min(
+        1.2,
+        max(spread * 1.10, risk_distance * 0.45),
+    )
+    partial_first = min(
+        1.5,
+        max(break_even_trigger, spread * 1.30, risk_distance * 0.60),
+    )
+    partial_second = min(
+        2.5,
+        max(partial_first + 0.1, risk_distance * 1.0),
+    )
+    scalp_profit = min(
+        1.5,
+        max(partial_first, spread * 1.80, risk_distance * 0.90),
+    )
     return {
         "break_even_trigger_points": round(break_even_trigger, 2),
         "break_even_lock_points": round(max(0.05, min(0.25, risk_distance * 0.12)), 2),

@@ -4,6 +4,7 @@ import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
     HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS,
+    _dynamic_fast_exit_settings,
     analyze_one_minute_entry,
 )
 
@@ -24,6 +25,18 @@ def _base_history(count=57):
         _candle(index, 100.0, 100.9, 99.8, 100.2)
         for index in range(count)
     ]
+
+
+def test_dynamic_fast_exit_settings_are_spread_aware():
+    settings = _dynamic_fast_exit_settings(
+        risk_distance=0.8,
+        current_spread_price=0.2,
+    )
+
+    assert settings["break_even_trigger_points"] == 0.36
+    assert settings["partial_first_trigger_points"] == 0.48
+    assert settings["partial_second_trigger_points"] == 0.8
+    assert settings["scalp_profit_points"] == 0.72
 
 
 def _two_high_then_impulse_buy_history():
