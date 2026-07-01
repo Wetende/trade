@@ -101,6 +101,58 @@ def test_one_minute_pending_policy_expires_before_next_candle_boundary():
     assert policy["candle_boundary_utc"] == "2026-06-30T14:01:00+00:00"
 
 
+def test_executor_skips_one_minute_order_without_usable_submission_window(
+    tmp_path,
+):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor._now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        59,
+        500000,
+        tzinfo=timezone.utc,
+    )
+
+    result = executor.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="HIGH_RESPECT_SELL",
+        )
+    )
+
+    assert result["status"] == "SKIPPED_PENDING_WINDOW_EXPIRED"
+    assert result["reason"] == "ONE_MINUTE_PENDING_WINDOW_EXPIRED"
+    assert broker.checked_requests == []
+    assert broker.placed_requests == []
+
+
+def test_executor_rechecks_one_minute_window_after_broker_validation(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    times = iter(
+        (
+            datetime(2026, 7, 1, 14, 0, 30, tzinfo=timezone.utc),
+            datetime(2026, 7, 1, 14, 0, 49, 500000, tzinfo=timezone.utc),
+        )
+    )
+    executor._now_utc = lambda: next(times)
+
+    result = executor.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="HIGH_RESPECT_SELL",
+        )
+    )
+
+    assert result["status"] == "SKIPPED_PENDING_WINDOW_EXPIRED"
+    assert len(broker.checked_requests) == 1
+    assert broker.placed_requests == []
+
+
 def test_normal_pending_policy_keeps_activation_window():
     placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
 
@@ -1398,8 +1450,9 @@ def test_executor_partially_closes_boosted_position_and_moves_stop_to_break_even
         {
             "symbol": "XAUUSD",
             "active_order_ticket": None,
-            "proposal": _proposal().model_copy(
-                update={"position_lifecycle": "FAST_PARTIAL_SCALE"}
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="LOW_RESPECT_BUY",
             ).model_dump(mode="json"),
         }
     )
@@ -1446,9 +1499,12 @@ def test_executor_uses_proposal_dynamic_partial_thresholds(tmp_path):
         {
             "symbol": "XAUUSD",
             "active_order_ticket": None,
-            "proposal": _proposal(TradeAction.SELL).model_copy(
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="HIGH_RESPECT_SELL",
+            ).model_copy(
                 update={
-                    "position_lifecycle": "FAST_PARTIAL_SCALE",
+                    "side": TradeAction.SELL,
                     "break_even_trigger_points": 0.8,
                     "break_even_lock_points": 0.1,
                     "partial_first_trigger_points": 1.0,
@@ -1469,6 +1525,96 @@ def test_executor_uses_proposal_dynamic_partial_thresholds(tmp_path):
     )
     assert broker.modified_stops[0]["position_ticket"] == 777013
     assert broker.modified_stops[0]["stop_loss"] == 2449.9
+
+
+def test_executor_first_partial_reduces_base_volume_to_half(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777022,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2451.6,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            partial_first_trigger_points=1.5,
+            partial_first_target_volume=1.0,
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="LOW_RESPECT_BUY",
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert result["actions"][0]["reason"] == "PARTIAL_1_AND_BREAK_EVEN"
+    assert result["actions"][0]["remaining_volume"] == 0.5
+    assert broker.closed_positions[0] == (
+        dict(broker.positions[0]),
+        "TA partial 1",
+        0.5,
+    )
+
+
+def test_executor_does_not_repeat_first_partial_on_next_monitor_cycle(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777026,
+            "identifier": 777026,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2447.0,
+            "take_profit": 2456.0,
+            "current_price": 2451.6,
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            partial_first_trigger_points=1.5,
+            partial_first_target_volume=1.0,
+        ),
+    )
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="LOW_RESPECT_BUY",
+            ).model_dump(mode="json"),
+        }
+    )
+
+    first_result = executor.manage_open_positions()
+    broker.positions[0]["volume"] = 0.5
+    second_result = executor.manage_open_positions()
+
+    assert first_result["status"] == "POSITION_PARTIALLY_CLOSED"
+    assert second_result["status"] == "NO_POSITION_ACTION"
+    assert len(broker.closed_positions) == 1
 
 
 def test_executor_fully_closes_unprotected_sell_on_closed_bullish_rejection_candle(tmp_path):
@@ -1522,6 +1668,94 @@ def test_executor_fully_closes_unprotected_sell_on_closed_bullish_rejection_cand
     assert state["rejection_exit_state"]["777014"]["last_candle_timestamp"] == (
         "2026-06-11T12:01:00+00:00"
     )
+
+
+def test_executor_uses_candle_close_time_for_first_rejection_after_entry(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777023,
+            "identifier": 777023,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2453.0,
+            "take_profit": 2445.0,
+            "current_price": 2450.4,
+            "opened_at_utc": "2026-07-01T12:00:05+00:00",
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "open": 2449.8,
+            "high": 2450.7,
+            "low": 2449.5,
+            "close": 2450.5,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-07-01T12:00:01+00:00",
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_CLOSED_REJECTION"
+    assert result["actions"][0]["candle"]["timestamp"] == (
+        "2026-07-01T12:00:00+00:00"
+    )
+
+
+def test_executor_ignores_candle_that_closed_before_position_opened(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777024,
+            "identifier": 777024,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2453.0,
+            "take_profit": 2445.0,
+            "current_price": 2450.4,
+            "opened_at_utc": "2026-07-01T12:01:01+00:00",
+        }
+    ]
+    broker.closed_rates = [
+        {
+            "timestamp": "2026-07-01T12:00:00+00:00",
+            "open": 2449.8,
+            "high": 2450.7,
+            "low": 2449.5,
+            "close": 2450.5,
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "placed_at_utc": "2026-07-01T11:59:00+00:00",
+            "proposal": _proposal(TradeAction.SELL).model_copy(
+                update={"timeframe": "1m", "position_lifecycle": "FAST_PARTIAL_SCALE"}
+            ).model_dump(mode="json"),
+        }
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
 
 
 def test_executor_closes_remaining_sell_on_second_closed_bullish_rejection_candle(
@@ -1714,8 +1948,9 @@ def test_executor_second_partial_closes_to_runner_volume_and_trails_stop(tmp_pat
         {
             "symbol": "XAUUSD",
             "active_order_ticket": None,
-            "proposal": _proposal().model_copy(
-                update={"position_lifecycle": "FAST_PARTIAL_SCALE"}
+            "proposal": _one_minute_proposal(
+                reaction_type="respect",
+                trigger_name="LOW_RESPECT_BUY",
             ).model_dump(mode="json"),
         }
     )
@@ -1828,6 +2063,49 @@ def test_executor_one_minute_ignores_price_only_early_loss(tmp_path):
 
     assert result["status"] == "NO_POSITION_ACTION"
     assert broker.closed_positions == []
+
+
+def test_executor_recovers_one_minute_lifecycle_from_broker_comment(tmp_path):
+    broker = FakeBroker()
+    broker.positions = [
+        {
+            "ticket": 777025,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2454.0,
+            "take_profit": 2444.0,
+            "current_price": 2451.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
+
+
+def test_executor_tags_one_minute_order_for_restart_safe_management(tmp_path):
+    broker = FakeBroker()
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="impulse_break",
+            trigger_name="CLEAN_LOW_IMPULSE_SELL",
+        )
+    )
+
+    assert result["status"] == "PLACED"
+    assert broker.placed_requests[0]["comment"] == "TA|M1|FAST"
 
 
 def test_executor_trails_stop_after_favorable_move(tmp_path):

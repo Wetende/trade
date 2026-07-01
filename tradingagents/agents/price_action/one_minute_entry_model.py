@@ -1641,13 +1641,12 @@ def _dynamic_fast_exit_settings(risk_distance: float) -> dict[str, float]:
     break_even_trigger = max(0.4, min(1.2, risk_distance * 0.60))
     partial_first = max(break_even_trigger, min(1.5, risk_distance * 0.75))
     partial_second = max(partial_first + 0.1, min(2.5, risk_distance * 1.25))
-    early_loss = max(0.25, min(0.75, risk_distance * 0.55))
     scalp_profit = max(partial_first, min(1.5, risk_distance * 1.0))
     return {
         "break_even_trigger_points": round(break_even_trigger, 2),
         "break_even_lock_points": round(max(0.05, min(0.25, risk_distance * 0.12)), 2),
         "min_stop_update_points": round(max(0.05, min(0.25, risk_distance * 0.15)), 2),
-        "early_loss_exit_points": round(early_loss, 2),
+        "early_loss_exit_points": 0.0,
         "scalp_profit_points": round(scalp_profit, 2),
         "partial_first_trigger_points": round(partial_first, 2),
         "partial_first_target_volume": 1.0,

@@ -231,7 +231,7 @@ def test_one_minute_scalper_allows_clean_high_impulse_buy_from_remembered_two_hi
     assert candidate["reaction_type"] == "impulse_break"
     assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
-    assert payload["risk"]["early_loss_exit_points"] > 0
+    assert payload["risk"]["early_loss_exit_points"] == 0.0
     assert payload["risk"]["scalp_profit_points"] > 0
     assert payload["risk"]["min_stop_update_points"] > 0
 

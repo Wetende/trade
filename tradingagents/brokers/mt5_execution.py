@@ -19,6 +19,9 @@ from tradingagents.brokers.mt5 import (
     MT5OrderRequestBuilder,
 )
 
+ONE_MINUTE_POSITION_COMMENT = "TA|M1|FAST"
+ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS = 1.0
+
 
 @dataclass(frozen=True)
 class MT5ExitManagementConfig:
@@ -164,6 +167,22 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _timeframe_duration(timeframe: str) -> timedelta | None:
+    normalized = str(timeframe or "").strip().lower()
+    durations = {
+        "1m": timedelta(minutes=1),
+        "2m": timedelta(minutes=2),
+        "3m": timedelta(minutes=3),
+        "5m": timedelta(minutes=5),
+        "15m": timedelta(minutes=15),
+        "30m": timedelta(minutes=30),
+        "1h": timedelta(hours=1),
+        "4h": timedelta(hours=4),
+        "1d": timedelta(days=1),
+    }
+    return durations.get(normalized)
+
+
 class MT5Executor:
     """Coordinate one-symbol guarded MT5 proposal execution."""
 
@@ -185,6 +204,36 @@ class MT5Executor:
         self.one_minute_lifecycle = (
             one_minute_lifecycle or MT5OneMinuteLifecycleConfig()
         )
+
+    @staticmethod
+    def _now_utc() -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _expired_pending_window_result(
+        self,
+        proposal: OrderProposal,
+        pending_policy: dict[str, Any],
+        checked_at: datetime,
+        account_safety: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not _is_one_minute_scalper_proposal(proposal):
+            return None
+        cancel_after = _parse_utc_datetime(pending_policy["cancel_after_utc"])
+        usable_seconds = (
+            (cancel_after - checked_at).total_seconds()
+            if cancel_after is not None
+            else 0.0
+        )
+        if usable_seconds > ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS:
+            return None
+        return {
+            "status": "SKIPPED_PENDING_WINDOW_EXPIRED",
+            "reason": "ONE_MINUTE_PENDING_WINDOW_EXPIRED",
+            "proposal": proposal.model_dump(mode="json"),
+            "pending_policy": pending_policy,
+            "usable_submission_seconds": max(0.0, usable_seconds),
+            "account_safety": account_safety,
+        }
 
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)
@@ -266,6 +315,25 @@ class MT5Executor:
             }
             self.journal.append("ORDER_SKIPPED", result)
             return result
+
+        submitted_at = self._now_utc()
+        pending_policy = build_pending_order_policy(
+            proposal,
+            submitted_at,
+            self.one_minute_lifecycle,
+        )
+        if _is_one_minute_scalper_proposal(proposal):
+            expired_result = self._expired_pending_window_result(
+                proposal,
+                pending_policy,
+                submitted_at,
+                account_safety,
+            )
+            if expired_result is not None:
+                result = expired_result
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+            request["comment"] = ONE_MINUTE_POSITION_COMMENT
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
         order_check_result = None
@@ -285,21 +353,30 @@ class MT5Executor:
                 self.journal.append("ORDER_SKIPPED", result)
                 return result
 
+        expired_result = self._expired_pending_window_result(
+            proposal,
+            pending_policy,
+            self._now_utc(),
+            account_safety,
+        )
+        if expired_result is not None:
+            result = {
+                **expired_result,
+                "request": request,
+                "order_check_result": order_check_result,
+            }
+            self.journal.append("ORDER_SKIPPED", result)
+            return result
+
         broker_result = self.broker.place_pending_order(request)
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
         self.journal.append(event_type, broker_result)
         if ok:
-            placed_at = datetime.now(timezone.utc)
-            pending_policy = build_pending_order_policy(
-                proposal,
-                placed_at,
-                self.one_minute_lifecycle,
-            )
             self.state.record_pending_order(
                 broker_result["order"],
                 proposal,
-                placed_at_utc=placed_at,
+                placed_at_utc=submitted_at,
                 cancel_after_utc=_parse_utc_datetime(
                     pending_policy["cancel_after_utc"]
                 ),
@@ -311,6 +388,7 @@ class MT5Executor:
             "order": broker_result.get("order"),
             "broker_result": broker_result,
             "order_check_result": order_check_result,
+            "pending_policy": pending_policy,
             "account_safety": account_safety,
         }
 
@@ -399,7 +477,7 @@ class MT5Executor:
         proposal = state.get("proposal")
         if not isinstance(proposal, dict):
             return None
-        if not self._one_minute_rejection_lifecycle_enabled(proposal):
+        if not self._one_minute_partial_scale_enabled(proposal):
             return None
         side = str(proposal.get("side") or "").strip().upper()
         if side not in {"BUY", "SELL"}:
@@ -587,8 +665,9 @@ class MT5Executor:
         stop = _first_float(position, "stop_loss", "sl")
         ticket = position.get("ticket")
         proposal = self.state.load().get("proposal") or {}
-        one_minute_partial_scale = self._one_minute_rejection_lifecycle_enabled(
-            proposal
+        one_minute_partial_scale = self._one_minute_partial_scale_enabled(
+            proposal,
+            position,
         )
         rejection_action = self._candle_rejection_action(position, side, management)
         if rejection_action is not None:
@@ -697,10 +776,10 @@ class MT5Executor:
             return None
         state = self.state.load()
         proposal = state.get("proposal") or {}
-        if not self._one_minute_rejection_lifecycle_enabled(proposal):
+        if not self._one_minute_partial_scale_enabled(proposal, position):
             return None
 
-        candle = self._latest_rejection_candle(side, management, state)
+        candle = self._latest_rejection_candle(side, management, state, position)
         if candle is None:
             return None
 
@@ -861,6 +940,7 @@ class MT5Executor:
         side: str,
         management: MT5ExitManagementConfig,
         state: dict[str, Any],
+        position: dict[str, Any],
     ) -> dict[str, Any] | None:
         fetch_rates = getattr(self.broker, "fetch_closed_rates", None)
         if not callable(fetch_rates):
@@ -881,13 +961,25 @@ class MT5Executor:
             return None
         latest = ordered[-1]
         candle_time = _parse_utc_datetime(latest.get("timestamp"))
-        placed_at = _parse_utc_datetime(state.get("placed_at_utc"))
-        if candle_time is None or placed_at is None or candle_time <= placed_at:
+        candle_duration = _timeframe_duration(management.candle_rejection_timeframe)
+        position_opened_at = _parse_utc_datetime(position.get("opened_at_utc"))
+        lifecycle_started_at = position_opened_at or _parse_utc_datetime(
+            state.get("placed_at_utc")
+        )
+        if (
+            candle_time is None
+            or candle_duration is None
+            or lifecycle_started_at is None
+        ):
+            return None
+        candle_closed_at = candle_time + candle_duration
+        if candle_closed_at <= lifecycle_started_at:
             return None
         if not self._closed_candle_rejects_side(latest, side):
             return None
         return {
             "timestamp": latest.get("timestamp"),
+            "closed_at_utc": candle_closed_at.isoformat(),
             "open": _first_float(latest, "open"),
             "high": _first_float(latest, "high"),
             "low": _first_float(latest, "low"),
@@ -919,10 +1011,15 @@ class MT5Executor:
         return str(value)
 
     @staticmethod
-    def _one_minute_rejection_lifecycle_enabled(proposal: dict[str, Any]) -> bool:
+    def _one_minute_partial_scale_enabled(
+        proposal: dict[str, Any],
+        position: dict[str, Any] | None = None,
+    ) -> bool:
         timeframe = str(proposal.get("timeframe") or "").strip().lower()
         lifecycle = str(proposal.get("position_lifecycle") or "").strip().upper()
-        return timeframe == "1m" and lifecycle == "FAST_PARTIAL_SCALE"
+        proposal_matches = timeframe == "1m" and lifecycle == "FAST_PARTIAL_SCALE"
+        broker_comment = str((position or {}).get("comment") or "").strip()
+        return proposal_matches or broker_comment == ONE_MINUTE_POSITION_COMMENT
 
     def _partial_close_action(
         self,
@@ -936,11 +1033,16 @@ class MT5Executor:
         stop: float | None,
         ticket: Any,
     ) -> dict[str, Any] | None:
-        if not self._partial_scale_lifecycle_enabled():
+        if not self._partial_scale_lifecycle_enabled(position):
             return None
         volume = _first_float(position, "volume", "volume_current")
         if volume is None:
             return None
+        state = self.state.load()
+        position_key = self._position_state_key(position)
+        partial_state = state.setdefault("partial_close_state", {})
+        position_state = dict(partial_state.get(position_key) or {})
+        completed_stages = set(position_state.get("completed_stages") or [])
 
         stages = (
             (
@@ -948,21 +1050,40 @@ class MT5Executor:
                 management.partial_first_target_volume,
                 "TA partial 1",
                 "PARTIAL_1_AND_BREAK_EVEN",
+                True,
             ),
             (
                 management.partial_second_trigger_points,
                 management.partial_second_target_volume,
                 "TA partial 2",
                 "PARTIAL_2_AND_TRAIL",
+                False,
             ),
         )
-        for trigger_points, target_volume, comment, reason in stages:
+        for trigger_points, target_volume, comment, reason, is_first_stage in stages:
+            if reason in completed_stages:
+                continue
             if trigger_points <= 0 or target_volume <= 0:
                 continue
-            if favorable_points < trigger_points or volume <= target_volume:
+            effective_target_volume = target_volume
+            if is_first_stage and volume <= target_volume:
+                if not math.isclose(volume, target_volume, abs_tol=1e-8):
+                    continue
+                stop_is_protected = stop is not None and (
+                    (side == "BUY" and stop >= entry)
+                    or (side == "SELL" and stop <= entry)
+                )
+                if stop_is_protected:
+                    continue
+                effective_target_volume = round(volume * 0.5, 8)
+            if (
+                favorable_points < trigger_points
+                or effective_target_volume <= 0
+                or volume <= effective_target_volume
+            ):
                 continue
 
-            close_volume = round(volume - target_volume, 8)
+            close_volume = round(volume - effective_target_volume, 8)
             if close_volume <= 0:
                 continue
             close_result = self.broker.close_position(
@@ -970,12 +1091,23 @@ class MT5Executor:
                 comment=comment,
                 volume=close_volume,
             )
+            if position_key is not None and bool(close_result.get("ok")):
+                completed_stages.add(reason)
+                position_state.update(
+                    {
+                        "completed_stages": sorted(completed_stages),
+                        "last_closed_volume": close_volume,
+                        "last_remaining_volume": effective_target_volume,
+                    }
+                )
+                partial_state[position_key] = position_state
+                self.state.save(state)
             action = {
                 "ticket": position.get("ticket"),
                 "action": "PARTIAL_CLOSE",
                 "reason": reason,
                 "closed_volume": close_volume,
-                "remaining_volume": target_volume,
+                "remaining_volume": effective_target_volume,
                 "favorable_points": round(favorable_points, 2),
                 "result": close_result,
             }
@@ -995,10 +1127,9 @@ class MT5Executor:
             return action
         return None
 
-    def _partial_scale_lifecycle_enabled(self) -> bool:
+    def _partial_scale_lifecycle_enabled(self, position: dict[str, Any]) -> bool:
         proposal = self.state.load().get("proposal") or {}
-        lifecycle = str(proposal.get("position_lifecycle") or "").strip().upper()
-        return lifecycle == "FAST_PARTIAL_SCALE"
+        return self._one_minute_partial_scale_enabled(proposal, position)
 
     def _move_stop_after_partial(
         self,
