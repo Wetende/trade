@@ -203,3 +203,34 @@ def test_replay_approves_clean_current_opening(timestamp, expected_trigger):
     payload = _decision_at(timestamp)
     assert payload["status"] == "SETUP_FOUND"
     assert payload["setups"][0]["name"] == expected_trigger
+
+
+def test_replay_selects_at_most_one_approved_candidate_per_candle():
+    for bar in _bars()[60:]:
+        payload = _decision_at(bar["timestamp"])
+        approved = [
+            candidate
+            for candidate in payload["telemetry"]["candidate_evaluations"]
+            if candidate["approved"]
+        ]
+        assert len(approved) <= 1
+
+
+def test_late_impulse_remains_diagnostic_without_exhaustion_filter():
+    timestamp = "2026-07-01T21:45:00+00:00"
+    payload = _decision_at(timestamp)
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
+    )
+    candle = next(item for item in _bars() if item["timestamp"] == timestamp)
+    median_range = candidate["active_pulse"]["median_range"]
+    body_to_median_range = abs(candle["close"] - candle["open"]) / median_range
+    distance_from_level = abs(candidate["entry_price"] - candidate["level"])
+
+    assert body_to_median_range > 0
+    assert distance_from_level > 0
+    assert 0 < candidate["risk_distance"] <= 1.0
+    assert candidate["active_pulse"]["direction"] == "bearish"
+    assert candidate["approved"] is True
