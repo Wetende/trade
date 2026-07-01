@@ -25,7 +25,11 @@ class ExecutionStateStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"symbol": self.symbol, "active_order_ticket": None}
+            return {
+                "symbol": self.symbol,
+                "active_order_ticket": None,
+                "active_position_ticket": None,
+            }
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def save(self, state: dict[str, Any]) -> dict[str, Any]:
@@ -62,6 +66,7 @@ class ExecutionStateStore:
             {
                 "symbol": self.symbol,
                 "active_order_ticket": int(ticket),
+                "active_position_ticket": None,
                 "placed_at_utc": placed_at.isoformat(),
                 "cancel_after_utc": cancel_after.isoformat(),
                 "pending_policy": dict(pending_policy or {}),
@@ -73,3 +78,18 @@ class ExecutionStateStore:
         state = self.load()
         state["active_order_ticket"] = None
         return self.save(state)
+
+    def mark_position_active(self, ticket: int) -> dict[str, Any]:
+        state = self.load()
+        state["active_order_ticket"] = None
+        state["active_position_ticket"] = int(ticket)
+        return self.save(state)
+
+    def clear_trade(self) -> dict[str, Any]:
+        return self.save(
+            {
+                "symbol": self.symbol,
+                "active_order_ticket": None,
+                "active_position_ticket": None,
+            }
+        )

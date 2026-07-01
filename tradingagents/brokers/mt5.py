@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from numbers import Integral
+from pathlib import Path
 from typing import Any
 
 from tradingagents.agents.schemas import OrderProposal
@@ -85,6 +86,7 @@ class MT5ConnectionConfig:
     magic: int = 150015
     order_comment: str = "TradingAgents"
     use_server_expiration: bool = False
+    execution_state_dir: str | None = None
     max_entry_distance_points: float = 10.0
     min_stop_distance_price: float = 0.0
     min_stop_spread_multiple: float = 4.0
@@ -194,6 +196,10 @@ class MT5ConnectionConfig:
             use_server_expiration=_bool_env(
                 "TRADINGAGENTS_MT5_USE_SERVER_EXPIRATION",
                 False,
+            ),
+            execution_state_dir=os.environ.get(
+                "TRADINGAGENTS_MT5_EXECUTION_STATE_DIR",
+                str(Path.cwd() / "runtime" / "mt5_execution_state"),
             ),
             max_entry_distance_points=_float_env(
                 "TRADINGAGENTS_MAX_ENTRY_DISTANCE_POINTS",

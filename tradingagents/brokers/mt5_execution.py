@@ -18,6 +18,7 @@ from tradingagents.brokers.mt5 import (
     MT5ConnectionConfig,
     MT5OrderRequestBuilder,
 )
+from tradingagents.dataflows.utils import safe_ticker_component
 
 ONE_MINUTE_POSITION_COMMENT = "TA|M1|FAST"
 ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS = 1.0
@@ -194,12 +195,24 @@ class MT5Executor:
         journal: ExecutionJournal | None = None,
         exit_management: MT5ExitManagementConfig | None = None,
         one_minute_lifecycle: MT5OneMinuteLifecycleConfig | None = None,
+        state_dir: str | Path | None = None,
     ) -> None:
         self.config = config
         self.broker = broker or MT5Broker(config)
         self.builder = MT5OrderRequestBuilder(config)
         self.journal = journal or ExecutionJournal(results_dir, config.symbol)
-        self.state = ExecutionStateStore(results_dir, config.symbol)
+        effective_state_dir = (
+            state_dir
+            or getattr(config, "execution_state_dir", None)
+            or results_dir
+        )
+        account_namespace = safe_ticker_component(
+            f"{config.expected_server or config.server}-{config.expected_login or config.login}"
+        )
+        self.state = ExecutionStateStore(
+            Path(effective_state_dir) / account_namespace,
+            config.symbol,
+        )
         self.exit_management = exit_management or MT5ExitManagementConfig()
         self.one_minute_lifecycle = (
             one_minute_lifecycle or MT5OneMinuteLifecycleConfig()
@@ -254,7 +267,7 @@ class MT5Executor:
         if ticket in open_order_tickets:
             return None
         if ticket in open_position_tickets:
-            self.state.clear_pending_order()
+            self.state.mark_position_active(ticket)
             result = {
                 "status": "ORDER_ALREADY_FILLED",
                 "ticket": ticket,
@@ -263,7 +276,25 @@ class MT5Executor:
             self.journal.append("ORDER_STATE_SYNCED", result)
             return result
 
-        self.state.clear_pending_order()
+        tagged_positions = [
+            position
+            for position in positions
+            if str(position.get("comment") or "").strip()
+            == ONE_MINUTE_POSITION_COMMENT
+        ]
+        if len(tagged_positions) == 1 and tagged_positions[0].get("ticket"):
+            position_ticket = int(tagged_positions[0]["ticket"])
+            self.state.mark_position_active(position_ticket)
+            result = {
+                "status": "ORDER_ALREADY_FILLED",
+                "ticket": ticket,
+                "position_ticket": position_ticket,
+                "symbol": self.config.symbol,
+            }
+            self.journal.append("ORDER_STATE_SYNCED", result)
+            return result
+
+        self.state.clear_trade()
         result = {
             "status": "ORDER_NOT_OPEN",
             "ticket": ticket,
@@ -334,6 +365,10 @@ class MT5Executor:
                 self.journal.append("ORDER_SKIPPED", result)
                 return result
             request["comment"] = ONE_MINUTE_POSITION_COMMENT
+            cancel_after = _parse_utc_datetime(pending_policy["cancel_after_utc"])
+            if cancel_after is not None:
+                request["type_time"] = "ORDER_TIME_SPECIFIED"
+                request["expiration"] = int(cancel_after.timestamp())
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
         order_check_result = None
@@ -420,7 +455,7 @@ class MT5Executor:
             broker_result = self.broker.cancel_order(ticket)
             ok = bool(broker_result.get("ok"))
             if ok:
-                self.state.clear_pending_order()
+                self.state.clear_trade()
             result = {
                 "status": "CANCELLED" if ok else "CANCEL_FAILED",
                 "ticket": ticket,
@@ -461,7 +496,7 @@ class MT5Executor:
         broker_result = self.broker.cancel_order(ticket)
         ok = bool(broker_result.get("ok"))
         if ok:
-            self.state.clear_pending_order()
+            self.state.clear_trade()
         result = {
             "status": "CANCELLED" if ok else "CANCEL_FAILED",
             "ticket": ticket,
@@ -545,6 +580,10 @@ class MT5Executor:
                 "account_safety": account_safety,
             }
         positions = self.broker.open_positions(self.config.symbol)
+        if not positions:
+            state = self.state.load()
+            if state.get("active_position_ticket") is not None:
+                self.state.clear_trade()
         legacy_mode = break_even_threshold_pips is not None and exit_management is None
         management = exit_management or self.exit_management
         if legacy_mode:
@@ -561,8 +600,6 @@ class MT5Executor:
                 partial_second_trigger_points=0.0,
                 partial_second_target_volume=0.0,
             )
-        elif exit_management is None:
-            management = self._proposal_exit_management(management)
         if not management.enabled:
             return {
                 "status": "NO_POSITION_ACTION",
@@ -576,8 +613,14 @@ class MT5Executor:
         closed_rejection = False
         partial = False
         moved = False
+        failed = False
         for position in positions:
-            managed_action = self._manage_position(position, management)
+            position_management = (
+                management
+                if legacy_mode or exit_management is not None
+                else self._proposal_exit_management(management, position)
+            )
+            managed_action = self._manage_position(position, position_management)
             if managed_action is None:
                 continue
             position_actions = (
@@ -595,9 +638,16 @@ class MT5Executor:
                 }
                 partial = partial or action.get("action") == "PARTIAL_CLOSE"
                 moved = moved or action.get("action") == "MODIFY_STOP"
+                failed = (
+                    failed
+                    or str(action.get("action") or "").endswith("_FAILED")
+                    or bool(action.get("management_failed"))
+                )
 
         if legacy_mode:
             status = "MANAGED" if actions else "NO_POSITION_ACTION"
+        elif failed:
+            status = "POSITION_MANAGEMENT_FAILED"
         elif partial:
             status = "POSITION_PARTIALLY_CLOSED"
         elif closed_rejection:
@@ -617,9 +667,14 @@ class MT5Executor:
         }
 
     def _proposal_exit_management(
-        self, management: MT5ExitManagementConfig
+        self,
+        management: MT5ExitManagementConfig,
+        position: dict[str, Any],
     ) -> MT5ExitManagementConfig:
-        proposal = self.state.load().get("proposal") or {}
+        state = self.state.load()
+        if not self._state_matches_position(state, position):
+            return management
+        proposal = state.get("proposal") or {}
         fields = (
             "break_even_trigger_points",
             "break_even_lock_points",
@@ -695,6 +750,16 @@ class MT5Executor:
                 position,
                 comment="TA scalp exit",
             )
+            if not bool(close_result.get("ok")):
+                action = {
+                    "ticket": position.get("ticket"),
+                    "action": "CLOSE_POSITION_FAILED",
+                    "reason": "SCALP_PROFIT_EXIT_FAILED",
+                    "favorable_points": round(favorable_points, 2),
+                    "result": close_result,
+                }
+                self.journal.append("POSITION_CLOSE_FAILED", action)
+                return action
             action = {
                 "ticket": position.get("ticket"),
                 "action": "CLOSE_POSITION",
@@ -714,6 +779,16 @@ class MT5Executor:
                 position,
                 comment="TA early loss",
             )
+            if not bool(close_result.get("ok")):
+                action = {
+                    "ticket": position.get("ticket"),
+                    "action": "CLOSE_POSITION_FAILED",
+                    "reason": "EARLY_LOSS_EXIT_FAILED",
+                    "favorable_points": round(favorable_points, 2),
+                    "result": close_result,
+                }
+                self.journal.append("POSITION_CLOSE_FAILED", action)
+                return action
             action = {
                 "ticket": position.get("ticket"),
                 "action": "CLOSE_POSITION",
@@ -752,6 +827,18 @@ class MT5Executor:
             rounded_stop,
             rounded_target,
         )
+        if not bool(result.get("ok")):
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "MODIFY_STOP_FAILED",
+                "reason": f"{reason}_FAILED",
+                "stop_loss": rounded_stop,
+                "take_profit": rounded_target,
+                "favorable_points": round(favorable_points, 2),
+                "result": result,
+            }
+            self.journal.append("POSITION_STOP_MOVE_FAILED", action)
+            return action
         action_name = "MOVE_TO_BREAK_EVEN" if reason == "BREAK_EVEN" else "TRAIL_STOP"
         action = {
             "ticket": position.get("ticket"),
@@ -806,6 +893,16 @@ class MT5Executor:
                 position,
                 comment="TA candle rejection exit",
             )
+            if not bool(close_result.get("ok")):
+                action = {
+                    "ticket": position.get("ticket"),
+                    "action": "CLOSE_POSITION_FAILED",
+                    "reason": "CANDLE_REJECTION_FULL_EXIT_FAILED",
+                    "candle": candle,
+                    "result": close_result,
+                }
+                self.journal.append("POSITION_CLOSE_FAILED", action)
+                return action
             position_state.update(
                 {
                     "stage": "CLOSED",
@@ -830,6 +927,17 @@ class MT5Executor:
                 position,
                 comment="TA candle rejection full",
             )
+            if not bool(close_result.get("ok")):
+                action = {
+                    "ticket": position.get("ticket"),
+                    "action": "CLOSE_POSITION_FAILED",
+                    "reason": "CANDLE_REJECTION_FULL_EXIT_FAILED",
+                    "favorable_points": round(favorable_points, 2),
+                    "candle": candle,
+                    "result": close_result,
+                }
+                self.journal.append("POSITION_CLOSE_FAILED", action)
+                return action
             position_state.update(
                 {
                     "stage": "CLOSED",
@@ -860,6 +968,19 @@ class MT5Executor:
             comment="TA candle rejection partial",
             volume=close_volume,
         )
+        if not bool(close_result.get("ok")):
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "PARTIAL_CLOSE_FAILED",
+                "reason": "CANDLE_REJECTION_PARTIAL_EXIT_FAILED",
+                "closed_volume": 0.0,
+                "requested_close_volume": close_volume,
+                "favorable_points": round(favorable_points, 2),
+                "candle": candle,
+                "result": close_result,
+            }
+            self.journal.append("POSITION_PARTIAL_CLOSE_FAILED", action)
+            return action
         position_state.update(
             {
                 "stage": "PARTIAL",
@@ -924,6 +1045,17 @@ class MT5Executor:
             rounded_stop,
             rounded_target,
         )
+        if not bool(result.get("ok")):
+            action = {
+                "ticket": position.get("ticket"),
+                "action": "MODIFY_STOP_FAILED",
+                "reason": "CANDLE_REJECTION_PROTECTION_FAILED",
+                "stop_loss": rounded_stop,
+                "take_profit": rounded_target,
+                "result": result,
+            }
+            self.journal.append("POSITION_STOP_MOVE_FAILED", action)
+            return action
         action = {
             "ticket": position.get("ticket"),
             "action": "MODIFY_STOP",
@@ -1010,8 +1142,8 @@ class MT5Executor:
             return None
         return str(value)
 
-    @staticmethod
     def _one_minute_partial_scale_enabled(
+        self,
         proposal: dict[str, Any],
         position: dict[str, Any] | None = None,
     ) -> bool:
@@ -1019,7 +1151,38 @@ class MT5Executor:
         lifecycle = str(proposal.get("position_lifecycle") or "").strip().upper()
         proposal_matches = timeframe == "1m" and lifecycle == "FAST_PARTIAL_SCALE"
         broker_comment = str((position or {}).get("comment") or "").strip()
-        return proposal_matches or broker_comment == ONE_MINUTE_POSITION_COMMENT
+        if broker_comment == ONE_MINUTE_POSITION_COMMENT:
+            return True
+        if not proposal_matches:
+            return False
+        if position is None:
+            return True
+        return self._state_matches_position(self.state.load(), position)
+
+    @staticmethod
+    def _state_matches_position(
+        state: dict[str, Any],
+        position: dict[str, Any],
+    ) -> bool:
+        position_ticket = position.get("ticket")
+        if position_ticket in (None, ""):
+            return False
+        try:
+            normalized_ticket = int(position_ticket)
+        except (TypeError, ValueError):
+            return False
+        for field in ("active_position_ticket", "active_order_ticket"):
+            tracked = state.get(field)
+            if tracked in (None, ""):
+                continue
+            try:
+                if int(tracked) == normalized_ticket:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        is_legacy_state = "active_position_ticket" not in state
+        has_no_broker_comment = not str(position.get("comment") or "").strip()
+        return is_legacy_state and has_no_broker_comment
 
     def _partial_close_action(
         self,
@@ -1091,7 +1254,20 @@ class MT5Executor:
                 comment=comment,
                 volume=close_volume,
             )
-            if position_key is not None and bool(close_result.get("ok")):
+            if not bool(close_result.get("ok")):
+                action = {
+                    "ticket": position.get("ticket"),
+                    "action": "PARTIAL_CLOSE_FAILED",
+                    "reason": f"{reason}_FAILED",
+                    "closed_volume": 0.0,
+                    "requested_close_volume": close_volume,
+                    "remaining_volume": volume,
+                    "favorable_points": round(favorable_points, 2),
+                    "result": close_result,
+                }
+                self.journal.append("POSITION_PARTIAL_CLOSE_FAILED", action)
+                return action
+            if position_key is not None:
                 completed_stages.add(reason)
                 position_state.update(
                     {
@@ -1169,6 +1345,24 @@ class MT5Executor:
             rounded_stop,
             rounded_target,
         )
+        if not bool(result.get("ok")):
+            failure = {
+                "ticket": ticket,
+                "action": "MODIFY_STOP_FAILED",
+                "reason": f"{stop_reason}_FAILED",
+                "stop_loss": rounded_stop,
+                "take_profit": rounded_target,
+                "result": result,
+            }
+            self.journal.append("POSITION_STOP_MOVE_FAILED", failure)
+            return {
+                "stop_management_action": "MODIFY_STOP_FAILED",
+                "stop_reason": f"{stop_reason}_FAILED",
+                "stop_loss": rounded_stop,
+                "take_profit": rounded_target,
+                "stop_result": result,
+                "management_failed": True,
+            }
         return {
             "stop_management_action": (
                 "MOVE_TO_BREAK_EVEN"

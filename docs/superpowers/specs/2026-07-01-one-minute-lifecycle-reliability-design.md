@@ -8,11 +8,13 @@ selection.
 
 ## Broker Acknowledgements
 
-MT5 result `ok` is authoritative. A rejected full or partial close must:
+MT5 result `ok` is authoritative. A rejected full close, partial close, or stop
+update must:
 
 - remain retryable;
 - not advance rejection or partial stage state;
 - not move stops as though volume was closed;
+- not report a rejected break-even or trailing update as applied;
 - journal a management failure;
 - return `POSITION_MANAGEMENT_FAILED`.
 
