@@ -38,6 +38,7 @@ RAW_BREAK_EXECUTION_DISABLED = "RAW_BREAK_EXECUTION_DISABLED"
 SPREAD_SAFE_STOP_TOO_WIDE = "SPREAD_SAFE_STOP_TOO_WIDE"
 SPREAD_SAFE_STOP_ADJUSTED = "SPREAD_SAFE_STOP_ADJUSTED"
 CONFLICTED_ONE_MINUTE_MEMORY = "CONFLICTED_ONE_MINUTE_MEMORY"
+CONFLICTED_LOCAL_ONE_MINUTE_ZONE = "CONFLICTED_LOCAL_ONE_MINUTE_ZONE"
 ONE_MINUTE_PRESSURE_CONFLICT = "ONE_MINUTE_PRESSURE_CONFLICT"
 ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED = "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
 RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
@@ -1411,7 +1412,16 @@ def _score_candidate(
         candidate.rejection_reasons.append("OVERLAPPING_CHOP")
     if candidate.risk_distance <= 0:
         candidate.rejection_reasons.append("INVALID_STOP_DISTANCE")
-    relation_reason = _latest_relation_rejection(candidate, latest_relation)
+    candidate.risk["fast_trigger_quality"] = {
+        **candidate.risk.get("fast_trigger_quality", {}),
+        "memory_context": {
+            "global_relation": asdict(latest_relation),
+            "candidate_level": round(candidate.level.level, 4),
+            "candidate_side": candidate.level.side,
+            "hard_veto": False,
+        },
+    }
+    relation_reason = _latest_relation_rejection(candidate, latest)
     if relation_reason is not None:
         candidate.rejection_reasons.append(relation_reason)
         candidate.risk["fast_trigger_quality"] = {
@@ -1467,21 +1477,17 @@ def _score_candidate(
 
 def _latest_relation_rejection(
     candidate: OneMinuteCandidate,
-    latest_relation: OneMinuteCandleRelation,
+    latest: Candle,
 ) -> str | None:
     if (
-        latest_relation.broke_high_zone
-        and latest_relation.broke_low_zone
-        or latest_relation.failed_high_break
-        and latest_relation.failed_low_break
-    ):
-        return CONFLICTED_ONE_MINUTE_MEMORY
-    if candidate.trigger == HIGH_RESPECT_SELL and (
-        latest_relation.broke_high_zone
-        or (latest_relation.higher_high and latest_relation.higher_low)
+        candidate.trigger == HIGH_RESPECT_SELL
+        and float(latest.close) > candidate.level.level + candidate.level.tolerance
     ):
         return RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION
-    if candidate.trigger == LOW_RESPECT_BUY and latest_relation.broke_low_zone:
+    if (
+        candidate.trigger == LOW_RESPECT_BUY
+        and float(latest.close) < candidate.level.level - candidate.level.tolerance
+    ):
         return RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION
     return None
 
@@ -1601,6 +1607,20 @@ def _build_candidates(
         )
         if candidate is None:
             continue
+        two_sided_relation = (
+            latest_relation.broke_high_zone
+            and latest_relation.broke_low_zone
+            or latest_relation.failed_high_break
+            and latest_relation.failed_low_break
+        )
+        overlapping_opposite_level = any(
+            other.side != candidate.level.side
+            and abs(other.level - candidate.level.level)
+            <= other.tolerance + candidate.level.tolerance
+            for other in levels
+        )
+        if two_sided_relation and overlapping_opposite_level:
+            candidate.rejection_reasons.append(CONFLICTED_LOCAL_ONE_MINUTE_ZONE)
         key = (
             candidate.trigger,
             candidate.level.side,
@@ -1768,6 +1788,9 @@ def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
         ),
         "active_pulse": candidate.risk.get("fast_trigger_quality", {}).get(
             "one_minute_active_pulse"
+        ),
+        "memory_context": candidate.risk.get("fast_trigger_quality", {}).get(
+            "memory_context"
         ),
     }
 

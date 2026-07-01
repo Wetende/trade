@@ -85,3 +85,24 @@ def test_replay_does_not_approve_mixed_confirmation(timestamp):
         if candidate["approved"]
     ]
     assert approved == []
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected_trigger"),
+    [
+        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
+        ("2026-07-01T21:40:00+00:00", "FAILED_HIGH_BREAK_SELL"),
+        ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
+    ],
+)
+def test_remote_memory_does_not_veto_clean_local_opening(
+    timestamp,
+    expected_trigger,
+):
+    payload = _decision_at(timestamp)
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == expected_trigger
+    )
+    assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]

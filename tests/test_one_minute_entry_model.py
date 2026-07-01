@@ -289,7 +289,7 @@ def test_one_minute_scalper_rejects_sell_against_bullish_sixty_candle_pressure()
     assert payload["telemetry"]["approved_candidate_count"] == 0
 
 
-def test_one_minute_scalper_rejects_two_sided_fakeout_memory():
+def test_same_local_zone_with_two_sided_fakeout_remains_rejected():
     candles = [
         _candle(0, 102.65, 103.05, 102.82, 102.90),
         _candle(1, 102.90, 103.08, 102.86, 102.96),
@@ -311,12 +311,15 @@ def test_one_minute_scalper_rejects_two_sided_fakeout_memory():
     assert relation["failed_low_break"] is True
     assert payload["status"] == "NO_SETUP"
     assert payload["recommendation"] == "HOLD"
+    assert all(
+        not item["approved"]
+        for item in payload["telemetry"]["candidate_evaluations"]
+    )
     candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
-    assert candidate["approved"] is False
-    assert "CONFLICTED_ONE_MINUTE_MEMORY" in candidate["rejection_reasons"]
-    assert "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL" not in candidate[
-        "score_reasons"
-    ]
+    assert "CONFLICTED_LOCAL_ONE_MINUTE_ZONE" in candidate["rejection_reasons"]
+    assert candidate["memory_context"]["hard_veto"] is False
+    assert candidate["memory_context"]["global_relation"]["failed_high_break"] is True
+    assert candidate["memory_context"]["global_relation"]["failed_low_break"] is True
 
 
 def test_one_minute_scalper_rejects_default_stop_above_scalp_cap():
@@ -938,7 +941,7 @@ def test_one_minute_scalper_only_executes_when_latest_closed_candle_confirms_can
     )
 
 
-def test_one_minute_scalper_rejects_conflicted_two_sided_memory():
+def test_remote_two_sided_memory_does_not_replace_candidate_gates():
     candles = [
         _candle(0, 99.6, 100.15, 99.4, 99.9),
         _candle(1, 99.8, 100.20, 99.5, 100.0),
@@ -961,13 +964,13 @@ def test_one_minute_scalper_rejects_conflicted_two_sided_memory():
     assert relation["broke_low_zone"] is True
     assert payload["status"] == "NO_SETUP"
     assert payload["telemetry"]["approved_candidate_count"] == 0
-    assert any(
-        "CONFLICTED_ONE_MINUTE_MEMORY" in item["rejection_reasons"]
+    assert all(
+        "CONFLICTED_ONE_MINUTE_MEMORY" not in item["rejection_reasons"]
         for item in payload["telemetry"]["candidate_evaluations"]
     )
 
 
-def test_one_minute_scalper_rejects_strong_reversal_when_memory_is_conflicted():
+def test_one_minute_scalper_allows_strong_local_reversal_with_remote_memory():
     candles = [
         _candle(0, 99.6, 100.15, 99.4, 99.9),
         _candle(1, 99.8, 100.20, 99.5, 100.0),
@@ -988,17 +991,14 @@ def test_one_minute_scalper_rejects_strong_reversal_when_memory_is_conflicted():
     relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
     assert relation["broke_high_zone"] is True
     assert relation["broke_low_zone"] is True
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
     candidate = _candidate_by_trigger(payload, "CLEAN_LOW_IMPULSE_SELL")
-    assert candidate["approved"] is False
-    assert "CONFLICTED_ONE_MINUTE_MEMORY" in candidate["rejection_reasons"]
-    assert "MEMORY_CONFLICT_OVERRIDDEN_BY_STRONG_REVERSAL" not in candidate[
-        "score_reasons"
-    ]
+    assert candidate["approved"] is True
+    assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]
 
 
-def test_one_minute_scalper_rejects_high_respect_sell_into_bullish_pressure():
+def test_high_respect_relation_gate_is_candidate_local():
     candles = _base_history() + [
         _candle(57, 99.8, 101.00, 99.4, 100.4),
         _candle(58, 100.2, 100.92, 99.9, 100.6),
@@ -1018,9 +1018,10 @@ def test_one_minute_scalper_rejects_high_respect_sell_into_bullish_pressure():
     assert relation["higher_low"] is True
     assert payload["status"] == "NO_SETUP"
     candidate = _candidate_by_trigger(payload, "HIGH_RESPECT_SELL")
-    assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" in candidate[
+    assert "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION" not in candidate[
         "rejection_reasons"
     ]
+    assert candidate["risk_distance"] > 0
 
 
 def test_one_minute_scalper_rejects_fakeout_sell_against_bullish_active_pulse():
