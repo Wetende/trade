@@ -44,7 +44,6 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
     "TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS": "fast_reaction_pending_seconds",
     "TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS": "fast_impulse_pending_seconds",
-    "TRADINGAGENTS_FAST_EARLY_LOSS_GRACE_SECONDS": "fast_early_loss_grace_seconds",
     "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
     "TRADINGAGENTS_FAST_MIN_STOP_SPREAD_MULTIPLE": "fast_min_stop_spread_multiple",
     "TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED": "fast_volume_boost_enabled",
@@ -165,7 +164,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_history_window_candles": 60,
     "fast_reaction_pending_seconds": 20.0,
     "fast_impulse_pending_seconds": 45.0,
-    "fast_early_loss_grace_seconds": 5.0,
     "fast_min_candidate_score": 8.0,
     "fast_min_stop_spread_multiple": 2.0,
     "fast_volume_boost_enabled": False,
@@ -220,9 +218,6 @@ DEFAULT_CONFIG["price_action"]["fast_reaction_pending_seconds"] = DEFAULT_CONFIG
 ]
 DEFAULT_CONFIG["price_action"]["fast_impulse_pending_seconds"] = DEFAULT_CONFIG[
     "fast_impulse_pending_seconds"
-]
-DEFAULT_CONFIG["price_action"]["fast_early_loss_grace_seconds"] = DEFAULT_CONFIG[
-    "fast_early_loss_grace_seconds"
 ]
 DEFAULT_CONFIG["price_action"]["fast_min_candidate_score"] = DEFAULT_CONFIG[
     "fast_min_candidate_score"

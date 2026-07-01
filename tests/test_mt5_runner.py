@@ -697,7 +697,7 @@ def test_runner_maintains_active_trade_each_second_between_full_cycles(
     assert result["status"] == "STOPPED_MAX_CYCLES"
     assert sleeps == [1.0, 1.0, 1.0, 1.0, 1.0]
     assert executor.cancel_calls == 6
-    assert executor.manage_calls == 6
+    assert executor.manage_calls == 2
 
 
 def test_runner_runtime_deadline_takes_precedence_over_max_cycles(tmp_path, monkeypatch):

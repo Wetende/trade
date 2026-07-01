@@ -1793,50 +1793,7 @@ def test_executor_closes_early_adverse_position(tmp_path):
     assert broker.modified_stops == []
 
 
-def test_executor_defers_one_minute_early_loss_during_grace_period(tmp_path):
-    now = datetime(2026, 6, 30, 14, 0, 5, tzinfo=timezone.utc)
-    broker = FakeBroker()
-    broker.positions = [
-        {
-            "ticket": 777020,
-            "symbol": "XAUUSD",
-            "side": "SELL",
-            "entry_price": 2450.0,
-            "stop_loss": 2454.0,
-            "take_profit": 2444.0,
-            "current_price": 2451.7,
-            "opened_at_utc": "2026-06-30T14:00:02+00:00",
-        }
-    ]
-    proposal = _one_minute_proposal(
-        reaction_type="impulse_break",
-        trigger_name="CLEAN_LOW_IMPULSE_SELL",
-    )
-    executor = MT5Executor(
-        _config(),
-        tmp_path,
-        broker=broker,
-        exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
-        one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
-            early_loss_grace_seconds=5.0
-        ),
-    )
-    executor.state.save(
-        {
-            "symbol": "XAUUSD",
-            "active_order_ticket": None,
-            "proposal": proposal.model_dump(mode="json"),
-        }
-    )
-
-    result = executor.manage_open_positions(now_utc=now)
-
-    assert result["status"] == "NO_POSITION_ACTION"
-    assert broker.closed_positions == []
-
-
-def test_executor_allows_one_minute_early_loss_after_grace_period(tmp_path):
-    now = datetime(2026, 6, 30, 14, 0, 8, tzinfo=timezone.utc)
+def test_executor_one_minute_ignores_price_only_early_loss(tmp_path):
     broker = FakeBroker()
     broker.positions = [
         {
@@ -1847,7 +1804,6 @@ def test_executor_allows_one_minute_early_loss_after_grace_period(tmp_path):
             "stop_loss": 2454.0,
             "take_profit": 2444.0,
             "current_price": 2451.7,
-            "opened_at_utc": "2026-06-30T14:00:02+00:00",
         }
     ]
     proposal = _one_minute_proposal(
@@ -1859,9 +1815,6 @@ def test_executor_allows_one_minute_early_loss_after_grace_period(tmp_path):
         tmp_path,
         broker=broker,
         exit_management=MT5ExitManagementConfig(early_loss_exit_points=1.5),
-        one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
-            early_loss_grace_seconds=5.0
-        ),
     )
     executor.state.save(
         {
@@ -1871,11 +1824,10 @@ def test_executor_allows_one_minute_early_loss_after_grace_period(tmp_path):
         }
     )
 
-    result = executor.manage_open_positions(now_utc=now)
+    result = executor.manage_open_positions()
 
-    assert result["status"] == "POSITION_CLOSED_EARLY"
-    assert result["actions"][0]["position_age_seconds"] == 6.0
-    assert broker.closed_positions[0][0]["ticket"] == 777021
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert broker.closed_positions == []
 
 
 def test_executor_trails_stop_after_favorable_move(tmp_path):

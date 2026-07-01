@@ -120,7 +120,6 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "exit_partial_second_target_volume", 0.4)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_reaction_pending_seconds", 20.0)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_impulse_pending_seconds", 45.0)
-    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_early_loss_grace_seconds", 5.0)
     monkeypatch.setitem(
         cli_main.DEFAULT_CONFIG,
         "runner_maintenance_poll_seconds",
@@ -159,7 +158,6 @@ def test_mt5_run_once_invokes_runner(monkeypatch, tmp_path):
     assert calls["executor_exit_management"].partial_second_target_volume == 0.4
     assert calls["executor_one_minute_lifecycle"].reaction_pending_seconds == 20.0
     assert calls["executor_one_minute_lifecycle"].impulse_pending_seconds == 45.0
-    assert calls["executor_one_minute_lifecycle"].early_loss_grace_seconds == 5.0
     assert calls["runner_config"].maintenance_poll_seconds == 1.0
     assert calls["runner_config"].blocked_strategy_rules == (
         "SUPPORT_RESISTANCE_BOUNCE:SELL",

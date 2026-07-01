@@ -79,7 +79,6 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
         "TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS": "fast_reaction_pending_seconds",
         "TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS": "fast_impulse_pending_seconds",
-        "TRADINGAGENTS_FAST_EARLY_LOSS_GRACE_SECONDS": "fast_early_loss_grace_seconds",
         "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
         "TRADINGAGENTS_FAST_MIN_STOP_SPREAD_MULTIPLE": "fast_min_stop_spread_multiple",
         "TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED": "fast_volume_boost_enabled",
@@ -149,9 +148,6 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["fast_impulse_pending_seconds"] = DEFAULT_CONFIG[
         "fast_impulse_pending_seconds"
-    ]
-    DEFAULT_CONFIG["price_action"]["fast_early_loss_grace_seconds"] = DEFAULT_CONFIG[
-        "fast_early_loss_grace_seconds"
     ]
     DEFAULT_CONFIG["price_action"]["fast_min_candidate_score"] = DEFAULT_CONFIG[
         "fast_min_candidate_score"
@@ -556,9 +552,6 @@ def _monitor_mt5(cancel_stale: bool, manage_stops: bool, config=None) -> dict:
                 impulse_pending_seconds=float(
                     DEFAULT_CONFIG["fast_impulse_pending_seconds"]
                 ),
-                early_loss_grace_seconds=float(
-                    DEFAULT_CONFIG["fast_early_loss_grace_seconds"]
-                ),
             ),
         )
         results = {}
@@ -960,9 +953,6 @@ def mt5_run(
                 ),
                 impulse_pending_seconds=float(
                     DEFAULT_CONFIG["fast_impulse_pending_seconds"]
-                ),
-                early_loss_grace_seconds=float(
-                    DEFAULT_CONFIG["fast_early_loss_grace_seconds"]
                 ),
             ),
         )

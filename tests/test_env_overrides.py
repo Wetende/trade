@@ -44,7 +44,6 @@ def test_no_env_uses_built_in_defaults(monkeypatch):
     assert dc.DEFAULT_CONFIG["fast_history_window_candles"] == 60
     assert dc.DEFAULT_CONFIG["fast_reaction_pending_seconds"] == 20.0
     assert dc.DEFAULT_CONFIG["fast_impulse_pending_seconds"] == 45.0
-    assert dc.DEFAULT_CONFIG["fast_early_loss_grace_seconds"] == 5.0
     assert dc.DEFAULT_CONFIG["minimum_stop_distance_price"] == 0.35
     assert dc.DEFAULT_CONFIG["minimum_stop_spread_multiple"] == 1.2
     assert dc.DEFAULT_CONFIG["trading_mode"] == "OFF"
@@ -124,16 +123,13 @@ def test_one_minute_lifecycle_float_overrides(monkeypatch):
         TRADINGAGENTS_RUNNER_MAINTENANCE_POLL_SECONDS="0.75",
         TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS="18.5",
         TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS="42.5",
-        TRADINGAGENTS_FAST_EARLY_LOSS_GRACE_SECONDS="6.5",
     )
 
     assert dc.DEFAULT_CONFIG["runner_maintenance_poll_seconds"] == 0.75
     assert dc.DEFAULT_CONFIG["fast_reaction_pending_seconds"] == 18.5
     assert dc.DEFAULT_CONFIG["fast_impulse_pending_seconds"] == 42.5
-    assert dc.DEFAULT_CONFIG["fast_early_loss_grace_seconds"] == 6.5
     assert dc.DEFAULT_CONFIG["price_action"]["fast_reaction_pending_seconds"] == 18.5
     assert dc.DEFAULT_CONFIG["price_action"]["fast_impulse_pending_seconds"] == 42.5
-    assert dc.DEFAULT_CONFIG["price_action"]["fast_early_loss_grace_seconds"] == 6.5
 
 
 def test_runner_blocked_strategy_rules_env_override(monkeypatch):
