@@ -238,7 +238,12 @@ class MT5Runner:
         selected, decision, rejection_reason = self._select_directional_candidate(
             processed_rows
         )
+        analysis_health_gate = self._analysis_health_gate(processed_rows)
         if decision == "DIRECTIONAL_CONFLICT_HOLD":
+            conflict_reasons = [
+                *analysis_health_gate["reasons"],
+                "directional_conflict",
+            ]
             return self._write_heartbeat(
                 {
                     "status": "NO_TRADE",
@@ -247,7 +252,7 @@ class MT5Runner:
                     "selected_profile": None,
                     "mode_decision": decision,
                     "mode_rejection_reason": rejection_reason,
-                    "health_gate": health_gate(False, ["directional_conflict"]),
+                    "health_gate": health_gate(False, conflict_reasons),
                     "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
                     "candidate_methods": self._candidate_methods(processed_rows),
@@ -275,6 +280,7 @@ class MT5Runner:
                         "selected_profile": None,
                         "mode_decision": decision,
                         "mode_rejection_reason": rejection_reason,
+                        "health_gate": analysis_health_gate,
                         "candidate_methods": self._candidate_methods(processed_rows),
                         "as_of": as_of,
                         "proposal": proposal.model_dump(mode="json"),
@@ -291,6 +297,7 @@ class MT5Runner:
                     "selected_profile": None,
                     "mode_decision": decision,
                     "mode_rejection_reason": rejection_reason,
+                    "health_gate": analysis_health_gate,
                     "candidate_methods": self._candidate_methods(processed_rows),
                     "position_management": position_management,
                     "history_reconciliation": history_reconciliation,
@@ -325,6 +332,7 @@ class MT5Runner:
                 "selected_profile": profile,
                 "mode_decision": f"{selected_method}_BLOCKED",
                 "mode_rejection_reason": "BLOCKED_STRATEGY_RULE",
+                "health_gate": analysis_health_gate,
                 "candidate_methods": self._candidate_methods(processed_rows),
                 "as_of": as_of,
                 "proposal": proposal.model_dump(mode="json"),
@@ -350,6 +358,7 @@ class MT5Runner:
             "selected_profile": profile,
             "mode_decision": decision,
             "mode_rejection_reason": rejection_reason,
+            "health_gate": analysis_health_gate,
             "candidate_methods": self._candidate_methods(processed_rows),
             "as_of": as_of,
             "proposal": proposal.model_dump(mode="json"),
@@ -651,6 +660,21 @@ class MT5Runner:
         if normal is not None:
             return normal[:4], "ENTRY_NORMAL_SELECTED", None
         return None, "NO_DIRECTIONAL_CANDIDATE", "NO_PROPOSED_DIRECTIONAL_PROFILE"
+
+    @staticmethod
+    def _analysis_health_gate(
+        processed_rows: list[tuple[str, str, OrderProposal, dict, str]],
+    ) -> dict:
+        blocking: list[str] = []
+        for _profile, _as_of, _proposal, analysis, _status in processed_rows:
+            data_status = (analysis or {}).get("data_status") or {}
+            if data_status.get("healthy") is False:
+                blocking.extend(
+                    f"data_health:{timeframe}"
+                    for timeframe in data_status.get("blocking_timeframes") or []
+                )
+        reasons = list(dict.fromkeys(blocking))
+        return health_gate(not reasons, reasons)
 
     def _candidate_methods(
         self,

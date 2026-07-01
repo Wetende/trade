@@ -104,6 +104,39 @@ def test_runner_executes_proposed_order_once(tmp_path):
     assert Path(result["heartbeat_path"]).exists()
 
 
+def test_runner_propagates_engine_data_health_to_health_gate(tmp_path):
+    no_trade = proposed_order()
+    no_trade.status = OrderStatus.NO_TRADE
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=FakeExecutor(active=False),
+        analysis_func=lambda: (
+            "2026-07-01 17:40",
+            no_trade,
+            {
+                "telemetry": {
+                    "decision_stage": "data_health",
+                    "primary_hold_reason": "Data health failed. Default to HOLD.",
+                },
+                "data_status": {
+                    "healthy": False,
+                    "blocking_timeframes": ["1m"],
+                },
+            },
+        ),
+    )
+
+    result = runner.run_once()
+
+    assert result["health_gate"] == {
+        "passed": False,
+        "reasons": ["data_health:1m"],
+    }
+    assert result["analysis"]["data_status"]["healthy"] is False
+    assert result["summary"]["latest_cycle"]["health_gate"]["passed"] is False
+    assert result["summary"]["hold_reason_counts"]["data_health"] >= 1
+
+
 def test_runner_skips_new_analysis_when_active_trade_exists(tmp_path):
     executor = FakeExecutor(active=True)
     called = False
