@@ -177,6 +177,52 @@ def test_executor_applies_effective_m1_policy_as_broker_expiration(tmp_path):
     )
 
 
+def test_executor_falls_back_to_gtc_when_broker_rejects_short_expiration(tmp_path):
+    broker = FakeBroker()
+    broker.place_results = [
+        {
+            "ok": False,
+            "order": 0,
+            "retcode": 10022,
+            "comment": "Invalid expiration",
+        },
+        {
+            "ok": True,
+            "order": 111223,
+            "retcode": 10009,
+            "comment": "ok",
+        },
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    fixed_now = datetime(2026, 7, 1, 14, 0, 10, tzinfo=timezone.utc)
+    executor._now_utc = lambda: fixed_now
+
+    result = executor.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="HIGH_RESPECT_SELL",
+        )
+    )
+
+    assert result["status"] == "PLACED"
+    assert result["expiration_fallback"] is True
+    assert broker.placed_requests[0]["type_time"] == "ORDER_TIME_SPECIFIED"
+    assert broker.placed_requests[1]["type_time"] == "ORDER_TIME_GTC"
+    assert "expiration" not in broker.placed_requests[1]
+    assert len(broker.checked_requests) == 2
+
+    second_result = executor.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="LOW_RESPECT_BUY",
+        )
+    )
+
+    assert second_result["status"] == "PLACED"
+    assert broker.placed_requests[2]["type_time"] == "ORDER_TIME_GTC"
+    assert "expiration" not in broker.placed_requests[2]
+
+
 def test_executor_keeps_normal_order_time_policy(tmp_path):
     broker = FakeBroker()
     executor = MT5Executor(_config(), tmp_path, broker=broker)
@@ -684,6 +730,7 @@ class FakeBroker:
             "retcode": 10009,
             "comment": "ok",
         }
+        self.place_results = []
         self.close_result = None
         self.modify_result = None
 
@@ -703,7 +750,9 @@ class FakeBroker:
         ]
 
     def place_pending_order(self, request):
-        self.placed_requests.append(request)
+        self.placed_requests.append(dict(request))
+        if self.place_results:
+            return dict(self.place_results.pop(0))
         return dict(self.place_result)
 
     def check_order(self, request):
@@ -2377,6 +2426,15 @@ def test_executor_namespaces_stable_state_by_mt5_account(tmp_path):
 def test_executor_tags_one_minute_order_for_restart_safe_management(tmp_path):
     broker = FakeBroker()
     executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor._now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        10,
+        tzinfo=timezone.utc,
+    )
 
     result = executor.execute_proposal(
         _one_minute_proposal(

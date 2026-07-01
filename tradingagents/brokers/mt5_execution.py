@@ -217,6 +217,7 @@ class MT5Executor:
         self.one_minute_lifecycle = (
             one_minute_lifecycle or MT5OneMinuteLifecycleConfig()
         )
+        self._server_expiration_supported: bool | None = None
 
     @staticmethod
     def _now_utc() -> datetime:
@@ -366,7 +367,10 @@ class MT5Executor:
                 return result
             request["comment"] = ONE_MINUTE_POSITION_COMMENT
             cancel_after = _parse_utc_datetime(pending_policy["cancel_after_utc"])
-            if cancel_after is not None:
+            if (
+                cancel_after is not None
+                and self._server_expiration_supported is not False
+            ):
                 request["type_time"] = "ORDER_TIME_SPECIFIED"
                 request["expiration"] = int(cancel_after.timestamp())
         self.journal.append("ORDER_REQUEST_BUILT", request)
@@ -404,6 +408,63 @@ class MT5Executor:
             return result
 
         broker_result = self.broker.place_pending_order(request)
+        expiration_fallback = False
+        if (
+            not bool(broker_result.get("ok"))
+            and _is_one_minute_scalper_proposal(proposal)
+            and request.get("type_time") == "ORDER_TIME_SPECIFIED"
+            and (
+                broker_result.get("retcode") == 10022
+                or "invalid expiration"
+                in str(broker_result.get("comment") or "").strip().lower()
+            )
+        ):
+            self._server_expiration_supported = False
+            self.journal.append(
+                "ORDER_EXPIRATION_FALLBACK",
+                {
+                    "reason": "BROKER_REJECTED_SHORT_EXPIRATION",
+                    "result": broker_result,
+                    "pending_policy": pending_policy,
+                },
+            )
+            fallback_request = dict(request)
+            fallback_request["type_time"] = "ORDER_TIME_GTC"
+            fallback_request.pop("expiration", None)
+            expired_result = self._expired_pending_window_result(
+                proposal,
+                pending_policy,
+                self._now_utc(),
+                account_safety,
+            )
+            if expired_result is not None:
+                result = {
+                    **expired_result,
+                    "request": fallback_request,
+                    "order_check_result": order_check_result,
+                    "expiration_fallback": True,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+            if callable(check_order):
+                order_check_result = check_order(fallback_request)
+                self.journal.append("ORDER_CHECKED", order_check_result)
+                if order_check_result.get("ok") is False:
+                    result = {
+                        "status": "SKIPPED_ORDER_CHECK",
+                        "reason": "ORDER_CHECK_FAILED_AFTER_EXPIRATION_FALLBACK",
+                        "proposal": proposal.model_dump(mode="json"),
+                        "request": fallback_request,
+                        "order_check_result": order_check_result,
+                        "pending_policy": pending_policy,
+                        "expiration_fallback": True,
+                        "account_safety": account_safety,
+                    }
+                    self.journal.append("ORDER_SKIPPED", result)
+                    return result
+            request = fallback_request
+            broker_result = self.broker.place_pending_order(request)
+            expiration_fallback = True
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
         self.journal.append(event_type, broker_result)
@@ -424,6 +485,7 @@ class MT5Executor:
             "broker_result": broker_result,
             "order_check_result": order_check_result,
             "pending_policy": pending_policy,
+            "expiration_fallback": expiration_fallback,
             "account_safety": account_safety,
         }
 

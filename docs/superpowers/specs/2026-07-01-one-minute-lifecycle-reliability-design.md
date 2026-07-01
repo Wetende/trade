@@ -57,6 +57,11 @@ as an MT5 `ORDER_TIME_SPECIFIED` expiration. Local cancellation remains as a
 second guard. The request is still rejected locally if broker validation leaves
 one second or less before expiration.
 
+Some brokers advertise specified expiration support but reject short deadlines
+at `order_send`. Retcode `10022` triggers one safe GTC fallback after another
+lifetime check and broker validation. The process then keeps using GTC with the
+durable local deadline for later M1 orders.
+
 ## Verification
 
 Tests must prove:
