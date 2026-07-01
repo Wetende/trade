@@ -142,6 +142,26 @@ def _neutral_pulse_high_impulse_buy_history():
     return candles
 
 
+def _weak_counterpressure_candles():
+    candles = []
+    price = 100.0
+    for index in range(55):
+        open_ = price
+        close = price - 0.08
+        candles.append(_candle(index, open_, open_ + 0.12, close - 0.08, close))
+        price = close
+    candles.extend(
+        [
+            _candle(55, 95.60, 95.90, 95.00, 95.30),
+            _candle(56, 95.30, 95.80, 95.10, 95.60),
+            _candle(57, 95.60, 95.85, 95.02, 95.25),
+            _candle(58, 95.25, 95.70, 95.12, 95.15),
+            _candle(59, 95.10, 95.55, 95.01, 95.22),
+        ]
+    )
+    return candles
+
+
 def _payload(candles, **config):
     return analyze_one_minute_entry(
         "XAUUSD",
@@ -270,7 +290,7 @@ def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lo
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
 
 
-def test_one_minute_scalper_rejects_sell_against_bullish_sixty_candle_pressure():
+def test_clean_local_fakeout_can_override_bullish_sixty_candle_pressure():
     payload = _payload(
         _bullish_pressure_failed_high_sell_history(),
         minimum_stop_distance_price=0.25,
@@ -281,12 +301,12 @@ def test_one_minute_scalper_rejects_sell_against_bullish_sixty_candle_pressure()
 
     story = payload["market_context"]["one_minute_story"]
     assert story["pressure"]["direction"] == "bullish"
-    assert payload["status"] == "NO_SETUP"
-    assert payload["recommendation"] == "HOLD"
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "SELL"
     candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
-    assert candidate["approved"] is False
-    assert "ONE_MINUTE_PRESSURE_CONFLICT" in candidate["rejection_reasons"]
-    assert payload["telemetry"]["approved_candidate_count"] == 0
+    assert candidate["approved"] is True
+    assert "ONE_MINUTE_PRESSURE_COUNTER" in candidate["score_reasons"]
+    assert "ONE_MINUTE_PRESSURE_CONFLICT" not in candidate["rejection_reasons"]
 
 
 def test_same_local_zone_with_two_sided_fakeout_remains_rejected():
@@ -384,7 +404,7 @@ def test_one_minute_scalper_clamps_activation_window_to_one_minute():
     assert payload["market_context"]["activation_window_minutes"] == 1
 
 
-def test_one_minute_scalper_rejects_impulse_without_active_recent_pulse():
+def test_clean_impulse_does_not_require_authoritative_active_pulse():
     payload = _payload(
         _neutral_pulse_high_impulse_buy_history(),
         minimum_stop_distance_price=0.25,
@@ -395,10 +415,10 @@ def test_one_minute_scalper_rejects_impulse_without_active_recent_pulse():
 
     story = payload["market_context"]["one_minute_story"]
     assert story["active_pulse"]["direction"] == "neutral"
-    assert payload["status"] == "NO_SETUP"
+    assert payload["status"] == "SETUP_FOUND"
     candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
-    assert candidate["approved"] is False
-    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" in candidate["rejection_reasons"]
+    assert candidate["approved"] is True
+    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" not in candidate["rejection_reasons"]
 
 
 def test_one_minute_scalper_reprices_favorable_impulse_sell_to_continuation_stop():
@@ -1038,7 +1058,27 @@ def test_one_minute_scalper_rejects_fakeout_sell_against_bullish_active_pulse():
     assert payload["status"] == "NO_SETUP"
     candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
     assert candidate["approved"] is False
-    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" in candidate["rejection_reasons"]
+    assert "ONE_MINUTE_ACTIVE_PULSE_COUNTER" in candidate["score_reasons"]
+    assert "MIXED_CONFIRMATION" in candidate["rejection_reasons"]
+    assert "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED" not in candidate["rejection_reasons"]
+
+
+def test_weak_counterpressure_candle_is_not_approved():
+    payload = _payload(
+        _weak_counterpressure_candles(),
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=95.20,
+        current_ask_price=95.40,
+    )
+
+    assert payload["market_context"]["one_minute_story"]["pressure"]["direction"] == (
+        "bearish"
+    )
+    assert payload["status"] == "NO_SETUP"
+    candidate = _candidate_by_trigger(payload, "LOW_RESPECT_BUY")
+    assert candidate["approved"] is False
+    assert "MIXED_CONFIRMATION" in candidate["rejection_reasons"]
 
 
 def test_one_minute_scalper_allows_low_respect_buy_when_rejection_confirms():

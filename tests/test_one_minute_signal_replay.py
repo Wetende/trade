@@ -106,3 +106,29 @@ def test_remote_memory_does_not_veto_clean_local_opening(
         if item["trigger"] == expected_trigger
     )
     assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected_trigger"),
+    [
+        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        ("2026-07-01T21:22:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+    ],
+)
+def test_clean_current_impulse_can_reverse_old_pressure(
+    timestamp,
+    expected_trigger,
+):
+    payload = _decision_at(timestamp)
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == expected_trigger
+    )
+    assert "ONE_MINUTE_PRESSURE_CONFLICT" not in candidate["rejection_reasons"]
+    assert "CONFLICTED_LOCAL_ONE_MINUTE_ZONE" not in candidate["rejection_reasons"]
+    assert (
+        "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
+        not in candidate["rejection_reasons"]
+    )

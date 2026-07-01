@@ -1320,39 +1320,25 @@ def _score_candidate(
         "one_minute_pressure": asdict(pressure),
         "one_minute_active_pulse": asdict(active_pulse),
     }
-    if (
-        pressure_direction == "bullish"
-        and candidate.direction == "SELL"
-        or pressure_direction == "bearish"
-        and candidate.direction == "BUY"
-    ):
-        candidate.rejection_reasons.append(ONE_MINUTE_PRESSURE_CONFLICT)
-    elif pressure_direction in {"bullish", "bearish"}:
-        candidate.score += 1
-        candidate.score_reasons.append("ONE_MINUTE_PRESSURE_ALIGNED")
+    if pressure_direction in {"bullish", "bearish"}:
+        expected = "BUY" if pressure_direction == "bullish" else "SELL"
+        if candidate.direction == expected:
+            candidate.score += 1
+            candidate.score_reasons.append("ONE_MINUTE_PRESSURE_ALIGNED")
+        else:
+            candidate.score -= 1
+            candidate.score_reasons.append("ONE_MINUTE_PRESSURE_COUNTER")
 
     if (
-        candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS
-        and active_pulse.sample_size >= 8
+        active_pulse.sample_size >= 8
+        and active_pulse.direction in {"bullish", "bearish"}
     ):
-        expected_pulse = "bullish" if candidate.direction == "BUY" else "bearish"
-        if active_pulse.direction != expected_pulse:
-            candidate.rejection_reasons.append(ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED)
+        expected = "BUY" if active_pulse.direction == "bullish" else "SELL"
+        if candidate.direction == expected:
+            candidate.score += 1
+            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
         else:
-            candidate.score += 1
-            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
-    elif (
-        candidate.trigger in FAKEOUT_ONE_MINUTE_TRIGGERS
-        | RESPECT_ONE_MINUTE_TRIGGERS
-        and active_pulse.sample_size >= 8
-        and active_pulse.score >= 4
-    ):
-        expected_pulse = "bullish" if candidate.direction == "BUY" else "bearish"
-        if active_pulse.direction not in {"neutral", expected_pulse}:
-            candidate.rejection_reasons.append(ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED)
-        elif active_pulse.direction == expected_pulse:
-            candidate.score += 1
-            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_ALIGNED")
+            candidate.score_reasons.append("ONE_MINUTE_ACTIVE_PULSE_COUNTER")
 
     if candidate.trigger in BREAK_ONE_MINUTE_TRIGGERS:
         extension = abs(float(candidate.entry_price) - float(candidate.level.level))
@@ -1608,9 +1594,7 @@ def _build_candidates(
         if candidate is None:
             continue
         two_sided_relation = (
-            latest_relation.broke_high_zone
-            and latest_relation.broke_low_zone
-            or latest_relation.failed_high_break
+            latest_relation.failed_high_break
             and latest_relation.failed_low_break
         )
         overlapping_opposite_level = any(
