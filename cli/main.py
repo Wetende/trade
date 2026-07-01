@@ -700,6 +700,7 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
         from tradingagents.dataflows.data_health import build_data_status
         from tradingagents.dataflows.mt5_price_action import (
             fetch_mt5_price_action_snapshot,
+            mt5_health_reference,
         )
         from tradingagents.dataflows.price_action import PriceActionSnapshot
 
@@ -710,15 +711,18 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
             engine_symbol = mt5_config.symbol
             broker_symbol = mt5_config.symbol
             analysis_broker = MT5Broker(mt5_config)
-            analysis_broker.connect()
-            snapshot = fetch_mt5_price_action_snapshot(
-                analysis_broker,
-                as_of=selections["as_of"],
-                market_timezone=selections.get(
-                    "market_timezone",
-                    DEFAULT_CONFIG["market_timezone"],
-                ),
-            )
+            try:
+                analysis_broker.connect()
+                snapshot = fetch_mt5_price_action_snapshot(
+                    analysis_broker,
+                    as_of=selections["as_of"],
+                    market_timezone=selections.get(
+                        "market_timezone",
+                        DEFAULT_CONFIG["market_timezone"],
+                    ),
+                )
+            finally:
+                analysis_broker.shutdown()
 
         market_timezone = selections.get(
             "market_timezone",
@@ -773,17 +777,24 @@ def _mt5_runner_engine_analysis_func(mt5_config=None):
                         )
                     )
                 )
+                health_as_of, reference_source = mt5_health_reference(
+                    snapshot.market_metadata,
+                    profile_as_of,
+                )
+                profile_data_status = build_data_status(
+                    snapshot.candles,
+                    health_as_of,
+                    market_timezone,
+                    required_timeframes=required_timeframes,
+                    trading_timeframe=profile.timeframe,
+                    confirmation_timeframe=profile.confirmation_timeframe,
+                )
+                profile_data_status["reference_timestamp"] = health_as_of
+                profile_data_status["reference_source"] = reference_source
                 profile_snapshot = PriceActionSnapshot(
                     candles=snapshot.candles,
                     market_metadata=snapshot.market_metadata,
-                    data_status=build_data_status(
-                        snapshot.candles,
-                        profile_as_of,
-                        market_timezone,
-                        required_timeframes=required_timeframes,
-                        trading_timeframe=profile.timeframe,
-                        confirmation_timeframe=profile.confirmation_timeframe,
-                    ),
+                    data_status=profile_data_status,
                 )
             state = run_engine_decision(
                 symbol=engine_symbol,

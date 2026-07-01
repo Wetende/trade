@@ -20,6 +20,17 @@ MT5_TIMEFRAME_COUNTS = {
 }
 
 
+def mt5_health_reference(
+    market_metadata: dict[str, Any],
+    fallback_as_of: str,
+) -> tuple[str, str]:
+    tick = market_metadata.get("tick") or {}
+    tick_time = tick.get("time_utc")
+    if tick_time:
+        return str(tick_time), "mt5_tick"
+    return fallback_as_of, "runner_clock"
+
+
 def _to_candle(row: dict[str, Any]) -> Candle:
     return Candle(
         timestamp=str(row["timestamp"]),
@@ -56,17 +67,25 @@ def fetch_mt5_price_action_snapshot(
         "3m": candles_by_timeframe["3m"],
         "1m": candles_by_timeframe["1m"],
     }
+    market_metadata = _market_metadata(broker)
+    health_as_of, reference_source = mt5_health_reference(
+        market_metadata,
+        as_of,
+    )
+    data_status = build_data_status(
+        candles,
+        health_as_of,
+        market_timezone,
+        required_timeframes=tuple(candles),
+        trading_timeframe="15m",
+        confirmation_timeframe="30m",
+    )
+    data_status["reference_timestamp"] = health_as_of
+    data_status["reference_source"] = reference_source
     return PriceActionSnapshot(
         candles=candles,
-        data_status=build_data_status(
-            candles,
-            as_of,
-            market_timezone,
-            required_timeframes=tuple(candles),
-            trading_timeframe="15m",
-            confirmation_timeframe="30m",
-        ),
-        market_metadata=_market_metadata(broker),
+        data_status=data_status,
+        market_metadata=market_metadata,
     )
 
 

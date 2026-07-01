@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from cli import main as cli_main
@@ -1151,6 +1152,9 @@ def test_mt5_runner_engine_analysis_rebuilds_mt5_snapshot_health_by_profile(
         def connect(self):
             return {"connected": True}
 
+        def shutdown(self):
+            return None
+
     rows = {
         "1d": [Candle("2026-06-03 00:00:00", 100, 102, 99, 101, 1000)],
         "4h": [Candle("2026-06-03 08:00:00", 100, 102, 99, 101, 1000)],
@@ -1247,6 +1251,9 @@ def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path
             seen["connected_symbol"] = self.config.symbol
             return {"connected": True}
 
+        def shutdown(self):
+            seen["shutdown"] = True
+
     def fake_snapshot(broker, *, as_of, market_timezone):
         seen["snapshot_symbol"] = broker.config.symbol
         seen["as_of"] = as_of
@@ -1298,10 +1305,62 @@ def test_mt5_runner_engine_analysis_func_uses_mt5_snapshot(monkeypatch, tmp_path
         "snapshot_symbol": "XAUUSD.vx",
         "as_of": "2026-06-02T19:16:00-04:00",
         "market_timezone": "America/New_York",
+        "shutdown": True,
     }
     assert proposal.symbol == "XAUUSD.vx"
     assert proposal.broker_symbol == "XAUUSD.vx"
     assert analysis["engine_status"] == "NO_SETUP"
+
+
+def test_mt5_runner_engine_analysis_func_shuts_down_broker_when_snapshot_raises(
+    monkeypatch,
+):
+    from tradingagents.brokers import mt5
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+    from tradingagents.dataflows import mt5_price_action
+
+    seen = {}
+
+    class FakeMT5Broker:
+        def __init__(self, config):
+            self.config = config
+
+        def connect(self):
+            seen["connected"] = True
+
+        def shutdown(self):
+            seen["shutdown"] = True
+
+    def failing_snapshot(*args, **kwargs):
+        raise RuntimeError("snapshot failed")
+
+    monkeypatch.setattr(
+        cli_main,
+        "build_env_selections",
+        lambda: {
+            "ticker": "XAUUSD.vx",
+            "broker_symbol": "XAUUSD.vx",
+            "as_of": "2026-07-01T17:40:00-04:00",
+            "market_timezone": "America/New_York",
+        },
+    )
+    monkeypatch.setattr(mt5, "MT5Broker", FakeMT5Broker)
+    monkeypatch.setattr(
+        mt5_price_action,
+        "fetch_mt5_price_action_snapshot",
+        failing_snapshot,
+    )
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD.vx",
+    )
+
+    with pytest.raises(RuntimeError, match="snapshot failed"):
+        cli_main._mt5_runner_engine_analysis_func(config)()
+
+    assert seen == {"connected": True, "shutdown": True}
 
 
 def test_retired_account_specific_commands_are_not_registered():

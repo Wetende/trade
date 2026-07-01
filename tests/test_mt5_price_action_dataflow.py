@@ -60,6 +60,38 @@ class FakeBroker:
         }
 
 
+class FutureClockFakeBroker(FakeBroker):
+    def __init__(self, *, tick_time_utc, latest_m1_timestamp):
+        super().__init__()
+        self.tick_time_utc = tick_time_utc
+        self.latest_m1_timestamp = latest_m1_timestamp
+
+    def fetch_closed_rates(self, timeframe, count):
+        self.closed_calls.append((timeframe, count))
+        return [
+            {
+                "timestamp": self.latest_m1_timestamp,
+                "open": 4500.0,
+                "high": 4501.0,
+                "low": 4499.0,
+                "close": 4500.5,
+                "volume": 100.0,
+                "spread": 3,
+                "real_volume": 0,
+            }
+        ]
+
+    def current_symbol_snapshot(self):
+        return {
+            "symbol": {"name": "XAUUSD", "bid": 4501.0, "ask": 4501.2, "spread": 20},
+            "tick": {
+                "time_utc": self.tick_time_utc,
+                "bid": 4501.0,
+                "ask": 4501.2,
+            },
+        }
+
+
 def test_fetch_mt5_price_action_snapshot_uses_existing_shape():
     broker = FakeBroker()
 
@@ -85,3 +117,20 @@ def test_fetch_mt5_price_action_snapshot_uses_existing_shape():
     assert snapshot.data_status["timeframes"]["3m"]["available"] is True
     assert snapshot.market_metadata["symbol"]["name"] == "XAUUSD"
     assert snapshot.market_metadata["tick"]["bid"] == 4501.0
+
+
+def test_mt5_snapshot_uses_tick_time_for_candle_freshness():
+    broker = FutureClockFakeBroker(
+        tick_time_utc="2026-07-01T21:55:00+00:00",
+        latest_m1_timestamp="2026-07-01T21:54:00+00:00",
+    )
+
+    snapshot = fetch_mt5_price_action_snapshot(
+        broker,
+        as_of="2026-07-01T17:40:00-04:00",
+        market_timezone="America/New_York",
+    )
+
+    assert snapshot.data_status["healthy"] is True
+    assert snapshot.data_status["timeframes"]["1m"]["latest_age_minutes"] == 1
+    assert snapshot.data_status["reference_source"] == "mt5_tick"
