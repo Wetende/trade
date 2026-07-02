@@ -835,6 +835,7 @@ class FakeBroker:
         self.close_result = None
         self.modify_result = None
         self.symbol_snapshots = []
+        self.remove_position_on_close_failure = False
 
     def connect(self):
         return {
@@ -901,10 +902,13 @@ class FakeBroker:
         volume=None,
     ):
         self.closed_positions.append((dict(position), comment, volume))
-        return dict(
+        result = dict(
             self.close_result
             or {"ok": True, "position": position.get("ticket"), "retcode": 10009}
         )
+        if self.remove_position_on_close_failure and not result.get("ok"):
+            self.positions = []
+        return result
 
     def history_deals(self, symbol, start_utc, end_utc):
         self.history_deals_calls.append((symbol, start_utc, end_utc))
@@ -2637,6 +2641,118 @@ def test_executor_m1_intrabar_exit_resets_after_price_recovers(tmp_path):
     assert recovered["monitoring"][0]["intrabar_adverse_observations"] == 0
     assert third["monitoring"][0]["intrabar_adverse_observations"] == 1
     assert broker.closed_positions == []
+
+
+def test_executor_reconciles_intrabar_close_when_position_already_gone(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10013,
+        "comment": "Invalid request",
+    }
+    broker.remove_position_on_close_failure = True
+    broker.positions = [
+        {
+            "ticket": 777037,
+            "identifier": 777037,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    executor.manage_open_positions()
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert result["actions"][0]["action"] == "NO_ACTION"
+    assert result["actions"][0]["reason"] == "POSITION_ALREADY_CLOSED"
+    journal = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    event_types = [
+        json.loads(line)["event_type"]
+        for line in journal.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "POSITION_CLOSE_RECONCILED" in event_types
+    assert "POSITION_CLOSE_FAILED" not in event_types
+
+
+def test_executor_reconciles_partial_when_position_already_gone(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10036,
+        "comment": "Position doesn't exist",
+    }
+    broker.remove_position_on_close_failure = True
+    broker.positions = [
+        {
+            "ticket": 777038,
+            "identifier": 777038,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2449.0,
+            "take_profit": 2453.0,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=1.0,
+            partial_first_trigger_points=0.5,
+            partial_first_target_volume=0.5,
+            scalp_profit_points=2.0,
+        ),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert result["actions"][0]["action"] == "NO_ACTION"
+    assert result["actions"][0]["reason"] == "POSITION_ALREADY_CLOSED"
+    assert executor.state.load().get("partial_close_state") is None
+
+
+def test_executor_keeps_intrabar_failure_when_position_remains_open(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10013,
+        "comment": "Invalid request",
+    }
+    broker.positions = [
+        {
+            "ticket": 777039,
+            "identifier": 777039,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    executor.manage_open_positions()
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_MANAGEMENT_FAILED"
+    assert result["actions"][0]["action"] == "CLOSE_POSITION_FAILED"
+    assert result["actions"][0]["reason"] == "INTRABAR_ADVERSE_EXIT_FAILED"
 
 
 def test_executor_position_monitoring_persists_mfe_mae_and_thresholds(tmp_path):

@@ -1239,6 +1239,13 @@ class MT5Executor:
             comment="TA intrabar adverse",
         )
         if not bool(close_result.get("ok")):
+            reconciled = self._reconcile_failed_close_race(
+                position,
+                close_result,
+                requested_action="INTRABAR_ADVERSE_EXIT",
+            )
+            if reconciled is not None:
+                return reconciled
             action = {
                 "ticket": position.get("ticket"),
                 "action": "CLOSE_POSITION_FAILED",
@@ -1260,6 +1267,55 @@ class MT5Executor:
             "result": close_result,
         }
         self.journal.append("POSITION_CLOSED_INTRABAR", action)
+        return action
+
+    @staticmethod
+    def _position_identity_values(position: dict[str, Any]) -> set[str]:
+        return {
+            str(value)
+            for value in (
+                position.get("identifier"),
+                position.get("position_id"),
+                position.get("ticket"),
+            )
+            if value not in (None, "")
+        }
+
+    @staticmethod
+    def _is_close_race_response(result: dict[str, Any]) -> bool:
+        comment = str(result.get("comment") or "").strip().lower()
+        return bool(
+            result.get("retcode") in {10013, 10036}
+            or "position doesn't exist" in comment
+            or "position does not exist" in comment
+            or "invalid request" in comment
+        )
+
+    def _reconcile_failed_close_race(
+        self,
+        position: dict[str, Any],
+        close_result: dict[str, Any],
+        *,
+        requested_action: str,
+    ) -> dict[str, Any] | None:
+        if not self._is_close_race_response(close_result):
+            return None
+        target_ids = self._position_identity_values(position)
+        refreshed = self.broker.open_positions(self.config.symbol)
+        still_open = any(
+            target_ids & self._position_identity_values(candidate)
+            for candidate in refreshed
+        )
+        if still_open:
+            return None
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "NO_ACTION",
+            "reason": "POSITION_ALREADY_CLOSED",
+            "requested_action": requested_action,
+            "result": close_result,
+        }
+        self.journal.append("POSITION_CLOSE_RECONCILED", action)
         return action
 
     def _candle_rejection_action(
@@ -1303,6 +1359,13 @@ class MT5Executor:
                 comment="TA candle rejection exit",
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action="CANDLE_REJECTION_FULL_EXIT",
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "CLOSE_POSITION_FAILED",
@@ -1337,6 +1400,13 @@ class MT5Executor:
                 comment="TA candle rejection full",
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action="CANDLE_REJECTION_FULL_EXIT_UNPROTECTED",
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "CLOSE_POSITION_FAILED",
@@ -1664,6 +1734,13 @@ class MT5Executor:
                 volume=close_volume,
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action=reason,
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "PARTIAL_CLOSE_FAILED",
