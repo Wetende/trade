@@ -31,6 +31,7 @@ DEFAULT_MIN_STOP_SPREAD_MULTIPLE = 2.0
 DEFAULT_RISK_REWARD = 1.5
 MINIMUM_STOP_DISTANCE_BUFFER = 0.05
 ACTIVE_PULSE_LOOKBACK_CANDLES = 12
+MIN_IMPULSE_BODY_TO_MEDIAN_RANGE = 0.50
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -44,6 +45,8 @@ ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED = "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
 RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
     "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION"
 )
+IMPULSE_TWO_SIDED_STRUCTURE = "IMPULSE_TWO_SIDED_STRUCTURE"
+WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -1373,6 +1376,8 @@ def _score_candidate(
     candidate: OneMinuteCandidate,
     latest: Candle,
     *,
+    history: list[Candle],
+    current_spread_price: float,
     latest_relation: OneMinuteCandleRelation,
     pressure: OneMinutePressure,
     active_pulse: OneMinuteActivePulse,
@@ -1482,6 +1487,27 @@ def _score_candidate(
         elif candidate.trigger in CLEAN_IMPULSE_ONE_MINUTE_TRIGGERS:
             candidate.score += 2
             candidate.score_reasons.append("CLEAN_IMPULSE_BREAK")
+
+    signal_quality = _candidate_signal_quality(
+        candidate,
+        history,
+        current_spread_price,
+        latest_relation=latest_relation,
+    )
+    candidate.risk["fast_trigger_quality"] = {
+        **candidate.risk.get("fast_trigger_quality", {}),
+        "signal_quality": signal_quality,
+    }
+    if candidate.reaction_type == "impulse_break":
+        if not signal_quality["impulse_one_sided_structure"]:
+            candidate.rejection_reasons.append(
+                IMPULSE_TWO_SIDED_STRUCTURE
+            )
+        if (
+            signal_quality["body_to_recent_median_range"]
+            < MIN_IMPULSE_BODY_TO_MEDIAN_RANGE
+        ):
+            candidate.rejection_reasons.append(WEAK_IMPULSE_BODY)
 
     if candidate.confirmation_type == "mixed":
         candidate.score -= 3
@@ -1711,6 +1737,8 @@ def _build_candidates(
             _score_candidate(
                 candidate,
                 latest,
+                history=history,
+                current_spread_price=current_spread_price,
                 latest_relation=latest_relation,
                 pressure=pressure,
                 active_pulse=active_pulse,
@@ -1876,6 +1904,8 @@ def _candidate_signal_quality(
     candidate: OneMinuteCandidate,
     history: list[Candle],
     current_spread_price: float,
+    *,
+    latest_relation: OneMinuteCandleRelation | None = None,
 ) -> dict[str, Any]:
     latest = history[-1]
     latest_range = candle_range(latest)
@@ -1892,6 +1922,11 @@ def _candidate_signal_quality(
         else lower_wick(latest)
     )
     spread = max(0.0, float(current_spread_price))
+    two_sided_structure = bool(
+        latest_relation is not None
+        and latest_relation.broke_high_zone
+        and latest_relation.broke_low_zone
+    )
     return {
         "confirmation_body": round(latest_body, 4),
         "confirmation_range": round(latest_range, 4),
@@ -1919,6 +1954,10 @@ def _candidate_signal_quality(
             0,
             len(history) - 1 - candidate.level.last_touch_index,
         ),
+        "impulse_min_body_to_recent_median_range": (
+            MIN_IMPULSE_BODY_TO_MEDIAN_RANGE
+        ),
+        "impulse_one_sided_structure": not two_sided_structure,
     }
 
 
@@ -1928,7 +1967,17 @@ def _candidate_to_telemetry(
     history: list[Candle],
     tolerance: float,
     current_spread_price: float,
+    latest_relation: OneMinuteCandleRelation,
 ) -> dict[str, Any]:
+    signal_quality = (
+        candidate.risk.get("fast_trigger_quality", {}).get("signal_quality")
+        or _candidate_signal_quality(
+            candidate,
+            history,
+            current_spread_price,
+            latest_relation=latest_relation,
+        )
+    )
     return {
         "model_name": MODEL_NAME,
         "trigger": candidate.trigger,
@@ -1965,11 +2014,7 @@ def _candidate_to_telemetry(
             history,
             tolerance,
         ),
-        "signal_quality": _candidate_signal_quality(
-            candidate,
-            history,
-            current_spread_price,
-        ),
+        "signal_quality": dict(signal_quality),
     }
 
 
@@ -2245,6 +2290,7 @@ def analyze_one_minute_entry(
             history=history,
             tolerance=tolerance,
             current_spread_price=current_spread_price,
+            latest_relation=latest_relation,
         )
         for candidate in candidates
     ]
@@ -2288,6 +2334,7 @@ def analyze_one_minute_entry(
         history=history,
         tolerance=tolerance,
         current_spread_price=current_spread_price,
+        latest_relation=latest_relation,
     )
     risk = dict(selected.risk)
     story.update(

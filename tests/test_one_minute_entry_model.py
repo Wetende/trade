@@ -322,6 +322,8 @@ def test_signal_quality_metrics_are_shadow_only():
     assert quality["entry_distance_from_level"] > 0
     assert quality["stop_to_spread_ratio"] > 0
     assert quality["touch_age_closed_bars"] == 2
+    assert quality["impulse_min_body_to_recent_median_range"] == 0.50
+    assert quality["impulse_one_sided_structure"] is True
     assert candidate["approved"] is True
 
 
@@ -344,6 +346,32 @@ def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lo
     assert candidate["reaction_type"] == "impulse_break"
     assert "CLEAN_IMPULSE_BREAK" in candidate["score_reasons"]
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
+
+
+def test_one_minute_scalper_rejects_weak_body_impulse_confirmation():
+    candles = _base_history(55) + [
+        _candle(55, 100.2, 101.0, 99.9, 100.7),
+        _candle(56, 100.7, 100.8, 100.0, 100.2),
+        _candle(57, 100.2, 101.02, 99.9, 100.6),
+        _candle(58, 100.6, 100.75, 100.0, 100.3),
+        _candle(59, 100.9, 101.3, 100.85, 101.22),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.20,
+        current_ask_price=101.40,
+    )
+
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    quality = candidate["signal_quality"]
+
+    assert quality["body_to_recent_median_range"] < 0.50
+    assert quality["impulse_one_sided_structure"] is True
+    assert candidate["approved"] is False
+    assert "WEAK_IMPULSE_BODY" in candidate["rejection_reasons"]
 
 
 def test_clean_local_fakeout_can_override_bullish_sixty_candle_pressure():
@@ -1046,7 +1074,7 @@ def test_remote_two_sided_memory_does_not_replace_candidate_gates():
     )
 
 
-def test_one_minute_scalper_allows_strong_local_reversal_with_remote_memory():
+def test_one_minute_scalper_rejects_two_sided_impulse_structure():
     candles = [
         _candle(0, 99.6, 100.15, 99.4, 99.9),
         _candle(1, 99.8, 100.20, 99.5, 100.0),
@@ -1067,10 +1095,12 @@ def test_one_minute_scalper_allows_strong_local_reversal_with_remote_memory():
     relation = payload["market_context"]["one_minute_story"]["latest_candle_relation"]
     assert relation["broke_high_zone"] is True
     assert relation["broke_low_zone"] is True
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
     candidate = _candidate_by_trigger(payload, "CLEAN_LOW_IMPULSE_SELL")
-    assert candidate["approved"] is True
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["impulse_one_sided_structure"] is False
+    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
     assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]
 
 
