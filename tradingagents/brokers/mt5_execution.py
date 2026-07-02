@@ -11,15 +11,18 @@ from typing import Any
 
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
-from tradingagents.brokers.execution_state import ExecutionStateStore
+from tradingagents.brokers.execution_state import (
+    ExecutionStateStore,
+    account_state_namespace,
+)
 from tradingagents.brokers.opening_freshness import stale_consumed_opening
 from tradingagents.brokers.mode_gate import account_safety_from_connection
 from tradingagents.brokers.mt5 import (
     MT5Broker,
     MT5ConnectionConfig,
     MT5OrderRequestBuilder,
+    safe_mt5_connection_status,
 )
-from tradingagents.dataflows.utils import safe_ticker_component
 
 ONE_MINUTE_POSITION_COMMENT = "TA|M1|FAST"
 ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS = 1.0
@@ -240,8 +243,9 @@ class MT5Executor:
             or getattr(config, "execution_state_dir", None)
             or results_dir
         )
-        account_namespace = safe_ticker_component(
-            f"{config.expected_server or config.server}-{config.expected_login or config.login}"
+        account_namespace = account_state_namespace(
+            config.expected_server or config.server,
+            config.expected_login or config.login,
         )
         self.state = ExecutionStateStore(
             Path(effective_state_dir) / account_namespace,
@@ -348,7 +352,10 @@ class MT5Executor:
         account_safety = self._account_safety(connection)
         self.journal.append(
             "CONNECTED",
-            {**connection, "account_safety": account_safety},
+            safe_mt5_connection_status(
+                connection,
+                account_safety=account_safety,
+            ),
         )
 
         if not account_safety["passed"]:
@@ -2122,7 +2129,10 @@ class MT5Executor:
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
         state = {
-            "connection": connection,
+            "connection": safe_mt5_connection_status(
+                connection,
+                account_safety=account_safety,
+            ),
             "account_safety": account_safety,
             "orders": orders,
             "positions": positions,

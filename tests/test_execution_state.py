@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
-from tradingagents.brokers.execution_state import ExecutionStateStore
+from tradingagents.brokers.execution_state import (
+    ExecutionStateStore,
+    account_state_namespace,
+)
 
 
 def _proposal() -> OrderProposal:
@@ -20,6 +23,18 @@ def _proposal() -> OrderProposal:
         status=OrderStatus.PROPOSED,
         reason="A+ setup passed.",
     )
+
+
+def test_account_state_namespace_is_stable_and_does_not_expose_identity():
+    first = account_state_namespace("PrivateBroker-Demo", 123456789)
+    repeated = account_state_namespace("PrivateBroker-Demo", 123456789)
+    second = account_state_namespace("PrivateBroker-Demo", 987654321)
+
+    assert first == repeated
+    assert first != second
+    assert first.startswith("account-")
+    assert "PrivateBroker" not in first
+    assert "123456789" not in first
 
 
 def test_execution_state_records_active_pending_order(tmp_path):

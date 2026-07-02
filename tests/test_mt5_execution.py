@@ -1176,6 +1176,7 @@ def test_executor_result_and_journal_include_account_safety(tmp_path):
     connected = events[0]
     assert connected["event_type"] == "CONNECTED"
     assert connected["payload"]["account_safety"]["trade_mode"] == "DEMO"
+    assert "123456789" not in json.dumps(connected)
 
 
 def test_executor_refuses_when_active_order_exists(tmp_path):
@@ -3134,8 +3135,11 @@ def test_executor_namespaces_stable_state_by_mt5_account(tmp_path):
     )
 
     assert first.state.path != second.state.path
-    assert str(first_config.login) in str(first.state.path)
-    assert str(second_config.login) in str(second.state.path)
+    assert "account-" in str(first.state.path)
+    assert str(first_config.login) not in str(first.state.path)
+    assert str(second_config.login) not in str(second.state.path)
+    assert first_config.server not in str(first.state.path)
+    assert second_config.server not in str(second.state.path)
 
 
 def test_executor_tags_one_minute_order_for_restart_safe_management(tmp_path):

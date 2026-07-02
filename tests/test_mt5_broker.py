@@ -9,6 +9,7 @@ from tradingagents.brokers.mt5 import (
     MT5BrokerError,
     MT5ConnectionConfig,
     MT5OrderRequestBuilder,
+    safe_mt5_connection_status,
 )
 
 
@@ -2601,8 +2602,13 @@ def test_mt5_broker_rejects_unexpected_account_login():
         expected_server="ExampleBroker-Demo",
     )
 
-    with pytest.raises(MT5BrokerError, match="unexpected MT5 account login"):
+    with pytest.raises(
+        MT5BrokerError, match="unexpected MT5 account login"
+    ) as exc_info:
         MT5Broker(config, mt5_module=fake_mt5).connect()
+
+    assert "123456789" not in str(exc_info.value)
+    assert "987654321" not in str(exc_info.value)
 
 
 def test_mt5_broker_rejects_unexpected_account_server():
@@ -2616,5 +2622,79 @@ def test_mt5_broker_rejects_unexpected_account_server():
         expected_server="OtherBroker-Demo",
     )
 
-    with pytest.raises(MT5BrokerError, match="unexpected MT5 account server"):
+    with pytest.raises(
+        MT5BrokerError, match="unexpected MT5 account server"
+    ) as exc_info:
         MT5Broker(config, mt5_module=fake_mt5).connect()
+
+    assert "ExampleBroker-Demo" not in str(exc_info.value)
+    assert "OtherBroker-Demo" not in str(exc_info.value)
+
+
+def test_safe_mt5_connection_status_excludes_private_account_metadata():
+    connection = {
+        "connected": True,
+        "account": {
+            "login": 123456789,
+            "server": "PrivateBroker-Demo",
+            "name": "Private Trader",
+            "company": "Private Broker LLC",
+            "balance": 12345.67,
+            "equity": 12000.00,
+            "trade_mode_label": "DEMO",
+        },
+        "symbol": {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "bid": 3340.10,
+            "ask": 3340.35,
+            "server_time": 1783000000,
+        },
+    }
+    account_safety = {
+        "require_demo": True,
+        "trade_mode": "DEMO",
+        "passed": True,
+        "reason": None,
+    }
+
+    status = safe_mt5_connection_status(
+        connection,
+        account_safety=account_safety,
+        symbol_snapshot={
+            "symbol": {
+                "name": "XAUUSD",
+                "digits": 2,
+                "point": 0.01,
+                "bid": 3340.10,
+                "ask": 3340.35,
+                "spread_price": 0.25,
+            },
+            "tick": {"time_utc": "2026-07-02T12:00:00+00:00"},
+            "terminal": {
+                "trade_allowed": True,
+                "tradeapi_disabled": False,
+                "path": "C:/Private/Terminal",
+            },
+        },
+        open_order_count=0,
+        open_position_count=0,
+    )
+
+    serialized = str(status)
+    for private_value in (
+        "123456789",
+        "PrivateBroker-Demo",
+        "Private Trader",
+        "Private Broker LLC",
+        "12345.67",
+        "C:/Private/Terminal",
+    ):
+        assert private_value not in serialized
+    assert status["account_safety"] == account_safety
+    assert status["symbol"]["name"] == "XAUUSD"
+    assert status["symbol"]["trade_allowed"] is True
+    assert status["symbol"]["tradeapi_disabled"] is False
+    assert status["open_order_count"] == 0
+    assert status["open_position_count"] == 0

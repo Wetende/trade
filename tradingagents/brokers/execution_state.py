@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,6 +10,13 @@ from typing import Any
 
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.dataflows.utils import safe_ticker_component
+
+
+def account_state_namespace(server: Any, login: Any) -> str:
+    """Return a stable account namespace without exposing broker identity."""
+    identity = f"{server or ''}\0{login or ''}".encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:20]
+    return f"account-{digest}"
 
 
 class ExecutionStateStore:

@@ -496,15 +496,41 @@ def backtest(
 
 
 @app.command("broker-probe")
-def broker_probe():
+def broker_probe(
+    json_only: bool = typer.Option(
+        False,
+        "--json-only",
+        help="Print only sanitized machine-readable JSON.",
+    ),
+):
     """Check MT5 account connectivity without placing orders."""
     _load_runtime_env()
-    from tradingagents.brokers.mt5 import MT5Broker, MT5BrokerError, MT5ConnectionConfig
+    from tradingagents.brokers.mode_gate import account_safety_from_connection
+    from tradingagents.brokers.mt5 import (
+        MT5Broker,
+        MT5BrokerError,
+        MT5ConnectionConfig,
+        safe_mt5_connection_status,
+    )
 
     try:
         config = MT5ConnectionConfig.from_env()
         broker = MT5Broker(config)
-        result = broker.connect()
+        connection = broker.connect()
+        snapshot = broker.current_symbol_snapshot()
+        orders = broker.open_orders(config.symbol)
+        positions = broker.open_positions(config.symbol)
+        account_safety = account_safety_from_connection(
+            connection,
+            require_demo=config.require_demo_account,
+        )
+        result = safe_mt5_connection_status(
+            connection,
+            account_safety=account_safety,
+            symbol_snapshot=snapshot,
+            open_order_count=len(orders),
+            open_position_count=len(positions),
+        )
     except MT5BrokerError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
@@ -512,7 +538,8 @@ def broker_probe():
         if "broker" in locals():
             broker.shutdown()
 
-    console.print("[green]MT5 account connection verified.[/green]")
+    if not json_only:
+        console.print("[green]MT5 account connection verified.[/green]")
     console.print(json.dumps(result, indent=2, sort_keys=True))
 
 

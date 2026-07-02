@@ -27,6 +27,89 @@ def test_mt5_execute_command_help_mentions_proposal():
     assert "--proposal" in result.output
 
 
+def test_broker_probe_outputs_only_sanitized_operator_status(monkeypatch):
+    from tradingagents.brokers import mt5
+
+    config = mt5.MT5ConnectionConfig(
+        login=123456789,
+        password="private-password",
+        server="PrivateBroker-Demo",
+        expected_login=123456789,
+        expected_server="PrivateBroker-Demo",
+        require_demo_account=True,
+    )
+
+    class Broker:
+        def __init__(self, received_config):
+            assert received_config is config
+
+        def connect(self):
+            return {
+                "connected": True,
+                "account": {
+                    "login": 123456789,
+                    "server": "PrivateBroker-Demo",
+                    "name": "Private Trader",
+                    "balance": 12345.67,
+                    "trade_mode_label": "DEMO",
+                },
+                "symbol": {"name": "XAUUSD", "bid": 3340.10, "ask": 3340.35},
+            }
+
+        def current_symbol_snapshot(self):
+            return {
+                "symbol": {
+                    "name": "XAUUSD",
+                    "bid": 3340.10,
+                    "ask": 3340.35,
+                    "spread_price": 0.25,
+                },
+                "tick": {"time_utc": "2026-07-02T12:00:00+00:00"},
+                "terminal": {
+                    "trade_allowed": True,
+                    "tradeapi_disabled": False,
+                    "path": "C:/Private/Terminal",
+                },
+            }
+
+        def open_orders(self, symbol):
+            return []
+
+        def open_positions(self, symbol):
+            return []
+
+        def shutdown(self):
+            pass
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setattr(
+        mt5.MT5ConnectionConfig,
+        "from_env",
+        classmethod(lambda cls: config),
+    )
+    monkeypatch.setattr(mt5, "MT5Broker", Broker)
+
+    result = runner.invoke(app, ["broker-probe", "--json-only"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["account_safety"]["passed"] is True
+    assert payload["account_safety"]["trade_mode"] == "DEMO"
+    assert payload["open_order_count"] == 0
+    assert payload["open_position_count"] == 0
+    assert payload["symbol"]["trade_allowed"] is True
+    assert payload["symbol"]["tradeapi_disabled"] is False
+    for private_value in (
+        "123456789",
+        "private-password",
+        "PrivateBroker-Demo",
+        "Private Trader",
+        "12345.67",
+        "C:/Private/Terminal",
+    ):
+        assert private_value not in result.output
+
+
 def test_mt5_monitor_command_exists():
     result = runner.invoke(app, ["mt5-monitor", "--help"])
 
