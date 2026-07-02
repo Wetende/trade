@@ -212,9 +212,9 @@ def _safe_quote_snapshot(
     return {
         "observed_at_utc": observed_at_utc.astimezone(timezone.utc).isoformat(),
         "tick_time_utc": tick.get("time_utc"),
-        "bid": bid,
-        "ask": ask,
-        "spread_price": spread,
+        "bid": round(bid, 8) if bid is not None else None,
+        "ask": round(ask, 8) if ask is not None else None,
+        "spread_price": round(spread, 8) if spread is not None else None,
     }
 
 
@@ -781,6 +781,7 @@ class MT5Executor:
         if not positions:
             state = self.state.load()
             if state.get("active_position_ticket") is not None:
+                self._archive_active_position_telemetry(state)
                 self.state.clear_trade()
         legacy_mode = break_even_threshold_pips is not None and exit_management is None
         management = exit_management or self.exit_management
@@ -1122,6 +1123,36 @@ class MT5Executor:
         )
 
         excursion_state = state.setdefault("position_excursion_state", {})
+        first_observations = state.setdefault(
+            "position_first_observation",
+            {},
+        )
+        first_observation = first_observations.get(position_key)
+        if not isinstance(first_observation, dict):
+            observed_at = self._timeline_now_utc()
+            opened_at = _parse_utc_datetime(position.get("opened_at_utc"))
+            first_observation = {
+                "position_id": position_key,
+                "opened_at_utc": (
+                    opened_at.isoformat() if opened_at is not None else None
+                ),
+                "entry_price": entry,
+                "observed_at_utc": observed_at.isoformat(),
+                "quote": _safe_quote_snapshot(
+                    {"symbol": symbol_info},
+                    observed_at,
+                ),
+                "fill_to_observation_seconds": (
+                    round((observed_at - opened_at).total_seconds(), 4)
+                    if opened_at is not None
+                    else None
+                ),
+            }
+            first_observations[position_key] = first_observation
+            self.journal.append(
+                "POSITION_FIRST_OBSERVED",
+                first_observation,
+            )
         previous = dict(excursion_state.get(position_key) or {})
         previous_mfe = float(previous.get("mfe_points", 0.0))
         previous_mae = float(previous.get("mae_points", 0.0))
@@ -1151,6 +1182,31 @@ class MT5Executor:
         self.state.save(state)
         self.journal.append("POSITION_MONITORED", snapshot)
         return snapshot
+
+    def _archive_active_position_telemetry(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        position_id = state.get("active_position_ticket")
+        if position_id in (None, ""):
+            return None
+        key = str(position_id)
+        telemetry = {
+            "position_id": key,
+            "placed_at_utc": state.get("placed_at_utc"),
+            "proposal": state.get("proposal"),
+            "execution_timeline": state.get("execution_timeline"),
+            "position_first_observation": (
+                (state.get("position_first_observation") or {}).get(key)
+            ),
+            "position_excursion": (
+                (state.get("position_excursion_state") or {}).get(key)
+            ),
+            "archived_at_utc": self._timeline_now_utc().isoformat(),
+        }
+        self.state.archive_position_telemetry(key, telemetry)
+        self.journal.append("POSITION_EXCURSION_ARCHIVED", telemetry)
+        return telemetry
 
     def _intrabar_adverse_action(
         self,
@@ -1913,7 +1969,7 @@ class MT5Executor:
             ),
             2,
         )
-        return {
+        summary = {
             **self._trade_fill_summary(position_id, entry_deal),
             "exit_deal_ticket": self._deal_int(last_exit.get("ticket")),
             "exit_order": self._deal_int(last_exit.get("order")),
@@ -1923,6 +1979,51 @@ class MT5Executor:
             "outcome": self._deal_outcome(last_exit, profit),
             "exit_comment": last_exit.get("comment"),
         }
+        completed = (
+            self.state.load().get("completed_position_telemetry") or {}
+        ).get(str(position_id))
+        if not isinstance(completed, dict):
+            return summary
+
+        excursion = completed.get("position_excursion") or {}
+        sampled_mfe = self._deal_float(excursion.get("mfe_points"))
+        sampled_mae = self._deal_float(excursion.get("mae_points"))
+        entry_price = summary["entry_price"]
+        exit_price = summary["exit_price"]
+        side = summary.get("side")
+        exit_movement = (
+            exit_price - entry_price
+            if side == "BUY"
+            else entry_price - exit_price
+        )
+        summary.update(
+            {
+                "mfe_points": round(max(0.0, sampled_mfe, exit_movement), 4),
+                "mae_points": round(min(0.0, sampled_mae, exit_movement), 4),
+                "excursion_source": "one_second_samples_plus_exit",
+                "first_position_observation": completed.get(
+                    "position_first_observation"
+                ),
+                "execution_timeline": completed.get("execution_timeline"),
+            }
+        )
+        proposal = completed.get("proposal") or {}
+        proposed_entry = _first_float(proposal, "entry_price")
+        if proposed_entry is not None:
+            summary["entry_drift"] = round(
+                (entry_price - proposed_entry)
+                * (1.0 if side == "BUY" else -1.0),
+                4,
+            )
+        timeline = completed.get("execution_timeline") or {}
+        submitted_at = _parse_utc_datetime(timeline.get("submitted_at_utc"))
+        opened_at = _parse_utc_datetime(summary.get("opened_at_utc"))
+        if submitted_at is not None and opened_at is not None:
+            summary["order_wait_seconds"] = round(
+                (opened_at - submitted_at).total_seconds(),
+                4,
+            )
+        return summary
 
     @staticmethod
     def _deal_outcome(exit_deal: dict[str, Any], profit: float) -> str:
