@@ -74,15 +74,16 @@ problem but did not reject a trade.
 Sixteen of 18 fills were impulse breaks. They produced four wins, twelve
 losses, and `-616.80`.
 
-Eleven trades were selected when the latest closed candle had both
-`broke_high_zone` and `broke_low_zone`. Those trades produced two wins, nine
-losses, and `-463.80`. Across both sessions, 19 two-sided impulse trades
-produced five wins, fourteen losses, and `-655.00`.
+The global two-sided relation was negative but included remote opening memory,
+so it is not a valid hard veto under candidate-local semantics. Direct review
+showed a more precise defect: after the highest-touch local level failed an
+impulse-quality gate, the engine could select an economically overlapping
+lower-touch level from the same candle and place essentially the same trade.
 
-A clean directional continuation cannot simultaneously use the same candle as
-evidence of clean upward and downward structural breaks. The prior
-`OVERLAPPING_CHOP` and local failed-break conflict checks did not cover this
-case.
+Across both sessions, 15 impulse trades entered less than `0.80` from their
+selected repeated level. They produced four wins, eleven losses, and
+`-687.00`. The 12 impulses displaced by at least `0.80` produced four wins,
+eight losses, and `-236.00`.
 
 Three documented impulse losses across the sessions had confirmation bodies
 below `0.50` of the preceding 12-candle median range. A candle can close near
@@ -124,14 +125,15 @@ management threshold change is supported.
 
 For impulse candidates only:
 
-1. Reject when the latest fully closed M1 candle broke both a repeated high
-   zone and a repeated low zone.
-2. Reject when its body is below `0.50` of the prior 12 closed candles' median
+1. Consolidate economically overlapping same-side repeated levels and retain
+   the freshest, highest-touch deterministic representative.
+2. Reject when entry displacement from that representative is below `0.80`.
+3. Reject when its body is below `0.50` of the prior 12 closed candles' median
    range.
 
 Keep pressure and active pulse contextual. Keep every trigger family. Do not
 add a generic cooldown, score increase, spread retune, volume change, or
-management change.
+management change. Keep remote two-sided memory diagnostic rather than a veto.
 
 ## Safety state
 

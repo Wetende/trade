@@ -32,6 +32,7 @@ DEFAULT_RISK_REWARD = 1.5
 MINIMUM_STOP_DISTANCE_BUFFER = 0.05
 ACTIVE_PULSE_LOOKBACK_CANDLES = 12
 MIN_IMPULSE_BODY_TO_MEDIAN_RANGE = 0.50
+MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL = 0.80
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -45,7 +46,7 @@ ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED = "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
 RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
     "RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION"
 )
-IMPULSE_TWO_SIDED_STRUCTURE = "IMPULSE_TWO_SIDED_STRUCTURE"
+IMPULSE_INSUFFICIENT_DISPLACEMENT = "IMPULSE_INSUFFICIENT_DISPLACEMENT"
 WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
@@ -262,6 +263,48 @@ def _detect_equal_levels(
     return sorted(
         levels,
         key=lambda item: (-item.touch_count, -item.last_touch_index, item.spread),
+    )
+
+
+def _consolidate_candidate_levels(
+    levels: list[OneMinuteLevel],
+    *,
+    tolerance: float,
+    current_spread_price: float,
+) -> list[OneMinuteLevel]:
+    """Keep one deterministic representative per local same-side zone."""
+    radius = max(0.0, float(tolerance)) + max(
+        0.0,
+        float(current_spread_price),
+    )
+    ranked = sorted(
+        levels,
+        key=lambda item: (
+            -item.last_touch_index,
+            -item.touch_count,
+            item.spread,
+            item.side,
+            item.level,
+        ),
+    )
+    retained: list[OneMinuteLevel] = []
+    for level in ranked:
+        if any(
+            existing.side == level.side
+            and abs(existing.level - level.level) <= radius
+            for existing in retained
+        ):
+            continue
+        retained.append(level)
+    return sorted(
+        retained,
+        key=lambda item: (
+            item.side,
+            -item.last_touch_index,
+            -item.touch_count,
+            item.spread,
+            item.level,
+        ),
     )
 
 
@@ -728,7 +771,11 @@ def _is_clean_impulse_break(
     if level.touch_count < 2:
         return False
     extension = abs(float(latest.close) - float(level.level))
-    max_extension = max(tolerance * 3.0, current_spread_price * 2.0, 0.45)
+    max_extension = max(
+        tolerance * 3.0,
+        current_spread_price * 2.0,
+        MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL + current_spread_price,
+    )
     if extension > max_extension:
         return False
     if direction == "BUY":
@@ -1454,7 +1501,7 @@ def _score_candidate(
             max_extension = max(
                 float(candidate.level.tolerance) * 3.0,
                 current_spread_price * 2.0,
-                0.45,
+                MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL + current_spread_price,
             )
         else:
             max_extension = max(float(candidate.level.tolerance) * 2.0, 0.30)
@@ -1492,16 +1539,18 @@ def _score_candidate(
         candidate,
         history,
         current_spread_price,
-        latest_relation=latest_relation,
     )
     candidate.risk["fast_trigger_quality"] = {
         **candidate.risk.get("fast_trigger_quality", {}),
         "signal_quality": signal_quality,
     }
     if candidate.reaction_type == "impulse_break":
-        if not signal_quality["impulse_one_sided_structure"]:
+        if (
+            signal_quality["entry_distance_from_level"]
+            < MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL
+        ):
             candidate.rejection_reasons.append(
-                IMPULSE_TWO_SIDED_STRUCTURE
+                IMPULSE_INSUFFICIENT_DISPLACEMENT
             )
         if (
             signal_quality["body_to_recent_median_range"]
@@ -1670,6 +1719,11 @@ def _build_candidates(
         ):
             continue
         levels.append(latest_level)
+    levels = _consolidate_candidate_levels(
+        levels,
+        tolerance=tolerance,
+        current_spread_price=current_spread_price,
+    )
     touched_low_level = any(
         level.side == "low" and abs(float(latest.low) - level.level) <= tolerance
         for level in levels
@@ -1904,8 +1958,6 @@ def _candidate_signal_quality(
     candidate: OneMinuteCandidate,
     history: list[Candle],
     current_spread_price: float,
-    *,
-    latest_relation: OneMinuteCandleRelation | None = None,
 ) -> dict[str, Any]:
     latest = history[-1]
     latest_range = candle_range(latest)
@@ -1922,11 +1974,6 @@ def _candidate_signal_quality(
         else lower_wick(latest)
     )
     spread = max(0.0, float(current_spread_price))
-    two_sided_structure = bool(
-        latest_relation is not None
-        and latest_relation.broke_high_zone
-        and latest_relation.broke_low_zone
-    )
     return {
         "confirmation_body": round(latest_body, 4),
         "confirmation_range": round(latest_range, 4),
@@ -1957,7 +2004,9 @@ def _candidate_signal_quality(
         "impulse_min_body_to_recent_median_range": (
             MIN_IMPULSE_BODY_TO_MEDIAN_RANGE
         ),
-        "impulse_one_sided_structure": not two_sided_structure,
+        "impulse_min_entry_distance_from_level": (
+            MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL
+        ),
     }
 
 
@@ -1967,7 +2016,6 @@ def _candidate_to_telemetry(
     history: list[Candle],
     tolerance: float,
     current_spread_price: float,
-    latest_relation: OneMinuteCandleRelation,
 ) -> dict[str, Any]:
     signal_quality = (
         candidate.risk.get("fast_trigger_quality", {}).get("signal_quality")
@@ -1975,7 +2023,6 @@ def _candidate_to_telemetry(
             candidate,
             history,
             current_spread_price,
-            latest_relation=latest_relation,
         )
     )
     return {
@@ -2290,7 +2337,6 @@ def analyze_one_minute_entry(
             history=history,
             tolerance=tolerance,
             current_spread_price=current_spread_price,
-            latest_relation=latest_relation,
         )
         for candidate in candidates
     ]
@@ -2334,7 +2380,6 @@ def analyze_one_minute_entry(
         history=history,
         tolerance=tolerance,
         current_spread_price=current_spread_price,
-        latest_relation=latest_relation,
     )
     risk = dict(selected.risk)
     story.update(

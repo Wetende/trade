@@ -18,7 +18,7 @@ session closed 18 trades for `-630.80`. Combined:
 | Impulse | 27 | 8-19 | -923.00 |
 | Fakeout | 4 | 0-4 | -304.00 |
 | Respect | 8 | 4-4 | -7.80 |
-| Impulse with both high and low zones broken | 19 | 5-14 | -655.00 |
+| Impulse less than 0.80 from its repeated level | 15 | 4-11 | -687.00 |
 
 In the evidence session, 12 of 13 losses recorded zero sampled MFE. Fill drift
 was negligible. Ten one-second adverse exits lost `-602.00` versus an
@@ -34,11 +34,12 @@ and should not treat every new candle at every new level as the same opening.
 
 ## Considered approaches
 
-### A. Impulse-specific structural and body gates
+### A. Candidate-local consolidation and impulse quality gates
 
-Reject only impulse candidates whose confirmation is structurally two-sided or
-whose body is too small relative to recent M1 movement. This preserves every
-trigger family and directly tests the dominant failure.
+Consolidate economically overlapping same-side levels, then reject only
+impulse candidates whose displacement from that representative level or whose
+body is too small. This preserves every trigger family and candidate-local
+memory while directly testing the dominant failure.
 
 ### B. Quarantine impulse and fakeout families
 
@@ -56,19 +57,40 @@ Approach A is selected.
 
 ## Deterministic behavior
 
-### One-sided structure
+### Candidate-local level consolidation
 
-For `impulse_break` candidates only, inspect the existing
-`OneMinuteCandleRelation` derived from the latest fully closed M1 candle and
-candidate-local opening memory.
+Before candidate construction, consolidate repeated levels on the same side
+when their distance is no greater than:
 
-Reject the candidate with `IMPULSE_TWO_SIDED_STRUCTURE` when both are true:
+```text
+level tolerance + current spread
+```
 
-- `broke_high_zone`
-- `broke_low_zone`
+Retain one deterministic representative in this order:
 
-A clean continuation candle cannot simultaneously be evidence of clean upward
-and downward structural breaks. Respect and fakeout candidates are unaffected.
+1. fresher last touch;
+2. greater touch count;
+3. narrower observed level spread;
+4. stable numeric level order.
+
+This prevents a rejected high-priority level from being replaced by an
+economically indistinguishable lower-touch level. Opposite-side and remote
+levels remain independent.
+
+### Minimum impulse displacement
+
+For `impulse_break` candidates only, require the proposed entry to be at least
+`0.80` from the representative repeated level. Reject with
+`IMPULSE_INSUFFICIENT_DISPLACEMENT` below that threshold.
+
+The existing maximum-extension guard remains. Its minimum upper bound is the
+`0.80` displacement threshold plus current spread so bid/ask quote selection
+cannot make the valid displacement interval impossible.
+
+Across the two reviewed sessions, 15 impulses below `0.80` produced four wins,
+eleven losses, and `-687.00`. Impulses at or above `0.80` produced four wins,
+eight losses, and `-236.00`. The threshold is specific to the current XAUUSD
+One Minute Scalper.
 
 ### Decisive body
 
@@ -87,13 +109,15 @@ their existing semantics. The forming candle is never used.
 Every candidate continues to emit `signal_quality`. Add these explicit fields:
 
 - `impulse_min_body_to_recent_median_range`
-- `impulse_one_sided_structure`
+- `impulse_min_entry_distance_from_level`
 
 Rejected candidates retain their score and ranking telemetry and include the
 new reason codes. At most one approved candidate remains possible.
 
 ## Rules deliberately unchanged
 
+- Remote or global opening memory cannot veto a candidate.
+- The global two-sided relation remains diagnostic telemetry only.
 - No global pressure or active-pulse veto.
 - No trigger-family ban.
 - No generic cooldown.
@@ -107,9 +131,10 @@ new reason codes. At most one approved candidate remains possible.
 
 Add deterministic tests and replay coverage proving:
 
-- a two-sided impulse is rejected;
-- a one-sided impulse remains valid;
+- an impulse below minimum displacement is rejected;
+- an impulse above minimum displacement remains valid;
 - a weak-body impulse is rejected;
+- overlapping same-side levels cannot bypass a rejection;
 - respect and fakeout candidates are not subject to the new impulse gates;
 - current clean/mixed controls remain stable;
 - closed-M1-only behavior remains intact;
@@ -117,10 +142,11 @@ Add deterministic tests and replay coverage proving:
 - telemetry includes both new fields and reason codes;
 - focused and complete suites pass.
 
-Create a sanitized closed-M1 replay fixture from the evidence session containing
-at least one losing two-sided impulse, one losing weak-body impulse, and one
-winning one-sided impulse. The fixture contains market bars only, with no
-account, order, deal, path, or terminal metadata.
+Create a sanitized closed-M1 replay fixture from the evidence session
+containing at least one losing insufficient-displacement impulse, one losing
+weak-body impulse, and one winning sufficiently displaced impulse. The fixture
+contains market bars only, with no account, order, deal, path, or terminal
+metadata.
 
 ## Deployment
 

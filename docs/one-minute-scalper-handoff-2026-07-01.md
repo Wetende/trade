@@ -642,18 +642,21 @@ docs/superpowers/plans/2026-07-02-one-minute-scalper-impulse-quality.md
 ```
 
 Across the first two reviewed sessions, impulse entries produced 8 wins,
-19 losses, and `-923.00`. Nineteen impulses used candles that simultaneously
-broke repeated high and low zones; those trades produced 5 wins, 14 losses,
-and `-655.00`.
+19 losses, and `-923.00`. Fifteen impulses entered less than `0.80` from their
+selected repeated level; those trades produced 4 wins, 11 losses, and
+`-687.00`.
 
 The model now rejects impulse candidates with:
 
 ```text
-IMPULSE_TWO_SIDED_STRUCTURE
+IMPULSE_INSUFFICIENT_DISPLACEMENT
 WEAK_IMPULSE_BODY
 ```
 
-The body guard compares the latest fully closed M1 candle with the preceding
-12 fully closed M1 ranges and requires a ratio of at least `0.50`. No trigger
-family, pressure direction, active-pulse direction, or management behavior was
-globally disabled.
+Economically overlapping same-side levels are consolidated before the
+displacement guard is applied. The existing maximum-extension guard remains;
+its minimum upper bound is the `0.80` threshold plus current spread. The body
+guard compares the latest fully closed M1 candle with the preceding 12 fully
+closed M1 ranges and requires a ratio of at least `0.50`. No trigger family,
+remote-memory relation, pressure direction, active-pulse direction, or
+management behavior was globally disabled.

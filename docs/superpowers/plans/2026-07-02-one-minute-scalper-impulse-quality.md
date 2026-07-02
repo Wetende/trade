@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reject structurally two-sided and economically weak M1 impulse confirmations while preserving every trigger family and the existing execution and management behavior.
+**Goal:** Consolidate overlapping candidate-local levels and reject
+insufficiently displaced or weak M1 impulse confirmations while preserving
+every trigger family and the existing execution and management behavior.
 
 **Architecture:** Extend candidate scoring with two impulse-only deterministic
 gates calculated from the latest fully closed M1 candle and the preceding 12
@@ -28,7 +30,7 @@ Record the 18-trade session and two-session comparison:
 evidence session: 18 trades, 5 wins, 13 losses, -630.80
 combined sessions: 39 trades, 12 wins, 27 losses, -1,234.80
 combined impulse: 27 trades, 8 wins, 19 losses, -923.00
-combined two-sided impulse: 19 trades, 5 wins, 14 losses, -655.00
+combined impulse displacement under 0.80: 15 trades, 4 wins, 11 losses, -687.00
 rapid later trades: 15 trades, 4 wins, 11 losses, -607.00
 evidence-session zero-MFE losses: 12 of 13
 intrabar loss saved versus original stops: approximately 160.78
@@ -68,12 +70,12 @@ git commit -m "docs: analyze post-change impulse losses"
 Add tests that construct 60 closed M1 candles and assert:
 
 ```python
-assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
+assert "IMPULSE_INSUFFICIENT_DISPLACEMENT" in candidate["rejection_reasons"]
 assert candidate["approved"] is False
 ```
 
-for an impulse whose latest relation has both `broke_high_zone` and
-`broke_low_zone`.
+for an impulse whose proposed entry is less than `0.80` from its
+representative repeated level.
 
 Add a weak-body impulse test:
 
@@ -83,8 +85,9 @@ assert "WEAK_IMPULSE_BODY" in candidate["rejection_reasons"]
 assert candidate["approved"] is False
 ```
 
-Add controls proving a one-sided impulse remains approved and respect/fakeout
-candidates never receive either impulse-only rejection.
+Add controls proving a sufficiently displaced impulse remains approved,
+remote memory does not veto it, and respect/fakeout candidates never receive
+either impulse-only rejection.
 
 - [ ] **Step 2: Run RED**
 
@@ -92,7 +95,7 @@ Run:
 
 ```powershell
 & '..\..\.venv\Scripts\python.exe' -m pytest `
-  tests/test_one_minute_entry_model.py -k "two_sided or weak_impulse or one_sided" -q
+  tests/test_one_minute_entry_model.py -k "displacement or weak_impulse" -q
 ```
 
 Expected: failures because the new reason codes do not exist.
@@ -102,15 +105,20 @@ Expected: failures because the new reason codes do not exist.
 In `one_minute_entry_model.py`, define:
 
 ```python
-IMPULSE_TWO_SIDED_STRUCTURE = "IMPULSE_TWO_SIDED_STRUCTURE"
+IMPULSE_INSUFFICIENT_DISPLACEMENT = "IMPULSE_INSUFFICIENT_DISPLACEMENT"
 WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
 MIN_IMPULSE_BODY_TO_MEDIAN_RANGE = 0.50
+MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL = 0.80
 ```
 
 Extract a helper that returns the existing signal-quality dictionary from a
 candidate, history, and spread. Use it in both candidate scoring and telemetry.
 
 - [ ] **Step 4: Implement minimal impulse gates**
+
+First consolidate same-side levels whose distance is no greater than
+`tolerance + current_spread_price`. Prefer fresher last touch, greater touch
+count, narrower level spread, then stable numeric level order.
 
 Before final candidate approval:
 
@@ -121,13 +129,12 @@ if candidate.reaction_type == "impulse_break":
         history,
         current_spread_price,
     )
-    two_sided = (
-        latest_relation.broke_high_zone
-        and latest_relation.broke_low_zone
-    )
-    if two_sided:
+    if (
+        quality["entry_distance_from_level"]
+        < MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL
+    ):
         candidate.rejection_reasons.append(
-            IMPULSE_TWO_SIDED_STRUCTURE
+            IMPULSE_INSUFFICIENT_DISPLACEMENT
         )
     if (
         quality["body_to_recent_median_range"]
@@ -140,8 +147,12 @@ Store the quality dictionary under `fast_trigger_quality` and emit:
 
 ```python
 "impulse_min_body_to_recent_median_range": 0.50
-"impulse_one_sided_structure": not two_sided
+"impulse_min_entry_distance_from_level": 0.80
 ```
+
+Keep the existing maximum-extension guard, but make its minimum upper bound
+`MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL + current_spread_price`. This preserves
+the late-entry guard while leaving a feasible bid/ask-adjusted interval.
 
 - [ ] **Step 5: Run GREEN and regressions**
 
@@ -173,8 +184,8 @@ git commit -m "fix: require clean M1 impulse confirmation"
 Use read-only MT5 M1 history to extract market bars only for windows ending at:
 
 ```text
-2026-07-02T10:41:00+00:00 losing two-sided impulse
-2026-07-02T10:58:00+00:00 winning one-sided impulse
+2026-07-02T09:43:00+00:00 losing insufficient-displacement impulse
+2026-07-02T10:58:00+00:00 winning sufficiently displaced impulse
 2026-07-02T11:52:00+00:00 losing weak-body impulse
 ```
 
@@ -184,12 +195,12 @@ deal, login, server, terminal, path, or balance metadata.
 - [ ] **Step 2: Write historical replay regression tests**
 
 Assert the two loss patterns are rejected with their exact reason codes and the
-one-sided winner remains approved. The unit tests in Task 2 supplied the
+sufficiently displaced winner remains approved. The unit tests in Task 2 supplied the
 mandatory failing tests before production code; these historical tests prove
 the same behavior against captured market bars. Update prior replay
-expectations only where the newly documented gate intentionally rejects a
-previously diagnostic two-sided impulse. Keep a known one-sided impulse as an
-approved regression.
+expectations only where the newly documented gate intentionally rejects an
+insufficiently displaced impulse. Keep a known sufficiently displaced impulse
+as an approved regression.
 
 - [ ] **Step 3: Run replay regressions**
 

@@ -33,13 +33,27 @@ def _impulse_quality_bars():
     )["bars"]
 
 
-def _decision_from_bars(bars, timestamp):
+def _decision_from_bars(
+    bars,
+    timestamp,
+    *,
+    current_bid_price=None,
+    current_spread_price=None,
+):
     index = next(
         index for index, bar in enumerate(bars) if bar["timestamp"] == timestamp
     )
     current = bars[index]
-    spread = max(0.01, float(current["spread"]) * 0.01)
-    bid = float(current["close"])
+    spread = (
+        max(0.01, float(current["spread"]) * 0.01)
+        if current_spread_price is None
+        else current_spread_price
+    )
+    bid = (
+        float(current["close"])
+        if current_bid_price is None
+        else current_bid_price
+    )
     config = {
         **DEFAULT_CONFIG["price_action"],
         "current_spread_price": spread,
@@ -107,20 +121,25 @@ def test_impulse_quality_fixture_contains_market_bars_only():
     }
 
 
-def test_evidence_replay_rejects_two_sided_impulse_loss():
+def test_evidence_replay_rejects_insufficient_displacement_impulse_loss():
     payload = _decision_from_bars(
         _impulse_quality_bars(),
-        "2026-07-02T10:41:00+00:00",
+        "2026-07-02T09:43:00+00:00",
+        current_bid_price=4069.48,
+        current_spread_price=0.29,
     )
     candidate = payload["telemetry"]["selected_candidate"]
 
-    assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
     assert candidate["approved"] is False
-    assert candidate["signal_quality"]["impulse_one_sided_structure"] is False
-    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
+    assert candidate["signal_quality"]["entry_distance_from_level"] < 0.80
+    assert (
+        "IMPULSE_INSUFFICIENT_DISPLACEMENT"
+        in candidate["rejection_reasons"]
+    )
 
 
-def test_evidence_replay_preserves_one_sided_impulse_winner():
+def test_evidence_replay_preserves_sufficiently_displaced_impulse_winner():
     payload = _decision_from_bars(
         _impulse_quality_bars(),
         "2026-07-02T10:58:00+00:00",
@@ -130,7 +149,7 @@ def test_evidence_replay_preserves_one_sided_impulse_winner():
     assert payload["status"] == "SETUP_FOUND"
     assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
     assert candidate["approved"] is True
-    assert candidate["signal_quality"]["impulse_one_sided_structure"] is True
+    assert candidate["signal_quality"]["entry_distance_from_level"] > 0.80
     assert candidate["signal_quality"]["body_to_recent_median_range"] > 0.50
 
 
@@ -151,9 +170,7 @@ def test_evidence_replay_rejects_weak_body_impulse_loss():
     ("timestamp", "expected_trigger"),
     [
         ("2026-07-01T21:03:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
-        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
         ("2026-07-01T21:22:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
-        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
         ("2026-07-01T21:40:00+00:00", "FAILED_HIGH_BREAK_SELL"),
         ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
         ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
@@ -195,7 +212,6 @@ def test_replay_does_not_approve_mixed_confirmation(timestamp):
 @pytest.mark.parametrize(
     ("timestamp", "expected_trigger"),
     [
-        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
         ("2026-07-01T21:40:00+00:00", "FAILED_HIGH_BREAK_SELL"),
         ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
     ],
@@ -216,7 +232,6 @@ def test_remote_memory_does_not_veto_clean_local_opening(
 @pytest.mark.parametrize(
     ("timestamp", "expected_trigger"),
     [
-        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
         ("2026-07-01T21:22:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
         ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
     ],
@@ -283,7 +298,6 @@ def test_confirmed_reaction_rejects_live_quote_that_moved_from_confirmation():
 @pytest.mark.parametrize(
     ("timestamp", "expected_trigger"),
     [
-        ("2026-07-01T21:03:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
         ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
     ],
 )
@@ -294,16 +308,24 @@ def test_replay_approves_clean_current_opening(timestamp, expected_trigger):
 
 
 @pytest.mark.parametrize(
-    ("timestamp", "expected_trigger"),
+    ("timestamp", "expected_trigger", "expected_reason"),
     [
-        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
-        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
-        ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        (
+            "2026-07-01T21:03:00+00:00",
+            "CLEAN_LOW_IMPULSE_SELL",
+            "IMPULSE_INSUFFICIENT_DISPLACEMENT",
+        ),
+        (
+            "2026-07-01T21:50:00+00:00",
+            "CLEAN_HIGH_IMPULSE_BUY",
+            "BREAK_ENTRY_TOO_EXTENDED",
+        ),
     ],
 )
-def test_replay_rejects_two_sided_impulse_opening(
+def test_replay_rejects_impulse_quality_failure(
     timestamp,
     expected_trigger,
+    expected_reason,
 ):
     payload = _decision_at(timestamp)
     candidate = next(
@@ -313,7 +335,27 @@ def test_replay_rejects_two_sided_impulse_opening(
     )
 
     assert candidate["approved"] is False
-    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
+    assert expected_reason in candidate["rejection_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "superseded_trigger"),
+    [
+        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
+    ],
+)
+def test_replay_consolidates_superseded_local_impulse_level(
+    timestamp,
+    superseded_trigger,
+):
+    payload = _decision_at(timestamp)
+
+    assert not any(
+        item["trigger"] == superseded_trigger
+        for item in payload["telemetry"]["candidate_evaluations"]
+    )
+    assert payload["telemetry"]["approved_candidate_count"] == 0
 
 
 def test_replay_selects_at_most_one_approved_candidate_per_candle():
@@ -327,7 +369,7 @@ def test_replay_selects_at_most_one_approved_candidate_per_candle():
         assert len(approved) <= 1
 
 
-def test_late_impulse_remains_diagnostic_without_exhaustion_filter():
+def test_late_impulse_requires_minimum_displacement():
     timestamp = "2026-07-01T21:45:00+00:00"
     payload = _decision_at(timestamp)
     candidate = next(
@@ -344,5 +386,10 @@ def test_late_impulse_remains_diagnostic_without_exhaustion_filter():
     assert distance_from_level > 0
     assert 0 < candidate["risk_distance"] <= 1.0
     assert candidate["active_pulse"]["direction"] == "bearish"
-    assert candidate["approved"] is True
+    assert distance_from_level < 0.80
+    assert candidate["approved"] is False
+    assert (
+        "IMPULSE_INSUFFICIENT_DISPLACEMENT"
+        in candidate["rejection_reasons"]
+    )
     assert candidate["opening_context"]["confirmation_timestamp"] == candle["timestamp"]

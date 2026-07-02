@@ -323,7 +323,7 @@ def test_signal_quality_metrics_are_shadow_only():
     assert quality["stop_to_spread_ratio"] > 0
     assert quality["touch_age_closed_bars"] == 2
     assert quality["impulse_min_body_to_recent_median_range"] == 0.50
-    assert quality["impulse_one_sided_structure"] is True
+    assert quality["impulse_min_entry_distance_from_level"] == 0.80
     assert candidate["approved"] is True
 
 
@@ -369,7 +369,6 @@ def test_one_minute_scalper_rejects_weak_body_impulse_confirmation():
     quality = candidate["signal_quality"]
 
     assert quality["body_to_recent_median_range"] < 0.50
-    assert quality["impulse_one_sided_structure"] is True
     assert candidate["approved"] is False
     assert "WEAK_IMPULSE_BODY" in candidate["rejection_reasons"]
 
@@ -490,11 +489,12 @@ def test_one_minute_scalper_clamps_activation_window_to_one_minute():
 
 def test_clean_impulse_does_not_require_authoritative_active_pulse():
     payload = _payload(
-        _neutral_pulse_high_impulse_buy_history(),
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
         minimum_stop_distance_price=0.25,
         current_spread_price=0.20,
-        current_bid_price=101.25,
-        current_ask_price=101.45,
+        current_bid_price=102.48,
+        current_ask_price=102.68,
     )
 
     story = payload["market_context"]["one_minute_story"]
@@ -761,18 +761,19 @@ def test_one_minute_scalper_rejects_late_raw_break_entries():
     assert candidate["volume_decision"] == "REJECTED"
 
 
-def test_one_minute_scalper_allows_tight_decisive_break_as_clean_impulse():
+def test_one_minute_scalper_allows_decisive_break_with_minimum_displacement():
     candles = [
         _candle(0, 100.0, 100.95, 99.7, 100.2),
         _candle(1, 100.2, 100.90, 99.9, 100.1),
         _candle(2, 100.1, 100.92, 99.8, 100.3),
-        _candle(3, 100.3, 101.18, 100.2, 101.12),
+        _candle(3, 100.3, 101.88, 100.2, 101.80),
     ]
 
     payload = _payload(
         candles,
         fast_history_window_candles=4,
         minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
     )
 
     assert payload["status"] == "SETUP_FOUND"
@@ -782,6 +783,7 @@ def test_one_minute_scalper_allows_tight_decisive_break_as_clean_impulse():
     assert candidate["level_type"] == "three_touch"
     assert "BREAK_ENTRY_TIGHT" in candidate["score_reasons"]
     assert "DECISIVE_CLOSE" in candidate["score_reasons"]
+    assert candidate["signal_quality"]["entry_distance_from_level"] >= 0.80
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
     assert candidate["volume_decision"] == "BASE_1_0"
 
@@ -1074,7 +1076,7 @@ def test_remote_two_sided_memory_does_not_replace_candidate_gates():
     )
 
 
-def test_one_minute_scalper_rejects_two_sided_impulse_structure():
+def test_one_minute_scalper_rejects_insufficient_impulse_displacement():
     candles = [
         _candle(0, 99.6, 100.15, 99.4, 99.9),
         _candle(1, 99.8, 100.20, 99.5, 100.0),
@@ -1099,8 +1101,8 @@ def test_one_minute_scalper_rejects_two_sided_impulse_structure():
     assert payload["recommendation"] == "HOLD"
     candidate = _candidate_by_trigger(payload, "CLEAN_LOW_IMPULSE_SELL")
     assert candidate["approved"] is False
-    assert candidate["signal_quality"]["impulse_one_sided_structure"] is False
-    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
+    assert candidate["signal_quality"]["entry_distance_from_level"] < 0.80
+    assert "IMPULSE_INSUFFICIENT_DISPLACEMENT" in candidate["rejection_reasons"]
     assert "CONFLICTED_ONE_MINUTE_MEMORY" not in candidate["rejection_reasons"]
 
 

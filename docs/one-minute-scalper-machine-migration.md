@@ -194,15 +194,18 @@ directory, and starts exactly one hidden worker.
 Impulse confirmations have two additional deterministic closed-M1 guards:
 
 ```text
-IMPULSE_TWO_SIDED_STRUCTURE
+IMPULSE_INSUFFICIENT_DISPLACEMENT
 WEAK_IMPULSE_BODY
 ```
 
-The first rejects an impulse when the latest closed candle simultaneously
-breaks repeated high and low zones. The second requires the impulse body to be
-at least `0.50` of the preceding 12 closed candles' median range. These guards
-do not apply to respect or fakeout confirmations. Pressure and active pulse
-remain context rather than global vetoes.
+The first consolidates economically overlapping same-side repeated levels and
+requires impulse entry displacement of at least `0.80` from the deterministic
+representative. The existing maximum-extension guard remains and uses that
+threshold plus current spread as its minimum upper bound. The second requires
+the impulse body to be at least `0.50` of the preceding 12 closed candles'
+median range. These guards do not apply to respect or fakeout confirmations.
+Remote memory, pressure, and active pulse remain context rather than global
+vetoes.
 
 Do not force a trade. The runner must wait for a valid closed-M1 opening.
 

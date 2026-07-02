@@ -512,7 +512,7 @@ def test_one_minute_engine_executes_clean_high_impulse_buy_without_extra_context
     )
 
 
-def test_one_minute_low_break_sell_after_recent_support_fails():
+def test_one_minute_low_break_sell_requires_minimum_displacement():
     data = {
         "3m": candles(
             "2026-06-10 10:00:00,2003.0,2005.4,2001.6,2002.2,1000\n"
@@ -545,12 +545,15 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
-    assert payload["market_context"]["one_minute_story"]["classification"] == (
-        "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
     )
+    assert candidate["signal_quality"]["entry_distance_from_level"] < 0.80
+    assert "IMPULSE_INSUFFICIENT_DISPLACEMENT" in candidate["rejection_reasons"]
 
 
 def test_one_minute_rejects_weak_body_low_break_sell():
@@ -638,7 +641,7 @@ def test_one_minute_high_rejection_switches_to_sell_trigger():
     assert payload["market_context"]["one_minute_story"]["classification"] == "FAILED_HIGH_BREAK_SELL"
 
 
-def test_one_minute_low_break_sell_uses_latest_breaking_candle():
+def test_latest_low_breaking_candle_still_requires_minimum_displacement():
     data = {
         "3m": candles(
             "2026-06-10 11:00:00,100.0,101.5,98.8,99.9,1000\n"
@@ -672,12 +675,15 @@ def test_one_minute_low_break_sell_uses_latest_breaking_candle():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
-    assert payload["market_context"]["one_minute_story"]["classification"] == (
-        "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
     )
+    assert candidate["signal_quality"]["entry_distance_from_level"] < 0.80
+    assert "IMPULSE_INSUFFICIENT_DISPLACEMENT" in candidate["rejection_reasons"]
 
 
 def test_one_minute_profile_ignores_opposing_extra_history(monkeypatch):
