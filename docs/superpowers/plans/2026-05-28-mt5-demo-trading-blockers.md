@@ -14,7 +14,7 @@
 
 - `tradingagents broker-probe` succeeds against the Valetax demo account.
 - `tradingagents mt5-demo-monitor` succeeds and shows no open orders or positions.
-- The MT5 terminal is connected to `ValetaxGlobal-Live3`.
+- The MT5 terminal is connected to `<MT5_SERVER>`.
 - The broker symbol on this account is `XAUUSD.vx`.
 - `yfinance` has usable gold data for `GC=F`, but not for `XAUUSD.vx`.
 - No LLM provider key or local Ollama server is configured yet, so `tradingagents analyze` cannot generate a proposal end to end.

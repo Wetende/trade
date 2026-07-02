@@ -820,7 +820,7 @@ Run:
 python -m uv run tradingagents broker-probe
 ```
 
-Expected: connected account is `641206942`, server is `ValetaxGlobal-Live3`, symbol is `XAUUSD.vx`, and bid/ask are current.
+Expected: connected account is `<MT5_LOGIN>`, server is `<MT5_SERVER>`, symbol is `XAUUSD.vx`, and bid/ask are current.
 
 - [ ] **Step 4: Run one engine cycle only**
 
