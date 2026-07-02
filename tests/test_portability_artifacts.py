@@ -40,6 +40,9 @@ def test_windows_scripts_exist_and_parse_as_powershell():
 def test_setup_script_installs_project_tests_and_mt5_bridge():
     text = SETUP_SCRIPT.read_text(encoding="utf-8")
 
+    assert "py -0p" in text
+    assert "VersionInfo.Minor" in text
+    assert "PythonPath" in text
     assert "-m venv" in text
     assert "-m pip install -e" in text
     assert "pytest" in text
