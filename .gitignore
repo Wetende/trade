@@ -223,6 +223,9 @@ __marimo__/
 
 # Local live-run logs, temporary runner scripts, and market/debug artifacts.
 /runtime/
+/results/
+/reports/mt5_history_reverse_engineering/
+/image1.png
 write-test-workspace.txt
 
 # Local Codex/session notes may contain broker details or credentials.

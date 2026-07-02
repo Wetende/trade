@@ -3,6 +3,14 @@
 This repo is being refactored into a focused 15-minute price-action trading assistant.
 The old multi-agent research-firm workflow has been removed from the active path.
 
+The current isolated MT5 forward-test model is the deterministic One Minute
+Scalper. It uses closed M1 candles and engine decisions only; no LLM chooses
+BUY, SELL, HOLD, size, or exits. Start with:
+
+- [One Minute Scalper handoff](docs/one-minute-scalper-handoff-2026-07-01.md)
+- [New-machine migration guide](docs/one-minute-scalper-machine-migration.md)
+- [Current forensic review](docs/analysis/2026-07-02-one-minute-scalper-forensic-review.md)
+
 The active pipeline is:
 
 ```text
