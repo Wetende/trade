@@ -32,7 +32,12 @@ foreach ($candidate in ($candidates | Select-Object -Unique)) {
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
         continue
     }
-    $rawVersion = & $candidate -c "import platform; print(platform.python_version())" 2>$null
+    try {
+        $rawVersion = & $candidate -c "import platform; print(platform.python_version())" 2>$null
+    }
+    catch {
+        continue
+    }
     if ($LASTEXITCODE -ne 0) {
         continue
     }

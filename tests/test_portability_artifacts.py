@@ -43,6 +43,7 @@ def test_setup_script_installs_project_tests_and_mt5_bridge():
     assert "py -0p" in text
     assert "VersionInfo.Minor" in text
     assert "PythonPath" in text
+    assert "catch {" in text
     assert "-m venv" in text
     assert "-m pip install -e" in text
     assert "pytest" in text
