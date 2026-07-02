@@ -15,10 +15,43 @@ FIXTURE = (
     / "one_minute"
     / "2026-07-01-signal-window.json"
 )
+IMPULSE_QUALITY_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "one_minute"
+    / "2026-07-02-impulse-quality-window.json"
+)
 
 
 def _bars():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))["bars"]
+
+
+def _impulse_quality_bars():
+    return json.loads(
+        IMPULSE_QUALITY_FIXTURE.read_text(encoding="utf-8")
+    )["bars"]
+
+
+def _decision_from_bars(bars, timestamp):
+    index = next(
+        index for index, bar in enumerate(bars) if bar["timestamp"] == timestamp
+    )
+    current = bars[index]
+    spread = max(0.01, float(current["spread"]) * 0.01)
+    bid = float(current["close"])
+    config = {
+        **DEFAULT_CONFIG["price_action"],
+        "current_spread_price": spread,
+        "current_bid_price": bid,
+        "current_ask_price": bid + spread,
+    }
+    return analyze_one_minute_entry(
+        "XAUUSD.vx",
+        timestamp,
+        {"1m": bars[: index + 1]},
+        session_config=config,
+    )
 
 
 def _decision_at(
@@ -54,6 +87,64 @@ def _decision_at(
         {"1m": bars[: index + 1]},
         session_config=config,
     )
+
+
+def test_impulse_quality_fixture_contains_market_bars_only():
+    fixture = json.loads(
+        IMPULSE_QUALITY_FIXTURE.read_text(encoding="utf-8")
+    )
+
+    assert set(fixture) == {"symbol", "source", "bars"}
+    assert fixture["bars"]
+    assert set(fixture["bars"][0]) == {
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "spread",
+        "volume",
+    }
+
+
+def test_evidence_replay_rejects_two_sided_impulse_loss():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T10:41:00+00:00",
+    )
+    candidate = payload["telemetry"]["selected_candidate"]
+
+    assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["impulse_one_sided_structure"] is False
+    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
+
+
+def test_evidence_replay_preserves_one_sided_impulse_winner():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T10:58:00+00:00",
+    )
+    candidate = payload["telemetry"]["selected_candidate"]
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["approved"] is True
+    assert candidate["signal_quality"]["impulse_one_sided_structure"] is True
+    assert candidate["signal_quality"]["body_to_recent_median_range"] > 0.50
+
+
+def test_evidence_replay_rejects_weak_body_impulse_loss():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T11:52:00+00:00",
+    )
+    candidate = payload["telemetry"]["selected_candidate"]
+
+    assert candidate["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.50
+    assert "WEAK_IMPULSE_BODY" in candidate["rejection_reasons"]
 
 
 @pytest.mark.parametrize(
@@ -193,16 +284,36 @@ def test_confirmed_reaction_rejects_live_quote_that_moved_from_confirmation():
     ("timestamp", "expected_trigger"),
     [
         ("2026-07-01T21:03:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
-        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
-        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
         ("2026-07-01T21:44:00+00:00", "HIGH_RESPECT_SELL"),
-        ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
     ],
 )
 def test_replay_approves_clean_current_opening(timestamp, expected_trigger):
     payload = _decision_at(timestamp)
     assert payload["status"] == "SETUP_FOUND"
     assert payload["setups"][0]["name"] == expected_trigger
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected_trigger"),
+    [
+        ("2026-07-01T21:17:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+        ("2026-07-01T21:34:00+00:00", "CLEAN_LOW_IMPULSE_SELL"),
+        ("2026-07-01T21:50:00+00:00", "CLEAN_HIGH_IMPULSE_BUY"),
+    ],
+)
+def test_replay_rejects_two_sided_impulse_opening(
+    timestamp,
+    expected_trigger,
+):
+    payload = _decision_at(timestamp)
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == expected_trigger
+    )
+
+    assert candidate["approved"] is False
+    assert "IMPULSE_TWO_SIDED_STRUCTURE" in candidate["rejection_reasons"]
 
 
 def test_replay_selects_at_most_one_approved_candidate_per_candle():
