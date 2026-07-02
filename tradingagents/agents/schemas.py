@@ -96,6 +96,9 @@ class OrderProposal(BaseModel):
     touch_count: Optional[int] = None
     candidate_score: Optional[float] = None
     volume_decision: Optional[str] = None
+    opening_context: Optional[dict] = None
+    signal_quality: Optional[dict] = None
+    decision_quote: Optional[dict] = None
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None

@@ -354,6 +354,16 @@ def test_one_minute_scalper_proposal_carries_selected_candidate_journal_fields(t
             "entry_profile": "fast",
             "activation_window_minutes": 1,
             "message": "One Minute Scalper selected a candidate.",
+            "data_status": {
+                "reference_timestamp": "2026-06-03T12:16:01+00:00",
+            },
+            "market_context": {
+                "one_minute_story": {
+                    "current_bid_price": 4075.10,
+                    "current_ask_price": 4075.39,
+                    "current_spread_price": 0.29,
+                }
+            },
             "setups": [
                 {
                     "name": "FAILED_HIGH_BREAK_SELL",
@@ -377,6 +387,25 @@ def test_one_minute_scalper_proposal_carries_selected_candidate_journal_fields(t
                     "touch_count": 3,
                     "score": 10,
                     "volume_decision": "BOOST_1_5",
+                    "opening_context": {
+                        "model_name": "One Minute Scalper",
+                        "direction": "SELL",
+                        "trigger": "FAILED_HIGH_BREAK_SELL",
+                        "reaction_type": "fakeout",
+                        "confirmation_type": "engulfing",
+                        "level": 4075.80,
+                        "level_side": "high",
+                        "level_type": "three_touch",
+                        "tolerance": 0.24,
+                        "touch_count": 3,
+                        "first_touch_timestamp": "2026-06-03T11:30:00+00:00",
+                        "last_touch_timestamp": "2026-06-03T12:14:00+00:00",
+                        "confirmation_timestamp": "2026-06-03T12:15:00+00:00",
+                    },
+                    "signal_quality": {
+                        "body_to_recent_median_range": 0.72,
+                        "entry_distance_from_level": 0.63,
+                    },
                 },
                 "candidate_setup_count": 2,
             },
@@ -392,6 +421,14 @@ def test_one_minute_scalper_proposal_carries_selected_candidate_journal_fields(t
     assert proposal["touch_count"] == 3
     assert proposal["candidate_score"] == 10
     assert proposal["volume_decision"] == "BOOST_1_5"
+    assert proposal["opening_context"]["level"] == 4075.80
+    assert proposal["signal_quality"]["body_to_recent_median_range"] == 0.72
+    assert proposal["decision_quote"] == {
+        "observed_at_utc": "2026-06-03T12:16:01+00:00",
+        "bid": 4075.10,
+        "ask": 4075.39,
+        "spread_price": 0.29,
+    }
     assert "**Trigger Name**: FAILED_HIGH_BREAK_SELL" in proposal_state["order_proposal"]
     assert "**Volume Decision**: BOOST_1_5" in proposal_state["order_proposal"]
 
