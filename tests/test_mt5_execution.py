@@ -97,6 +97,19 @@ def _context_one_minute_proposal(**opening_updates) -> OrderProposal:
     )
 
 
+def _pin_context_submission_time(executor: MT5Executor) -> MT5Executor:
+    executor._now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        5,
+        tzinfo=timezone.utc,
+    )
+    return executor
+
+
 def test_one_minute_reaction_pending_policy_expires_after_twenty_seconds():
     placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
 
@@ -968,6 +981,7 @@ def test_executor_skips_identical_consumed_opening_after_restart(tmp_path):
         broker=first_broker,
         state_dir=stable_state,
     )
+    _pin_context_submission_time(first)
     proposal = _context_one_minute_proposal()
 
     placed = first.execute_proposal(proposal)
@@ -980,6 +994,7 @@ def test_executor_skips_identical_consumed_opening_after_restart(tmp_path):
         broker=restarted_broker,
         state_dir=stable_state,
     )
+    _pin_context_submission_time(restarted)
     skipped = restarted.execute_proposal(proposal)
 
     assert placed["status"] == "PLACED"
@@ -1011,6 +1026,7 @@ def test_executor_allows_fresh_structural_evidence_after_consumption(
         broker=FakeBroker(),
         state_dir=stable_state,
     )
+    _pin_context_submission_time(first)
     assert first.execute_proposal(_context_one_minute_proposal())["status"] == "PLACED"
     first.state.clear_trade()
     restarted_broker = FakeBroker()
@@ -1020,6 +1036,7 @@ def test_executor_allows_fresh_structural_evidence_after_consumption(
         broker=restarted_broker,
         state_dir=stable_state,
     )
+    _pin_context_submission_time(restarted)
 
     result = restarted.execute_proposal(
         _context_one_minute_proposal(**opening_updates)
@@ -1038,6 +1055,7 @@ def test_rejected_order_does_not_consume_opening(tmp_path):
         "comment": "invalid stops",
     }
     executor = MT5Executor(_config(), tmp_path, broker=broker)
+    _pin_context_submission_time(executor)
 
     result = executor.execute_proposal(_context_one_minute_proposal())
 

@@ -553,7 +553,7 @@ def test_one_minute_low_break_sell_after_recent_support_fails():
     )
 
 
-def test_one_minute_low_break_sell_when_two_lows_fail():
+def test_one_minute_rejects_weak_body_low_break_sell():
     data = {
         "3m": candles(
             "2026-06-10 10:15:00,2000.0,2002.0,1998.0,2000.4,1000\n"
@@ -587,11 +587,14 @@ def test_one_minute_low_break_sell_when_two_lows_fail():
         },
     )
 
-    assert payload["status"] == "SETUP_FOUND"
-    assert payload["recommendation"] == "SELL"
-    assert payload["setups"][0]["name"] == "CLEAN_LOW_IMPULSE_SELL"
-    assert payload["market_context"]["one_minute_story"]["classification"] == (
-        "CLEAN_LOW_IMPULSE_SELL"
+    assert payload["status"] == "NO_SETUP"
+    assert payload["recommendation"] == "HOLD"
+    candidate = payload["telemetry"]["selected_candidate"]
+    assert candidate["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.50
+    assert "WEAK_IMPULSE_BODY" in candidate["rejection_reasons"]
+    assert payload["telemetry"]["decision_stage"] == (
+        "one_minute_no_approved_candidate"
     )
 
 
