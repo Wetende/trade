@@ -222,6 +222,7 @@ __marimo__/
 **/data_cache/
 
 # Local live-run logs, temporary runner scripts, and market/debug artifacts.
+/.worktrees/
 /runtime/
 /results/
 /reports/mt5_history_reverse_engineering/
