@@ -1313,8 +1313,18 @@ class MT5Broker:
             item = _asdict(deal)
             if item.get("symbol") != symbol:
                 continue
+            raw_time_msc = item.get("time_msc")
             raw_time = item.get("time")
-            if raw_time not in (None, ""):
+            if raw_time_msc not in (None, ""):
+                try:
+                    item["time_utc"] = datetime.fromtimestamp(
+                        (float(raw_time_msc) / 1000.0)
+                        - server_time_offset_seconds,
+                        tz=timezone.utc,
+                    ).isoformat()
+                except (TypeError, ValueError, OSError):
+                    pass
+            elif raw_time not in (None, ""):
                 try:
                     item["time_utc"] = datetime.fromtimestamp(
                         int(raw_time) - server_time_offset_seconds,

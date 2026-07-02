@@ -135,6 +135,14 @@ Keep pressure and active pulse contextual. Keep every trigger family. Do not
 add a generic cooldown, score increase, spread retune, volume change, or
 management change. Keep remote two-sided memory diagnostic rather than a veto.
 
+## Post-deployment telemetry correction
+
+Fresh-session verification exposed a negative `order_wait_seconds` value.
+MT5 supplied millisecond deal time in `time_msc`, but deal-history
+normalization used the whole-second `time` field. History normalization now
+prefers `time_msc`, matching the existing position-time behavior. This corrects
+execution timing telemetry and does not alter signals, orders, or management.
+
 ## Safety state
 
 The runner stopped at the configured session-loss limit. The final broker

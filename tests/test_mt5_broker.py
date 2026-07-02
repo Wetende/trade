@@ -811,6 +811,7 @@ def test_mt5_broker_reads_history_deals_for_symbol():
             position_id=111222,
             symbol="XAUUSD",
             time=1779610300,
+            time_msc=1779610300456,
             type=fake_mt5.POSITION_TYPE_SELL,
             entry=1,
             volume=0.01,
@@ -854,7 +855,7 @@ def test_mt5_broker_reads_history_deals_for_symbol():
     assert [deal["ticket"] for deal in deals] == [555, 556]
     assert deals[1]["position_id"] == 111222
     assert deals[1]["profit"] == 6.67
-    assert deals[1]["time_utc"] == "2026-05-24T05:11:40+00:00"
+    assert deals[1]["time_utc"] == "2026-05-24T05:11:40.456000+00:00"
 
 
 def test_mt5_broker_fetch_rates_normalizes_mt5_candles():

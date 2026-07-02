@@ -660,3 +660,7 @@ guard compares the latest fully closed M1 candle with the preceding 12 fully
 closed M1 ranges and requires a ratio of at least `0.50`. No trigger family,
 remote-memory relation, pressure direction, active-pulse direction, or
 management behavior was globally disabled.
+
+MT5 deal-history timestamps now prefer the broker's millisecond `time_msc`
+field. This prevents false negative order-wait telemetry for fills occurring
+within the submission second; it does not change trading behavior.
