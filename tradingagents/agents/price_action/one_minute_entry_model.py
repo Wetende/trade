@@ -1838,7 +1838,97 @@ def _candidate_to_setup(
     )
 
 
-def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
+def _history_timestamp(history: list[Candle], index: int) -> str | None:
+    if 0 <= index < len(history):
+        return str(history[index].timestamp)
+    return None
+
+
+def _candidate_opening_context(
+    candidate: OneMinuteCandidate,
+    history: list[Candle],
+    tolerance: float,
+) -> dict[str, Any]:
+    return {
+        "model_name": MODEL_NAME,
+        "direction": candidate.direction,
+        "trigger": candidate.trigger,
+        "reaction_type": candidate.reaction_type,
+        "confirmation_type": candidate.confirmation_type,
+        "level": round(candidate.level.level, 4),
+        "level_side": candidate.level.side,
+        "level_type": candidate.level.level_type,
+        "tolerance": round(tolerance, 4),
+        "touch_count": candidate.level.touch_count,
+        "first_touch_timestamp": _history_timestamp(
+            history,
+            candidate.level.first_touch_index,
+        ),
+        "last_touch_timestamp": _history_timestamp(
+            history,
+            candidate.level.last_touch_index,
+        ),
+        "confirmation_timestamp": str(history[-1].timestamp),
+    }
+
+
+def _candidate_signal_quality(
+    candidate: OneMinuteCandidate,
+    history: list[Candle],
+    current_spread_price: float,
+) -> dict[str, Any]:
+    latest = history[-1]
+    latest_range = candle_range(latest)
+    latest_body = _body_size(latest)
+    prior_ranges = [
+        candle_range(candle)
+        for candle in history[-13:-1]
+        if candle_range(candle) > 0
+    ]
+    recent_median_range = median(prior_ranges) if prior_ranges else 0.0
+    opposing_wick = (
+        upper_wick(latest)
+        if candidate.direction == "BUY"
+        else lower_wick(latest)
+    )
+    spread = max(0.0, float(current_spread_price))
+    return {
+        "confirmation_body": round(latest_body, 4),
+        "confirmation_range": round(latest_range, 4),
+        "recent_median_range": round(recent_median_range, 4),
+        "body_to_recent_median_range": round(
+            latest_body / recent_median_range
+            if recent_median_range > 0
+            else 0.0,
+            4,
+        ),
+        "opposing_wick": round(opposing_wick, 4),
+        "opposing_wick_to_range": round(
+            opposing_wick / latest_range if latest_range > 0 else 0.0,
+            4,
+        ),
+        "entry_distance_from_level": round(
+            abs(candidate.entry_price - candidate.level.level),
+            4,
+        ),
+        "stop_to_spread_ratio": round(
+            candidate.risk_distance / spread if spread > 0 else 0.0,
+            4,
+        ),
+        "touch_age_closed_bars": max(
+            0,
+            len(history) - 1 - candidate.level.last_touch_index,
+        ),
+    }
+
+
+def _candidate_to_telemetry(
+    candidate: OneMinuteCandidate,
+    *,
+    history: list[Candle],
+    tolerance: float,
+    current_spread_price: float,
+) -> dict[str, Any]:
     return {
         "model_name": MODEL_NAME,
         "trigger": candidate.trigger,
@@ -1869,6 +1959,16 @@ def _candidate_to_telemetry(candidate: OneMinuteCandidate) -> dict[str, Any]:
         ),
         "memory_context": candidate.risk.get("fast_trigger_quality", {}).get(
             "memory_context"
+        ),
+        "opening_context": _candidate_opening_context(
+            candidate,
+            history,
+            tolerance,
+        ),
+        "signal_quality": _candidate_signal_quality(
+            candidate,
+            history,
+            current_spread_price,
         ),
     }
 
@@ -2139,7 +2239,15 @@ def analyze_one_minute_entry(
         pressure=pressure,
         active_pulse=active_pulse,
     )
-    candidate_evaluations = [_candidate_to_telemetry(candidate) for candidate in candidates]
+    candidate_evaluations = [
+        _candidate_to_telemetry(
+            candidate,
+            history=history,
+            tolerance=tolerance,
+            current_spread_price=current_spread_price,
+        )
+        for candidate in candidates
+    ]
     approved_candidates = [candidate for candidate in candidates if candidate.approved]
 
     if not candidates:
@@ -2175,7 +2283,12 @@ def analyze_one_minute_entry(
         )
 
     selected = approved_candidates[0]
-    selected_telemetry = _candidate_to_telemetry(selected)
+    selected_telemetry = _candidate_to_telemetry(
+        selected,
+        history=history,
+        tolerance=tolerance,
+        current_spread_price=current_spread_price,
+    )
     risk = dict(selected.risk)
     story.update(
         {

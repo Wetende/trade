@@ -51,6 +51,52 @@ def _one_minute_proposal(
     )
 
 
+def _context_one_minute_proposal(**opening_updates) -> OrderProposal:
+    context = {
+        "model_name": "One Minute Scalper",
+        "direction": "BUY",
+        "trigger": "LOW_RESPECT_BUY",
+        "reaction_type": "respect",
+        "confirmation_type": "rejection",
+        "level": 2450.0,
+        "level_side": "low",
+        "level_type": "three_touch",
+        "tolerance": 0.2,
+        "touch_count": 3,
+        "first_touch_timestamp": "2026-07-01T13:30:00+00:00",
+        "last_touch_timestamp": "2026-07-01T13:58:00+00:00",
+        "confirmation_timestamp": "2026-07-01T14:00:00+00:00",
+    }
+    context.update(opening_updates)
+    proposal = _one_minute_proposal(
+        reaction_type=str(context["reaction_type"]),
+        trigger_name=str(context["trigger"]),
+    )
+    side = TradeAction(str(context["direction"]))
+    price_update = (
+        {}
+        if side == TradeAction.BUY
+        else {
+            "entry_price": 2450.123,
+            "stop_loss": 2452.123,
+            "take_profit": 2447.123,
+        }
+    )
+    return proposal.model_copy(
+        update={
+            **price_update,
+            "side": side,
+            "opening_context": context,
+            "decision_quote": {
+                "observed_at_utc": "2026-07-01T14:00:01+00:00",
+                "bid": 2449.80,
+                "ask": 2450.00,
+                "spread_price": 0.20,
+            },
+        }
+    )
+
+
 def test_one_minute_reaction_pending_policy_expires_after_twenty_seconds():
     placed_at = datetime(2026, 6, 30, 14, 0, 10, tzinfo=timezone.utc)
 
@@ -788,12 +834,29 @@ class FakeBroker:
         self.place_results = []
         self.close_result = None
         self.modify_result = None
+        self.symbol_snapshots = []
+        self.remove_position_on_close_failure = False
 
     def connect(self):
         return {
             "connected": True,
             "symbol": self.symbol_info,
             "account": {"login": 123456789, "trade_mode_label": "DEMO"},
+        }
+
+    def current_symbol_snapshot(self):
+        if self.symbol_snapshots:
+            return dict(self.symbol_snapshots.pop(0))
+        bid = self.symbol_info.get("bid", 2449.80)
+        ask = self.symbol_info.get("ask", 2450.10)
+        return {
+            "symbol": {
+                **self.symbol_info,
+                "bid": bid,
+                "ask": ask,
+                "spread_price": ask - bid,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
         }
 
     def open_orders(self, symbol):
@@ -839,10 +902,13 @@ class FakeBroker:
         volume=None,
     ):
         self.closed_positions.append((dict(position), comment, volume))
-        return dict(
+        result = dict(
             self.close_result
             or {"ok": True, "position": position.get("ticket"), "retcode": 10009}
         )
+        if self.remove_position_on_close_failure and not result.get("ok"):
+            self.positions = []
+        return result
 
     def history_deals(self, symbol, start_utc, end_utc):
         self.history_deals_calls.append((symbol, start_utc, end_utc))
@@ -893,6 +959,185 @@ def test_executor_places_pending_order_when_no_active_trade(tmp_path):
     assert result["order_check_result"]["ok"] is True
 
 
+def test_executor_skips_identical_consumed_opening_after_restart(tmp_path):
+    stable_state = tmp_path / "stable-state"
+    first_broker = FakeBroker()
+    first = MT5Executor(
+        _config(),
+        tmp_path / "session-one",
+        broker=first_broker,
+        state_dir=stable_state,
+    )
+    proposal = _context_one_minute_proposal()
+
+    placed = first.execute_proposal(proposal)
+    first.state.clear_trade()
+
+    restarted_broker = FakeBroker()
+    restarted = MT5Executor(
+        _config(),
+        tmp_path / "session-two",
+        broker=restarted_broker,
+        state_dir=stable_state,
+    )
+    skipped = restarted.execute_proposal(proposal)
+
+    assert placed["status"] == "PLACED"
+    assert skipped["status"] == "SKIPPED_STALE_OPENING"
+    assert skipped["reason"] == "STALE_CONSUMED_OPENING"
+    assert restarted_broker.checked_requests == []
+    assert restarted_broker.placed_requests == []
+
+
+@pytest.mark.parametrize(
+    "opening_updates",
+    [
+        {"confirmation_timestamp": "2026-07-01T14:01:00+00:00"},
+        {"last_touch_timestamp": "2026-07-01T13:59:00+00:00"},
+        {"touch_count": 4},
+        {"reaction_type": "fakeout", "trigger": "FAILED_LOW_BREAK_BUY"},
+        {"direction": "SELL", "level_side": "high"},
+        {"level": 2450.5},
+    ],
+)
+def test_executor_allows_fresh_structural_evidence_after_consumption(
+    tmp_path,
+    opening_updates,
+):
+    stable_state = tmp_path / "stable-state"
+    first = MT5Executor(
+        _config(),
+        tmp_path / "session-one",
+        broker=FakeBroker(),
+        state_dir=stable_state,
+    )
+    assert first.execute_proposal(_context_one_minute_proposal())["status"] == "PLACED"
+    first.state.clear_trade()
+    restarted_broker = FakeBroker()
+    restarted = MT5Executor(
+        _config(),
+        tmp_path / "session-two",
+        broker=restarted_broker,
+        state_dir=stable_state,
+    )
+
+    result = restarted.execute_proposal(
+        _context_one_minute_proposal(**opening_updates)
+    )
+
+    assert result["status"] == "PLACED"
+    assert len(restarted_broker.placed_requests) == 1
+
+
+def test_rejected_order_does_not_consume_opening(tmp_path):
+    broker = FakeBroker()
+    broker.place_result = {
+        "ok": False,
+        "order": None,
+        "retcode": 10030,
+        "comment": "invalid stops",
+    }
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    result = executor.execute_proposal(_context_one_minute_proposal())
+
+    assert result["status"] == "REJECTED"
+    assert executor.state.load().get("consumed_openings") in (None, [])
+
+
+def test_expired_order_remains_consumed_after_cancellation(tmp_path):
+    stable_state = tmp_path / "stable-state"
+    broker = FakeBroker()
+    executor = MT5Executor(
+        _config(),
+        tmp_path / "session-one",
+        broker=broker,
+        state_dir=stable_state,
+    )
+    executor._now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        5,
+        tzinfo=timezone.utc,
+    )
+    proposal = _context_one_minute_proposal()
+    placed = executor.execute_proposal(proposal)
+    broker.pending_orders = [{"ticket": placed["order"], "symbol": "XAUUSD"}]
+
+    cancelled = executor.cancel_stale_pending_orders(
+        now_utc="2026-07-01T14:00:30+00:00"
+    )
+
+    assert cancelled["status"] == "CANCELLED"
+    assert len(executor.state.load()["consumed_openings"]) == 1
+    restarted = MT5Executor(
+        _config(),
+        tmp_path / "session-two",
+        broker=FakeBroker(),
+        state_dir=stable_state,
+    )
+    assert restarted.execute_proposal(proposal)["status"] == "SKIPPED_STALE_OPENING"
+
+
+def test_executor_records_decision_and_pre_send_timeline(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                "name": "XAUUSD",
+                "bid": 2449.79,
+                "ask": 2450.09,
+                "spread_price": 0.30,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor._now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        3,
+        tzinfo=timezone.utc,
+    )
+    timeline_times = iter(
+        [
+            datetime(2026, 7, 1, 14, 0, 3, tzinfo=timezone.utc),
+            datetime(2026, 7, 1, 14, 0, 4, tzinfo=timezone.utc),
+        ]
+    )
+    executor._timeline_now_utc = lambda: next(timeline_times)
+
+    result = executor.execute_proposal(_context_one_minute_proposal())
+
+    assert result["execution_timeline"] == {
+        "decision_quote": {
+            "observed_at_utc": "2026-07-01T14:00:01+00:00",
+            "bid": 2449.80,
+            "ask": 2450.00,
+            "spread_price": 0.20,
+        },
+        "pre_send_quote": {
+            "observed_at_utc": "2026-07-01T14:00:03+00:00",
+            "tick_time_utc": "2026-07-01T14:00:02+00:00",
+            "bid": 2449.79,
+            "ask": 2450.09,
+            "spread_price": 0.30,
+        },
+        "submitted_at_utc": "2026-07-01T14:00:03+00:00",
+        "acknowledged_at_utc": "2026-07-01T14:00:04+00:00",
+        "attempt": 1,
+    }
+    assert executor.state.load()["execution_timeline"] == result[
+        "execution_timeline"
+    ]
+
+
 def test_executor_skips_when_order_check_fails(tmp_path):
     broker = FakeBroker()
     broker.check_result = {
@@ -931,6 +1176,7 @@ def test_executor_result_and_journal_include_account_safety(tmp_path):
     connected = events[0]
     assert connected["event_type"] == "CONNECTED"
     assert connected["payload"]["account_safety"]["trade_mode"] == "DEMO"
+    assert "123456789" not in json.dumps(connected)
 
 
 def test_executor_refuses_when_active_order_exists(tmp_path):
@@ -1046,6 +1292,7 @@ def test_executor_journals_connection_request_and_order_result(tmp_path):
         "CONNECTED",
         "ORDER_REQUEST_BUILT",
         "ORDER_CHECKED",
+        "ORDER_EXECUTION_TIMELINE",
         "ORDER_PLACED",
     ]
 
@@ -2397,6 +2644,118 @@ def test_executor_m1_intrabar_exit_resets_after_price_recovers(tmp_path):
     assert broker.closed_positions == []
 
 
+def test_executor_reconciles_intrabar_close_when_position_already_gone(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10013,
+        "comment": "Invalid request",
+    }
+    broker.remove_position_on_close_failure = True
+    broker.positions = [
+        {
+            "ticket": 777037,
+            "identifier": 777037,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    executor.manage_open_positions()
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert result["actions"][0]["action"] == "NO_ACTION"
+    assert result["actions"][0]["reason"] == "POSITION_ALREADY_CLOSED"
+    journal = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    event_types = [
+        json.loads(line)["event_type"]
+        for line in journal.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "POSITION_CLOSE_RECONCILED" in event_types
+    assert "POSITION_CLOSE_FAILED" not in event_types
+
+
+def test_executor_reconciles_partial_when_position_already_gone(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10036,
+        "comment": "Position doesn't exist",
+    }
+    broker.remove_position_on_close_failure = True
+    broker.positions = [
+        {
+            "ticket": 777038,
+            "identifier": 777038,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2449.0,
+            "take_profit": 2453.0,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(
+        _config(),
+        tmp_path,
+        broker=broker,
+        exit_management=MT5ExitManagementConfig(
+            break_even_trigger_points=1.0,
+            partial_first_trigger_points=0.5,
+            partial_first_target_volume=0.5,
+            scalp_profit_points=2.0,
+        ),
+    )
+
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "NO_POSITION_ACTION"
+    assert result["actions"][0]["action"] == "NO_ACTION"
+    assert result["actions"][0]["reason"] == "POSITION_ALREADY_CLOSED"
+    assert executor.state.load().get("partial_close_state") is None
+
+
+def test_executor_keeps_intrabar_failure_when_position_remains_open(tmp_path):
+    broker = FakeBroker()
+    broker.close_result = {
+        "ok": False,
+        "retcode": 10013,
+        "comment": "Invalid request",
+    }
+    broker.positions = [
+        {
+            "ticket": 777039,
+            "identifier": 777039,
+            "symbol": "XAUUSD",
+            "side": "SELL",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2451.0,
+            "take_profit": 2448.5,
+            "current_price": 2450.7,
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    executor.manage_open_positions()
+    result = executor.manage_open_positions()
+
+    assert result["status"] == "POSITION_MANAGEMENT_FAILED"
+    assert result["actions"][0]["action"] == "CLOSE_POSITION_FAILED"
+    assert result["actions"][0]["reason"] == "INTRABAR_ADVERSE_EXIT_FAILED"
+
+
 def test_executor_position_monitoring_persists_mfe_mae_and_thresholds(tmp_path):
     broker = FakeBroker()
     broker.symbol_info.update({"bid": 2450.4, "ask": 2450.7})
@@ -2439,6 +2798,163 @@ def test_executor_position_monitoring_persists_mfe_mae_and_thresholds(tmp_path):
     state = executor.state.load()["position_excursion_state"]["777034"]
     assert state["mfe_points"] == 0.4
     assert state["mae_points"] == -0.3
+
+
+def test_executor_records_first_position_observation_once(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_info.update({"bid": 2450.1, "ask": 2450.4})
+    broker.positions = [
+        {
+            "ticket": 777036,
+            "identifier": 777036,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2448.0,
+            "take_profit": 2453.0,
+            "current_price": 2450.1,
+            "opened_at_utc": "2026-07-01T14:00:00+00:00",
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    executor._timeline_now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        3,
+        tzinfo=timezone.utc,
+    )
+
+    executor.manage_open_positions()
+    executor.manage_open_positions()
+
+    observation = executor.state.load()["position_first_observation"]["777036"]
+    assert observation == {
+        "position_id": "777036",
+        "opened_at_utc": "2026-07-01T14:00:00+00:00",
+        "entry_price": 2450.0,
+        "observed_at_utc": "2026-07-01T14:00:03+00:00",
+        "quote": {
+            "observed_at_utc": "2026-07-01T14:00:03+00:00",
+            "tick_time_utc": None,
+            "bid": 2450.1,
+            "ask": 2450.4,
+            "spread_price": 0.3,
+        },
+        "fill_to_observation_seconds": 3.0,
+    }
+    journal = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    event_types = [
+        json.loads(line)["event_type"]
+        for line in journal.read_text(encoding="utf-8").splitlines()
+    ]
+    assert event_types.count("POSITION_FIRST_OBSERVED") == 1
+
+
+def test_executor_archives_excursion_and_merges_exact_exit_movement(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_info.update({"bid": 2450.4, "ask": 2450.7})
+    broker.positions = [
+        {
+            "ticket": 111222,
+            "identifier": 111222,
+            "symbol": "XAUUSD",
+            "side": "BUY",
+            "volume": 1.0,
+            "entry_price": 2450.0,
+            "stop_loss": 2448.0,
+            "take_profit": 2453.0,
+            "current_price": 2450.4,
+            "opened_at_utc": "2026-07-01T14:00:05+00:00",
+            "comment": "TA|M1|FAST",
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    proposal = _context_one_minute_proposal()
+    executor.state.save(
+        {
+            "symbol": "XAUUSD",
+            "active_order_ticket": None,
+            "active_position_ticket": 111222,
+            "placed_at_utc": "2026-07-01T14:00:01+00:00",
+            "proposal": proposal.model_dump(mode="json"),
+            "execution_timeline": {
+                "submitted_at_utc": "2026-07-01T14:00:01+00:00",
+                "acknowledged_at_utc": "2026-07-01T14:00:02+00:00",
+            },
+        }
+    )
+    executor._timeline_now_utc = lambda: datetime(
+        2026,
+        7,
+        1,
+        14,
+        0,
+        6,
+        tzinfo=timezone.utc,
+    )
+    executor.manage_open_positions()
+    broker.positions = []
+
+    executor.manage_open_positions()
+
+    archived = executor.state.load()["completed_position_telemetry"]["111222"]
+    assert archived["position_excursion"]["mfe_points"] == 0.4
+    assert archived["position_excursion"]["mae_points"] == 0.0
+    assert archived["execution_timeline"]["submitted_at_utc"] == (
+        "2026-07-01T14:00:01+00:00"
+    )
+
+    broker.history_deals_result = [
+        {
+            "ticket": 1001,
+            "order": 111222,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 1,
+            "time_utc": "2026-07-01T14:00:05+00:00",
+            "type": 0,
+            "entry": 0,
+            "volume": 1.0,
+            "price": 2450.0,
+            "profit": 0.0,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "TA|M1|FAST",
+        },
+        {
+            "ticket": 1002,
+            "order": 111333,
+            "position_id": 111222,
+            "symbol": "XAUUSD",
+            "time": 2,
+            "time_utc": "2026-07-01T14:00:09+00:00",
+            "type": 1,
+            "entry": 1,
+            "volume": 1.0,
+            "price": 2449.5,
+            "profit": -50.0,
+            "commission": 0.0,
+            "swap": 0.0,
+            "magic": 150015,
+            "comment": "[sl 2449.5]",
+        },
+    ]
+
+    result = executor.reconcile_trade_history(
+        now_utc=datetime(2026, 7, 1, 14, 1, tzinfo=timezone.utc)
+    )
+    trade = result["closed_trades"][0]
+    assert trade["mfe_points"] == 0.4
+    assert trade["mae_points"] == -0.5
+    assert trade["excursion_source"] == "one_second_samples_plus_exit"
+    assert trade["entry_drift"] == pytest.approx(-0.123)
+    assert trade["order_wait_seconds"] == 4.0
 
 
 def test_executor_normal_position_does_not_use_m1_intrabar_exit(tmp_path):
@@ -2619,8 +3135,11 @@ def test_executor_namespaces_stable_state_by_mt5_account(tmp_path):
     )
 
     assert first.state.path != second.state.path
-    assert str(first_config.login) in str(first.state.path)
-    assert str(second_config.login) in str(second.state.path)
+    assert "account-" in str(first.state.path)
+    assert str(first_config.login) not in str(first.state.path)
+    assert str(second_config.login) not in str(second.state.path)
+    assert first_config.server not in str(first.state.path)
+    assert second_config.server not in str(second.state.path)
 
 
 def test_executor_tags_one_minute_order_for_restart_safe_management(tmp_path):

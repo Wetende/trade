@@ -225,12 +225,13 @@ def test_late_impulse_remains_diagnostic_without_exhaustion_filter():
         if item["trigger"] == "CLEAN_LOW_IMPULSE_SELL"
     )
     candle = next(item for item in _bars() if item["timestamp"] == timestamp)
-    median_range = candidate["active_pulse"]["median_range"]
-    body_to_median_range = abs(candle["close"] - candle["open"]) / median_range
-    distance_from_level = abs(candidate["entry_price"] - candidate["level"])
+    quality = candidate["signal_quality"]
+    body_to_median_range = quality["body_to_recent_median_range"]
+    distance_from_level = quality["entry_distance_from_level"]
 
     assert body_to_median_range > 0
     assert distance_from_level > 0
     assert 0 < candidate["risk_distance"] <= 1.0
     assert candidate["active_pulse"]["direction"] == "bearish"
     assert candidate["approved"] is True
+    assert candidate["opening_context"]["confirmation_timestamp"] == candle["timestamp"]

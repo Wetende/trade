@@ -32,6 +32,53 @@ _MISSING = object()
 _MT5_COMMENT_MAX_LENGTH = 20
 
 
+def safe_mt5_connection_status(
+    connection: dict[str, Any],
+    *,
+    account_safety: dict[str, Any] | None = None,
+    symbol_snapshot: dict[str, Any] | None = None,
+    open_order_count: int | None = None,
+    open_position_count: int | None = None,
+) -> dict[str, Any]:
+    """Build operator-safe MT5 status without account or terminal identity."""
+    source = symbol_snapshot or {}
+    source_symbol = source.get("symbol") or connection.get("symbol") or {}
+    tick = source.get("tick") or {}
+    terminal = source.get("terminal") or {}
+    symbol = {
+        key: source_symbol.get(key)
+        for key in (
+            "name",
+            "digits",
+            "point",
+            "bid",
+            "ask",
+            "spread",
+            "spread_price",
+        )
+        if source_symbol.get(key) is not None
+    }
+    symbol["trade_allowed"] = bool(terminal.get("trade_allowed", False))
+    symbol["tradeapi_disabled"] = bool(
+        terminal.get("tradeapi_disabled", False)
+    )
+    tick_time = tick.get("time_utc")
+    if tick_time is None:
+        tick_time = source_symbol.get("server_time")
+    if tick_time is not None:
+        symbol["tick_time_utc"] = tick_time
+    status: dict[str, Any] = {
+        "connected": bool(connection.get("connected")),
+        "account_safety": dict(account_safety or {}),
+        "symbol": symbol,
+    }
+    if open_order_count is not None:
+        status["open_order_count"] = int(open_order_count)
+    if open_position_count is not None:
+        status["open_position_count"] = int(open_position_count)
+    return status
+
+
 def _parse_pending_expiration_epoch(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -754,13 +801,9 @@ class MT5Broker:
         login = account.get("login")
         server = account.get("server")
         if self.config.expected_login is not None and login != self.config.expected_login:
-            raise MT5BrokerError(
-                f"unexpected MT5 account login: got {login}, expected {self.config.expected_login}"
-            )
+            raise MT5BrokerError("unexpected MT5 account login")
         if self.config.expected_server and server != self.config.expected_server:
-            raise MT5BrokerError(
-                f"unexpected MT5 account server: got {server}, expected {self.config.expected_server}"
-            )
+            raise MT5BrokerError("unexpected MT5 account server")
 
     def _trade_mode_label(self, trade_mode: Any) -> str:
         for label, constant_name in _TRADE_MODE_LABEL_CONSTANTS.items():

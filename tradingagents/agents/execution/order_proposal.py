@@ -156,6 +156,20 @@ def _strategy_type_from_setup(setup: dict) -> str | None:
     return normalized or None
 
 
+def _decision_quote_from_payload(payload: dict) -> dict | None:
+    story = ((payload.get("market_context") or {}).get("one_minute_story") or {})
+    data_status = payload.get("data_status") or {}
+    values = {
+        "observed_at_utc": data_status.get("reference_timestamp"),
+        "bid": _float_value(story.get("current_bid_price")),
+        "ask": _float_value(story.get("current_ask_price")),
+        "spread_price": _float_value(story.get("current_spread_price")),
+    }
+    if all(value in (None, "") for value in values.values()):
+        return None
+    return values
+
+
 def _timeframe_minutes(timeframe: str) -> int:
     match = re.fullmatch(r"(\d+)\s*m", timeframe.strip().lower())
     if not match:
@@ -217,6 +231,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
     touch_count = None
     candidate_score = None
     volume_decision = None
+    opening_context = None
+    signal_quality = None
+    decision_quote = None
     volume = None
     volume_multiplier = None
     position_lifecycle = None
@@ -262,6 +279,13 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
                 str(selected_candidate.get("volume_decision") or "").strip()
                 or None
             )
+            raw_opening_context = selected_candidate.get("opening_context")
+            if isinstance(raw_opening_context, dict):
+                opening_context = dict(raw_opening_context)
+            raw_signal_quality = selected_candidate.get("signal_quality")
+            if isinstance(raw_signal_quality, dict):
+                signal_quality = dict(raw_signal_quality)
+            decision_quote = _decision_quote_from_payload(payload)
         entry = _float_value(setup.get("entry_price"))
         stop = _float_value(setup.get("stop_loss"))
         target = _float_value(setup.get("take_profit") or risk.get("take_profit"))
@@ -300,6 +324,9 @@ def _proposal_from_engine_payload(state: dict) -> OrderProposal | None:
         touch_count=touch_count,
         candidate_score=candidate_score,
         volume_decision=volume_decision,
+        opening_context=opening_context,
+        signal_quality=signal_quality,
+        decision_quote=decision_quote,
         entry_price=entry,
         stop_loss=stop,
         take_profit=target,

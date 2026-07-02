@@ -23,10 +23,7 @@ git clone https://github.com/toodennis106/trade.git trade
 Set-Location trade
 git checkout main
 
-py -3.13 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m pip install pytest MetaTrader5
+.\scripts\setup-windows.ps1
 ```
 
 `uv.lock` is tracked for reproducibility, but `uv` is optional. If it is
@@ -136,14 +133,15 @@ Run the focused deterministic and broker suites:
   tests/test_cli_mt5_execution.py
 ```
 
-Probe the broker connection without placing an order:
+Probe the broker connection without placing an order. The command returns only
+sanitized operator status; account login, server, account holder, balance,
+equity, company, and terminal path are excluded:
 
 ```powershell
-.\.venv\Scripts\python.exe -m cli.main broker-probe
+.\.venv\Scripts\python.exe -m cli.main broker-probe --json-only
 ```
 
-Keep the probe output local because broker metadata may be private. Before
-starting a worker, verify all of the following:
+Before starting a worker, verify all of the following:
 
 - account safety reports DEMO and passes
 - trading permission is enabled
@@ -173,23 +171,25 @@ local runtime data and remains separate from telemetry:
 TRADINGAGENTS_MT5_EXECUTION_STATE_DIR=runtime/mt5_execution_state
 ```
 
+Its per-account directory uses a one-way hashed namespace. Raw login and
+server values do not appear in paths. Consumed M1 opening evidence is durable
+there so a fresh telemetry session cannot immediately resubmit the same stale
+local opening. Completed position excursion and execution-timeline records are
+also retained locally for reconciliation.
+
 ## Start one hidden DEMO worker
 
-After the safety checks pass:
+Use the tracked launcher:
 
 ```powershell
-$stdout = Join-Path $session 'runner.stdout.log'
-$stderr = Join-Path $session 'runner.stderr.log'
-$worker = Start-Process `
-  -FilePath (Resolve-Path '.\.venv\Scripts\python.exe') `
-  -ArgumentList '-m','cli.main','mt5-run','--poll-seconds','5','--decision-mode','engine' `
-  -WorkingDirectory (Resolve-Path '.').Path `
-  -RedirectStandardOutput $stdout `
-  -RedirectStandardError $stderr `
-  -WindowStyle Hidden `
-  -PassThru
-$worker.Id
+.\scripts\start-one-minute-demo.ps1
 ```
+
+The launcher refuses duplicate workers and refuses to start unless the
+sanitized preflight reports a connected DEMO account, enabled trading, a
+fresh tick, zero open orders, and zero open positions. It pins the canonical
+M1 profile in process environment, creates a fresh timestamped results
+directory, and starts exactly one hidden worker.
 
 Do not force a trade. The runner must wait for a valid closed-M1 opening.
 

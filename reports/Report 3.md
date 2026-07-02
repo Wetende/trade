@@ -47,7 +47,7 @@ MT5 remained connected during the run and after the manual stop.
 | Item | Status |
 |---|---|
 | Broker connection | Connected |
-| MT5 server | ValetaxGlobal-Live3 |
+| MT5 server | <MT5_SERVER> |
 | Account type reported by MT5 | DEMO |
 | Balance / equity after stop | 99,999.62 USD / 99,999.62 USD |
 | Open orders after stop | 0 |

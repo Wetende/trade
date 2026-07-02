@@ -11,14 +11,18 @@ from typing import Any
 
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
-from tradingagents.brokers.execution_state import ExecutionStateStore
+from tradingagents.brokers.execution_state import (
+    ExecutionStateStore,
+    account_state_namespace,
+)
+from tradingagents.brokers.opening_freshness import stale_consumed_opening
 from tradingagents.brokers.mode_gate import account_safety_from_connection
 from tradingagents.brokers.mt5 import (
     MT5Broker,
     MT5ConnectionConfig,
     MT5OrderRequestBuilder,
+    safe_mt5_connection_status,
 )
-from tradingagents.dataflows.utils import safe_ticker_component
 
 ONE_MINUTE_POSITION_COMMENT = "TA|M1|FAST"
 ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS = 1.0
@@ -196,6 +200,27 @@ def _timeframe_duration(timeframe: str) -> timedelta | None:
     return durations.get(normalized)
 
 
+def _safe_quote_snapshot(
+    snapshot: dict[str, Any] | None,
+    observed_at_utc: datetime,
+) -> dict[str, Any]:
+    raw = snapshot or {}
+    symbol = raw.get("symbol") or {}
+    tick = raw.get("tick") or {}
+    bid = _first_float(symbol, "bid")
+    ask = _first_float(symbol, "ask")
+    spread = _first_float(symbol, "spread_price")
+    if spread is None and bid is not None and ask is not None:
+        spread = max(0.0, ask - bid)
+    return {
+        "observed_at_utc": observed_at_utc.astimezone(timezone.utc).isoformat(),
+        "tick_time_utc": tick.get("time_utc"),
+        "bid": round(bid, 8) if bid is not None else None,
+        "ask": round(ask, 8) if ask is not None else None,
+        "spread_price": round(spread, 8) if spread is not None else None,
+    }
+
+
 class MT5Executor:
     """Coordinate one-symbol guarded MT5 proposal execution."""
 
@@ -218,8 +243,9 @@ class MT5Executor:
             or getattr(config, "execution_state_dir", None)
             or results_dir
         )
-        account_namespace = safe_ticker_component(
-            f"{config.expected_server or config.server}-{config.expected_login or config.login}"
+        account_namespace = account_state_namespace(
+            config.expected_server or config.server,
+            config.expected_login or config.login,
         )
         self.state = ExecutionStateStore(
             Path(effective_state_dir) / account_namespace,
@@ -233,6 +259,10 @@ class MT5Executor:
 
     @staticmethod
     def _now_utc() -> datetime:
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def _timeline_now_utc() -> datetime:
         return datetime.now(timezone.utc)
 
     def _expired_pending_window_result(
@@ -322,7 +352,10 @@ class MT5Executor:
         account_safety = self._account_safety(connection)
         self.journal.append(
             "CONNECTED",
-            {**connection, "account_safety": account_safety},
+            safe_mt5_connection_status(
+                connection,
+                account_safety=account_safety,
+            ),
         )
 
         if not account_safety["passed"]:
@@ -344,6 +377,39 @@ class MT5Executor:
             self.journal.append("SKIPPED_ACTIVE_TRADE", result)
             return result
 
+        opening_context = (
+            dict(proposal.opening_context)
+            if isinstance(proposal.opening_context, dict)
+            else None
+        )
+        if _is_one_minute_scalper_proposal(proposal):
+            if opening_context is None:
+                self.journal.append(
+                    "OPENING_FRESHNESS_UNAVAILABLE",
+                    {
+                        "reason": "OPENING_FRESHNESS_UNAVAILABLE",
+                        "trigger": proposal.trigger_name,
+                        "side": str(getattr(proposal.side, "value", proposal.side)),
+                    },
+                )
+            else:
+                state = self.state.load()
+                consumed = list(state.get("consumed_openings") or [])
+                stale_record = stale_consumed_opening(
+                    opening_context,
+                    consumed,
+                )
+                if stale_record is not None:
+                    result = {
+                        "status": "SKIPPED_STALE_OPENING",
+                        "reason": "STALE_CONSUMED_OPENING",
+                        "opening_context": opening_context,
+                        "consumed_opening": stale_record,
+                        "account_safety": account_safety,
+                    }
+                    self.journal.append("OPENING_SKIPPED_STALE", result)
+                    return result
+
         try:
             request = self.builder.build_pending_order_request(
                 proposal,
@@ -360,17 +426,17 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
-        submitted_at = self._now_utc()
+        policy_started_at = self._now_utc()
         pending_policy = build_pending_order_policy(
             proposal,
-            submitted_at,
+            policy_started_at,
             self.one_minute_lifecycle,
         )
         if _is_one_minute_scalper_proposal(proposal):
             expired_result = self._expired_pending_window_result(
                 proposal,
                 pending_policy,
-                submitted_at,
+                policy_started_at,
                 account_safety,
             )
             if expired_result is not None:
@@ -419,7 +485,29 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
+        submitted_at = self._timeline_now_utc()
+        snapshot_func = getattr(self.broker, "current_symbol_snapshot", None)
+        if callable(snapshot_func):
+            pre_send_source = snapshot_func()
+        else:
+            pre_send_source = {"symbol": connection.get("symbol") or {}}
+        pre_send_quote = _safe_quote_snapshot(pre_send_source, submitted_at)
         broker_result = self.broker.place_pending_order(request)
+        acknowledged_at = self._timeline_now_utc()
+        execution_timeline = {
+            "decision_quote": (
+                dict(proposal.decision_quote)
+                if isinstance(proposal.decision_quote, dict)
+                else None
+            ),
+            "pre_send_quote": pre_send_quote,
+            "submitted_at_utc": submitted_at.astimezone(timezone.utc).isoformat(),
+            "acknowledged_at_utc": acknowledged_at.astimezone(
+                timezone.utc
+            ).isoformat(),
+            "attempt": 1,
+        }
+        self.journal.append("ORDER_EXECUTION_TIMELINE", execution_timeline)
         expiration_fallback = False
         if (
             not bool(broker_result.get("ok"))
@@ -475,7 +563,32 @@ class MT5Executor:
                     self.journal.append("ORDER_SKIPPED", result)
                     return result
             request = fallback_request
+            fallback_submitted_at = self._timeline_now_utc()
+            if callable(snapshot_func):
+                fallback_snapshot = snapshot_func()
+            else:
+                fallback_snapshot = {"symbol": connection.get("symbol") or {}}
+            fallback_quote = _safe_quote_snapshot(
+                fallback_snapshot,
+                fallback_submitted_at,
+            )
             broker_result = self.broker.place_pending_order(request)
+            fallback_acknowledged_at = self._timeline_now_utc()
+            execution_timeline = {
+                "decision_quote": execution_timeline["decision_quote"],
+                "pre_send_quote": fallback_quote,
+                "submitted_at_utc": fallback_submitted_at.astimezone(
+                    timezone.utc
+                ).isoformat(),
+                "acknowledged_at_utc": fallback_acknowledged_at.astimezone(
+                    timezone.utc
+                ).isoformat(),
+                "attempt": 2,
+                "previous_attempt": execution_timeline,
+            }
+            self.journal.append("ORDER_EXECUTION_TIMELINE", execution_timeline)
+            submitted_at = fallback_submitted_at
+            acknowledged_at = fallback_acknowledged_at
             expiration_fallback = True
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
@@ -489,7 +602,23 @@ class MT5Executor:
                     pending_policy["cancel_after_utc"]
                 ),
                 pending_policy=pending_policy,
+                execution_timeline=execution_timeline,
             )
+            if opening_context is not None:
+                self.state.record_consumed_opening(
+                    opening_context,
+                    consumed_at_utc=acknowledged_at,
+                    order_ticket=broker_result["order"],
+                    execution_timeline=execution_timeline,
+                )
+                self.journal.append(
+                    "OPENING_CONSUMED",
+                    {
+                        "opening_context": opening_context,
+                        "consumed_at_utc": acknowledged_at.isoformat(),
+                        "order": broker_result["order"],
+                    },
+                )
 
         return {
             "status": "PLACED" if ok else "REJECTED",
@@ -498,6 +627,7 @@ class MT5Executor:
             "order_check_result": order_check_result,
             "pending_policy": pending_policy,
             "expiration_fallback": expiration_fallback,
+            "execution_timeline": execution_timeline,
             "account_safety": account_safety,
         }
 
@@ -658,6 +788,7 @@ class MT5Executor:
         if not positions:
             state = self.state.load()
             if state.get("active_position_ticket") is not None:
+                self._archive_active_position_telemetry(state)
                 self.state.clear_trade()
         legacy_mode = break_even_threshold_pips is not None and exit_management is None
         management = exit_management or self.exit_management
@@ -999,6 +1130,36 @@ class MT5Executor:
         )
 
         excursion_state = state.setdefault("position_excursion_state", {})
+        first_observations = state.setdefault(
+            "position_first_observation",
+            {},
+        )
+        first_observation = first_observations.get(position_key)
+        if not isinstance(first_observation, dict):
+            observed_at = self._timeline_now_utc()
+            opened_at = _parse_utc_datetime(position.get("opened_at_utc"))
+            first_observation = {
+                "position_id": position_key,
+                "opened_at_utc": (
+                    opened_at.isoformat() if opened_at is not None else None
+                ),
+                "entry_price": entry,
+                "observed_at_utc": observed_at.isoformat(),
+                "quote": _safe_quote_snapshot(
+                    {"symbol": symbol_info},
+                    observed_at,
+                ),
+                "fill_to_observation_seconds": (
+                    round((observed_at - opened_at).total_seconds(), 4)
+                    if opened_at is not None
+                    else None
+                ),
+            }
+            first_observations[position_key] = first_observation
+            self.journal.append(
+                "POSITION_FIRST_OBSERVED",
+                first_observation,
+            )
         previous = dict(excursion_state.get(position_key) or {})
         previous_mfe = float(previous.get("mfe_points", 0.0))
         previous_mae = float(previous.get("mae_points", 0.0))
@@ -1028,6 +1189,31 @@ class MT5Executor:
         self.state.save(state)
         self.journal.append("POSITION_MONITORED", snapshot)
         return snapshot
+
+    def _archive_active_position_telemetry(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        position_id = state.get("active_position_ticket")
+        if position_id in (None, ""):
+            return None
+        key = str(position_id)
+        telemetry = {
+            "position_id": key,
+            "placed_at_utc": state.get("placed_at_utc"),
+            "proposal": state.get("proposal"),
+            "execution_timeline": state.get("execution_timeline"),
+            "position_first_observation": (
+                (state.get("position_first_observation") or {}).get(key)
+            ),
+            "position_excursion": (
+                (state.get("position_excursion_state") or {}).get(key)
+            ),
+            "archived_at_utc": self._timeline_now_utc().isoformat(),
+        }
+        self.state.archive_position_telemetry(key, telemetry)
+        self.journal.append("POSITION_EXCURSION_ARCHIVED", telemetry)
+        return telemetry
 
     def _intrabar_adverse_action(
         self,
@@ -1060,6 +1246,13 @@ class MT5Executor:
             comment="TA intrabar adverse",
         )
         if not bool(close_result.get("ok")):
+            reconciled = self._reconcile_failed_close_race(
+                position,
+                close_result,
+                requested_action="INTRABAR_ADVERSE_EXIT",
+            )
+            if reconciled is not None:
+                return reconciled
             action = {
                 "ticket": position.get("ticket"),
                 "action": "CLOSE_POSITION_FAILED",
@@ -1081,6 +1274,55 @@ class MT5Executor:
             "result": close_result,
         }
         self.journal.append("POSITION_CLOSED_INTRABAR", action)
+        return action
+
+    @staticmethod
+    def _position_identity_values(position: dict[str, Any]) -> set[str]:
+        return {
+            str(value)
+            for value in (
+                position.get("identifier"),
+                position.get("position_id"),
+                position.get("ticket"),
+            )
+            if value not in (None, "")
+        }
+
+    @staticmethod
+    def _is_close_race_response(result: dict[str, Any]) -> bool:
+        comment = str(result.get("comment") or "").strip().lower()
+        return bool(
+            result.get("retcode") in {10013, 10036}
+            or "position doesn't exist" in comment
+            or "position does not exist" in comment
+            or "invalid request" in comment
+        )
+
+    def _reconcile_failed_close_race(
+        self,
+        position: dict[str, Any],
+        close_result: dict[str, Any],
+        *,
+        requested_action: str,
+    ) -> dict[str, Any] | None:
+        if not self._is_close_race_response(close_result):
+            return None
+        target_ids = self._position_identity_values(position)
+        refreshed = self.broker.open_positions(self.config.symbol)
+        still_open = any(
+            target_ids & self._position_identity_values(candidate)
+            for candidate in refreshed
+        )
+        if still_open:
+            return None
+        action = {
+            "ticket": position.get("ticket"),
+            "action": "NO_ACTION",
+            "reason": "POSITION_ALREADY_CLOSED",
+            "requested_action": requested_action,
+            "result": close_result,
+        }
+        self.journal.append("POSITION_CLOSE_RECONCILED", action)
         return action
 
     def _candle_rejection_action(
@@ -1124,6 +1366,13 @@ class MT5Executor:
                 comment="TA candle rejection exit",
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action="CANDLE_REJECTION_FULL_EXIT",
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "CLOSE_POSITION_FAILED",
@@ -1158,6 +1407,13 @@ class MT5Executor:
                 comment="TA candle rejection full",
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action="CANDLE_REJECTION_FULL_EXIT_UNPROTECTED",
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "CLOSE_POSITION_FAILED",
@@ -1485,6 +1741,13 @@ class MT5Executor:
                 volume=close_volume,
             )
             if not bool(close_result.get("ok")):
+                reconciled = self._reconcile_failed_close_race(
+                    position,
+                    close_result,
+                    requested_action=reason,
+                )
+                if reconciled is not None:
+                    return reconciled
                 action = {
                     "ticket": position.get("ticket"),
                     "action": "PARTIAL_CLOSE_FAILED",
@@ -1790,7 +2053,7 @@ class MT5Executor:
             ),
             2,
         )
-        return {
+        summary = {
             **self._trade_fill_summary(position_id, entry_deal),
             "exit_deal_ticket": self._deal_int(last_exit.get("ticket")),
             "exit_order": self._deal_int(last_exit.get("order")),
@@ -1800,6 +2063,51 @@ class MT5Executor:
             "outcome": self._deal_outcome(last_exit, profit),
             "exit_comment": last_exit.get("comment"),
         }
+        completed = (
+            self.state.load().get("completed_position_telemetry") or {}
+        ).get(str(position_id))
+        if not isinstance(completed, dict):
+            return summary
+
+        excursion = completed.get("position_excursion") or {}
+        sampled_mfe = self._deal_float(excursion.get("mfe_points"))
+        sampled_mae = self._deal_float(excursion.get("mae_points"))
+        entry_price = summary["entry_price"]
+        exit_price = summary["exit_price"]
+        side = summary.get("side")
+        exit_movement = (
+            exit_price - entry_price
+            if side == "BUY"
+            else entry_price - exit_price
+        )
+        summary.update(
+            {
+                "mfe_points": round(max(0.0, sampled_mfe, exit_movement), 4),
+                "mae_points": round(min(0.0, sampled_mae, exit_movement), 4),
+                "excursion_source": "one_second_samples_plus_exit",
+                "first_position_observation": completed.get(
+                    "position_first_observation"
+                ),
+                "execution_timeline": completed.get("execution_timeline"),
+            }
+        )
+        proposal = completed.get("proposal") or {}
+        proposed_entry = _first_float(proposal, "entry_price")
+        if proposed_entry is not None:
+            summary["entry_drift"] = round(
+                (entry_price - proposed_entry)
+                * (1.0 if side == "BUY" else -1.0),
+                4,
+            )
+        timeline = completed.get("execution_timeline") or {}
+        submitted_at = _parse_utc_datetime(timeline.get("submitted_at_utc"))
+        opened_at = _parse_utc_datetime(summary.get("opened_at_utc"))
+        if submitted_at is not None and opened_at is not None:
+            summary["order_wait_seconds"] = round(
+                (opened_at - submitted_at).total_seconds(),
+                4,
+            )
+        return summary
 
     @staticmethod
     def _deal_outcome(exit_deal: dict[str, Any], profit: float) -> str:
@@ -1821,7 +2129,10 @@ class MT5Executor:
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
         state = {
-            "connection": connection,
+            "connection": safe_mt5_connection_status(
+                connection,
+                account_safety=account_safety,
+            ),
             "account_safety": account_safety,
             "orders": orders,
             "positions": positions,

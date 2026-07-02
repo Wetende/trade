@@ -604,3 +604,29 @@ performance by trigger family
 
 Use at least 30 closed trades for an early directional review and preferably 50
 or more before claiming that the 60 percent target has been reached.
+
+## 2026-07-02 Evidence Improvement Addendum
+
+This handoff is superseded for implementation details by:
+
+```text
+docs/analysis/2026-07-02-one-minute-scalper-forensic-review.md
+docs/superpowers/specs/2026-07-02-one-minute-scalper-evidence-improvements-design.md
+docs/superpowers/plans/2026-07-02-one-minute-scalper-evidence-improvements.md
+```
+
+The approved implementation preserves every canonical trigger family and does
+not add score, pressure, confirmation-ratio, trigger-ban, or cooldown filters.
+It adds durable candidate-local consumed-opening identity, structural re-arm
+semantics, shadow signal-quality telemetry, complete order/fill/excursion
+timelines, idempotent already-closed reconciliation, sanitized broker status,
+and hashed per-account runtime namespaces.
+
+For a new machine, use:
+
+```powershell
+.\scripts\setup-windows.ps1
+Copy-Item .env.example .env
+# Populate .env securely, open MT5 DEMO, then:
+.\scripts\start-one-minute-demo.ps1
+```
