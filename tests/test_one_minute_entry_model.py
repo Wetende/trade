@@ -269,6 +269,62 @@ def test_one_minute_scalper_allows_clean_high_impulse_buy_from_remembered_two_hi
     assert payload["risk"]["min_stop_update_points"] > 0
 
 
+def test_selected_candidate_emits_closed_m1_opening_context():
+    candles = _two_high_then_impulse_buy_history()
+    payload = _payload(
+        candles,
+        fast_history_window_candles=7,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=102.48,
+        current_ask_price=102.68,
+    )
+
+    candidate = payload["telemetry"]["selected_candidate"]
+    context = candidate["opening_context"]
+
+    assert context == {
+        "model_name": "One Minute Scalper",
+        "direction": "BUY",
+        "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+        "reaction_type": "impulse_break",
+        "confirmation_type": "strong_close",
+        "level": candidate["level"],
+        "level_side": "high",
+        "level_type": candidate["level_type"],
+        "tolerance": payload["market_context"]["one_minute_story"]["tolerance"],
+        "touch_count": candidate["touch_count"],
+        "first_touch_timestamp": candles[2]["timestamp"],
+        "last_touch_timestamp": candles[4]["timestamp"],
+        "confirmation_timestamp": candles[-1]["timestamp"],
+    }
+
+
+def test_signal_quality_metrics_are_shadow_only():
+    payload = _payload(
+        _two_high_then_impulse_buy_history(),
+        fast_history_window_candles=7,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=102.48,
+        current_ask_price=102.68,
+    )
+
+    candidate = payload["telemetry"]["selected_candidate"]
+    quality = candidate["signal_quality"]
+
+    assert quality["confirmation_body"] == pytest.approx(1.55)
+    assert quality["confirmation_range"] == pytest.approx(1.75)
+    assert quality["recent_median_range"] > 0
+    assert quality["body_to_recent_median_range"] > 0
+    assert quality["opposing_wick"] == pytest.approx(0.10)
+    assert quality["opposing_wick_to_range"] > 0
+    assert quality["entry_distance_from_level"] > 0
+    assert quality["stop_to_spread_ratio"] > 0
+    assert quality["touch_age_closed_bars"] == 2
+    assert candidate["approved"] is True
+
+
 def test_one_minute_scalper_allows_clean_low_impulse_sell_from_remembered_two_lows():
     payload = _payload(
         _two_low_then_impulse_sell_history(),
