@@ -10,6 +10,7 @@ BUY, SELL, HOLD, size, or exits. Start with:
 - [One Minute Scalper handoff](docs/one-minute-scalper-handoff-2026-07-01.md)
 - [New-machine migration guide](docs/one-minute-scalper-machine-migration.md)
 - [Current forensic review](docs/analysis/2026-07-02-one-minute-scalper-forensic-review.md)
+- [Post-change impulse loss review](docs/analysis/2026-07-02-one-minute-scalper-impulse-loss-review.md)
 - [Windows setup script](scripts/setup-windows.ps1)
 - [Safe DEMO runner script](scripts/start-one-minute-demo.ps1)
 
