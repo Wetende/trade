@@ -105,3 +105,90 @@ def test_execution_state_uses_default_activation_window(tmp_path):
     )
 
     assert state["cancel_after_utc"] == "2026-05-27T14:10:00+00:00"
+
+
+def test_execution_state_preserves_consumed_opening_when_trade_is_cleared(tmp_path):
+    store = ExecutionStateStore(tmp_path, "XAUUSD")
+    context = {
+        "direction": "BUY",
+        "trigger": "LOW_RESPECT_BUY",
+        "reaction_type": "respect",
+        "confirmation_type": "rejection",
+        "level": 2450.0,
+        "level_side": "low",
+        "level_type": "three_touch",
+        "tolerance": 0.2,
+        "touch_count": 3,
+        "first_touch_timestamp": "2026-07-01T12:00:00+00:00",
+        "last_touch_timestamp": "2026-07-01T12:10:00+00:00",
+        "confirmation_timestamp": "2026-07-01T12:11:00+00:00",
+    }
+    store.record_consumed_opening(
+        context,
+        consumed_at_utc=datetime(2026, 7, 1, 12, 11, 5, tzinfo=timezone.utc),
+        order_ticket=111222,
+        execution_timeline={"submitted_at_utc": "2026-07-01T12:11:05+00:00"},
+    )
+    store.record_pending_order(
+        111222,
+        _proposal(),
+        placed_at_utc=datetime(2026, 7, 1, 12, 11, 5, tzinfo=timezone.utc),
+    )
+
+    state = store.clear_trade()
+
+    assert state["active_order_ticket"] is None
+    assert state["active_position_ticket"] is None
+    assert state["consumed_openings"][0]["opening_context"] == context
+    assert state["consumed_openings"][0]["order_ticket"] == 111222
+
+
+def test_execution_state_bounds_consumed_openings_to_newest_128(tmp_path):
+    store = ExecutionStateStore(tmp_path, "XAUUSD")
+
+    for index in range(130):
+        store.record_consumed_opening(
+            {"level": float(index)},
+            consumed_at_utc=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        )
+
+    records = store.load()["consumed_openings"]
+    assert len(records) == 128
+    assert records[0]["opening_context"]["level"] == 129.0
+    assert records[-1]["opening_context"]["level"] == 2.0
+
+
+def test_execution_state_archives_completed_position_telemetry(tmp_path):
+    store = ExecutionStateStore(tmp_path, "XAUUSD")
+    telemetry = {
+        "position_id": "777034",
+        "position_excursion": {"mfe_points": 0.8, "mae_points": -0.3},
+    }
+
+    state = store.archive_position_telemetry("777034", telemetry)
+    cleared = store.clear_trade()
+
+    assert state["completed_position_telemetry"]["777034"] == telemetry
+    assert cleared["completed_position_telemetry"]["777034"] == telemetry
+
+
+def test_record_pending_order_preserves_durable_state_and_timeline(tmp_path):
+    store = ExecutionStateStore(tmp_path, "XAUUSD")
+    store.record_consumed_opening(
+        {"level": 2450.0},
+        consumed_at_utc=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    timeline = {
+        "submitted_at_utc": "2026-07-01T12:00:01+00:00",
+        "acknowledged_at_utc": "2026-07-01T12:00:02+00:00",
+    }
+
+    state = store.record_pending_order(
+        111222,
+        _proposal(),
+        placed_at_utc=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        execution_timeline=timeline,
+    )
+
+    assert state["execution_timeline"] == timeline
+    assert len(state["consumed_openings"]) == 1

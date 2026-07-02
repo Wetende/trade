@@ -15,6 +15,8 @@ class ExecutionStateStore:
     """Persist one-symbol MT5 execution state."""
 
     filename = "mt5_state.json"
+    max_consumed_openings = 128
+    max_completed_positions = 128
 
     def __init__(self, results_dir: str | Path, symbol: str) -> None:
         self.symbol = symbol
@@ -49,6 +51,7 @@ class ExecutionStateStore:
         placed_at_utc: datetime | None = None,
         cancel_after_utc: datetime | None = None,
         pending_policy: dict[str, Any] | None = None,
+        execution_timeline: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         placed_at = placed_at_utc or datetime.now(timezone.utc)
         if placed_at.tzinfo is None:
@@ -62,17 +65,78 @@ class ExecutionStateStore:
             if cancel_after.tzinfo is None:
                 cancel_after = cancel_after.replace(tzinfo=timezone.utc)
             cancel_after = cancel_after.astimezone(timezone.utc)
-        return self.save(
-            {
-                "symbol": self.symbol,
-                "active_order_ticket": int(ticket),
-                "active_position_ticket": None,
-                "placed_at_utc": placed_at.isoformat(),
-                "cancel_after_utc": cancel_after.isoformat(),
-                "pending_policy": dict(pending_policy or {}),
-                "proposal": proposal.model_dump(mode="json"),
-            }
-        )
+        state = {
+            **self._durable_state(self.load()),
+            "symbol": self.symbol,
+            "active_order_ticket": int(ticket),
+            "active_position_ticket": None,
+            "placed_at_utc": placed_at.isoformat(),
+            "cancel_after_utc": cancel_after.isoformat(),
+            "pending_policy": dict(pending_policy or {}),
+            "proposal": proposal.model_dump(mode="json"),
+        }
+        if execution_timeline is not None:
+            state["execution_timeline"] = dict(execution_timeline)
+        return self.save(state)
+
+    @staticmethod
+    def _utc_iso(value: datetime | None = None) -> str:
+        parsed = value or datetime.now(timezone.utc)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def _durable_state(state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: state[key]
+            for key in (
+                "consumed_openings",
+                "completed_position_telemetry",
+            )
+            if key in state
+        }
+
+    def record_consumed_opening(
+        self,
+        opening_context: dict[str, Any],
+        *,
+        consumed_at_utc: datetime | None = None,
+        order_ticket: int | None = None,
+        execution_timeline: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        state = self.load()
+        record: dict[str, Any] = {
+            "opening_context": dict(opening_context),
+            "consumed_at_utc": self._utc_iso(consumed_at_utc),
+        }
+        if order_ticket is not None:
+            record["order_ticket"] = int(order_ticket)
+        if execution_timeline is not None:
+            record["execution_timeline"] = dict(execution_timeline)
+        records = [
+            record,
+            *list(state.get("consumed_openings") or []),
+        ][: self.max_consumed_openings]
+        state["consumed_openings"] = records
+        return self.save(state)
+
+    def archive_position_telemetry(
+        self,
+        position_id: str | int,
+        telemetry: dict[str, Any],
+    ) -> dict[str, Any]:
+        state = self.load()
+        completed = dict(state.get("completed_position_telemetry") or {})
+        key = str(position_id)
+        completed.pop(key, None)
+        completed[key] = dict(telemetry)
+        if len(completed) > self.max_completed_positions:
+            completed = dict(
+                list(completed.items())[-self.max_completed_positions :]
+            )
+        state["completed_position_telemetry"] = completed
+        return self.save(state)
 
     def clear_pending_order(self) -> dict[str, Any]:
         state = self.load()
@@ -88,6 +152,7 @@ class ExecutionStateStore:
     def clear_trade(self) -> dict[str, Any]:
         return self.save(
             {
+                **self._durable_state(self.load()),
                 "symbol": self.symbol,
                 "active_order_ticket": None,
                 "active_position_ticket": None,
