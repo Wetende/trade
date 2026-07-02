@@ -12,6 +12,7 @@ from typing import Any
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.execution_journal import ExecutionJournal
 from tradingagents.brokers.execution_state import ExecutionStateStore
+from tradingagents.brokers.opening_freshness import stale_consumed_opening
 from tradingagents.brokers.mode_gate import account_safety_from_connection
 from tradingagents.brokers.mt5 import (
     MT5Broker,
@@ -196,6 +197,27 @@ def _timeframe_duration(timeframe: str) -> timedelta | None:
     return durations.get(normalized)
 
 
+def _safe_quote_snapshot(
+    snapshot: dict[str, Any] | None,
+    observed_at_utc: datetime,
+) -> dict[str, Any]:
+    raw = snapshot or {}
+    symbol = raw.get("symbol") or {}
+    tick = raw.get("tick") or {}
+    bid = _first_float(symbol, "bid")
+    ask = _first_float(symbol, "ask")
+    spread = _first_float(symbol, "spread_price")
+    if spread is None and bid is not None and ask is not None:
+        spread = max(0.0, ask - bid)
+    return {
+        "observed_at_utc": observed_at_utc.astimezone(timezone.utc).isoformat(),
+        "tick_time_utc": tick.get("time_utc"),
+        "bid": bid,
+        "ask": ask,
+        "spread_price": spread,
+    }
+
+
 class MT5Executor:
     """Coordinate one-symbol guarded MT5 proposal execution."""
 
@@ -233,6 +255,10 @@ class MT5Executor:
 
     @staticmethod
     def _now_utc() -> datetime:
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def _timeline_now_utc() -> datetime:
         return datetime.now(timezone.utc)
 
     def _expired_pending_window_result(
@@ -344,6 +370,39 @@ class MT5Executor:
             self.journal.append("SKIPPED_ACTIVE_TRADE", result)
             return result
 
+        opening_context = (
+            dict(proposal.opening_context)
+            if isinstance(proposal.opening_context, dict)
+            else None
+        )
+        if _is_one_minute_scalper_proposal(proposal):
+            if opening_context is None:
+                self.journal.append(
+                    "OPENING_FRESHNESS_UNAVAILABLE",
+                    {
+                        "reason": "OPENING_FRESHNESS_UNAVAILABLE",
+                        "trigger": proposal.trigger_name,
+                        "side": str(getattr(proposal.side, "value", proposal.side)),
+                    },
+                )
+            else:
+                state = self.state.load()
+                consumed = list(state.get("consumed_openings") or [])
+                stale_record = stale_consumed_opening(
+                    opening_context,
+                    consumed,
+                )
+                if stale_record is not None:
+                    result = {
+                        "status": "SKIPPED_STALE_OPENING",
+                        "reason": "STALE_CONSUMED_OPENING",
+                        "opening_context": opening_context,
+                        "consumed_opening": stale_record,
+                        "account_safety": account_safety,
+                    }
+                    self.journal.append("OPENING_SKIPPED_STALE", result)
+                    return result
+
         try:
             request = self.builder.build_pending_order_request(
                 proposal,
@@ -360,17 +419,17 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
-        submitted_at = self._now_utc()
+        policy_started_at = self._now_utc()
         pending_policy = build_pending_order_policy(
             proposal,
-            submitted_at,
+            policy_started_at,
             self.one_minute_lifecycle,
         )
         if _is_one_minute_scalper_proposal(proposal):
             expired_result = self._expired_pending_window_result(
                 proposal,
                 pending_policy,
-                submitted_at,
+                policy_started_at,
                 account_safety,
             )
             if expired_result is not None:
@@ -419,7 +478,29 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
+        submitted_at = self._timeline_now_utc()
+        snapshot_func = getattr(self.broker, "current_symbol_snapshot", None)
+        if callable(snapshot_func):
+            pre_send_source = snapshot_func()
+        else:
+            pre_send_source = {"symbol": connection.get("symbol") or {}}
+        pre_send_quote = _safe_quote_snapshot(pre_send_source, submitted_at)
         broker_result = self.broker.place_pending_order(request)
+        acknowledged_at = self._timeline_now_utc()
+        execution_timeline = {
+            "decision_quote": (
+                dict(proposal.decision_quote)
+                if isinstance(proposal.decision_quote, dict)
+                else None
+            ),
+            "pre_send_quote": pre_send_quote,
+            "submitted_at_utc": submitted_at.astimezone(timezone.utc).isoformat(),
+            "acknowledged_at_utc": acknowledged_at.astimezone(
+                timezone.utc
+            ).isoformat(),
+            "attempt": 1,
+        }
+        self.journal.append("ORDER_EXECUTION_TIMELINE", execution_timeline)
         expiration_fallback = False
         if (
             not bool(broker_result.get("ok"))
@@ -475,7 +556,32 @@ class MT5Executor:
                     self.journal.append("ORDER_SKIPPED", result)
                     return result
             request = fallback_request
+            fallback_submitted_at = self._timeline_now_utc()
+            if callable(snapshot_func):
+                fallback_snapshot = snapshot_func()
+            else:
+                fallback_snapshot = {"symbol": connection.get("symbol") or {}}
+            fallback_quote = _safe_quote_snapshot(
+                fallback_snapshot,
+                fallback_submitted_at,
+            )
             broker_result = self.broker.place_pending_order(request)
+            fallback_acknowledged_at = self._timeline_now_utc()
+            execution_timeline = {
+                "decision_quote": execution_timeline["decision_quote"],
+                "pre_send_quote": fallback_quote,
+                "submitted_at_utc": fallback_submitted_at.astimezone(
+                    timezone.utc
+                ).isoformat(),
+                "acknowledged_at_utc": fallback_acknowledged_at.astimezone(
+                    timezone.utc
+                ).isoformat(),
+                "attempt": 2,
+                "previous_attempt": execution_timeline,
+            }
+            self.journal.append("ORDER_EXECUTION_TIMELINE", execution_timeline)
+            submitted_at = fallback_submitted_at
+            acknowledged_at = fallback_acknowledged_at
             expiration_fallback = True
         ok = bool(broker_result.get("ok"))
         event_type = "ORDER_PLACED" if ok else "ORDER_REJECTED"
@@ -489,7 +595,23 @@ class MT5Executor:
                     pending_policy["cancel_after_utc"]
                 ),
                 pending_policy=pending_policy,
+                execution_timeline=execution_timeline,
             )
+            if opening_context is not None:
+                self.state.record_consumed_opening(
+                    opening_context,
+                    consumed_at_utc=acknowledged_at,
+                    order_ticket=broker_result["order"],
+                    execution_timeline=execution_timeline,
+                )
+                self.journal.append(
+                    "OPENING_CONSUMED",
+                    {
+                        "opening_context": opening_context,
+                        "consumed_at_utc": acknowledged_at.isoformat(),
+                        "order": broker_result["order"],
+                    },
+                )
 
         return {
             "status": "PLACED" if ok else "REJECTED",
@@ -498,6 +620,7 @@ class MT5Executor:
             "order_check_result": order_check_result,
             "pending_policy": pending_policy,
             "expiration_fallback": expiration_fallback,
+            "execution_timeline": execution_timeline,
             "account_safety": account_safety,
         }
 
