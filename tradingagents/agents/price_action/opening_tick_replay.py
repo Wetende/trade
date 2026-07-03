@@ -166,7 +166,8 @@ def simulate_opportunity(
     spread = round(float(decision_tick.ask) - float(decision_tick.bid), 4)
     entry = _entry_price(opportunity)
     stop, target = _levels(opportunity, entry, config)
-    expiry = decision_time + timedelta(
+    decision_tick_time = _parse(decision_tick.time)
+    expiry = decision_tick_time + timedelta(
         seconds=(
             config.reaction_expiry_seconds
             if opportunity.entry_kind == "reaction"
