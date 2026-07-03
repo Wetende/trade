@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from tradingagents.agents.price_action.opening_state import OpeningOpportunity
@@ -150,6 +152,215 @@ def _base_result(
         mae=mae,
         spread_at_decision=spread_at_decision,
     )
+
+
+def _timestamp(value: str) -> float:
+    return _parse(value).timestamp()
+
+
+def _favorable_points(
+    direction: str,
+    *,
+    entry: float,
+    marks: np.ndarray,
+) -> np.ndarray:
+    if direction == "BUY":
+        return marks - entry
+    return entry - marks
+
+
+@dataclass(frozen=True)
+class PreparedTickSeries:
+    """Pre-sorted vectorized tick series for exact repeated opportunity replay."""
+
+    ticks: tuple[MarketTick, ...]
+    epoch_seconds: np.ndarray
+    bids: np.ndarray
+    asks: np.ndarray
+    valid: np.ndarray
+
+    @classmethod
+    def from_ticks(
+        cls,
+        ticks: list[MarketTick] | tuple[MarketTick, ...],
+    ) -> "PreparedTickSeries":
+        ordered = tuple(sorted(ticks, key=lambda item: _parse(item.time)))
+        epoch_seconds = np.array([_timestamp(tick.time) for tick in ordered], dtype=float)
+        bids = np.array([float(tick.bid) for tick in ordered], dtype=float)
+        asks = np.array([float(tick.ask) for tick in ordered], dtype=float)
+        return cls(
+            ticks=ordered,
+            epoch_seconds=epoch_seconds,
+            bids=bids,
+            asks=asks,
+            valid=(bids > 0) & (asks > 0) & (asks >= bids),
+        )
+
+    def simulate(
+        self,
+        opportunity: OpeningOpportunity,
+        config: ReplayConfig,
+        *,
+        start_index: int = 0,
+    ) -> SimulatedOpeningTrade:
+        decision_seconds = _timestamp(opportunity.signal_time)
+        first_index = max(
+            0,
+            int(start_index),
+            int(np.searchsorted(self.epoch_seconds, decision_seconds, side="left")),
+        )
+        if first_index >= len(self.ticks):
+            return _base_result(
+                "INSUFFICIENT_TICK_EVIDENCE",
+                opportunity,
+                reason="NO_DECISION_TICK",
+            )
+
+        valid_after = np.flatnonzero(self.valid[first_index:])
+        if valid_after.size == 0:
+            return _base_result(
+                "INSUFFICIENT_TICK_EVIDENCE",
+                opportunity,
+                reason="NO_VALID_DECISION_TICK",
+            )
+        decision_index = int(valid_after[0] + first_index)
+        spread = round(float(self.asks[decision_index] - self.bids[decision_index]), 4)
+        entry = _entry_price(opportunity)
+        stop, target = _levels(opportunity, entry, config)
+        expiry_seconds = self.epoch_seconds[decision_index] + (
+            config.reaction_expiry_seconds
+            if opportunity.entry_kind == "reaction"
+            else config.continuation_expiry_seconds
+        )
+        expiry_index = int(
+            np.searchsorted(self.epoch_seconds, expiry_seconds, side="right")
+        )
+        valid_window = self.valid[decision_index:expiry_index]
+        if opportunity.direction == "BUY":
+            fill_window = (
+                valid_window
+                & (self.asks[decision_index:expiry_index] >= entry)
+                & (
+                    self.asks[decision_index:expiry_index]
+                    <= entry + config.max_quote_drift
+                )
+            )
+        else:
+            fill_window = (
+                valid_window
+                & (self.bids[decision_index:expiry_index] <= entry)
+                & (
+                    self.bids[decision_index:expiry_index]
+                    >= entry - config.max_quote_drift
+                )
+            )
+        fills = np.flatnonzero(fill_window)
+        if fills.size == 0:
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
+
+        fill_index = int(fills[0] + decision_index)
+        fill_tick = self.ticks[fill_index]
+        tail = slice(fill_index, len(self.ticks))
+        valid_tail = self.valid[tail]
+        if opportunity.direction == "BUY":
+            ambiguous = valid_tail & (self.bids[tail] <= stop) & (self.asks[tail] >= target)
+            stop_hits = valid_tail & (self.bids[tail] <= stop)
+            target_hits = valid_tail & (self.bids[tail] >= target)
+            marks = self.bids
+        else:
+            ambiguous = valid_tail & (self.asks[tail] >= stop) & (self.bids[tail] <= target)
+            stop_hits = valid_tail & (self.asks[tail] >= stop)
+            target_hits = valid_tail & (self.asks[tail] <= target)
+            marks = self.asks
+
+        candidates: list[tuple[int, str]] = []
+        for name, mask in (
+            ("AMBIGUOUS", ambiguous),
+            ("TARGET", target_hits),
+            ("STOP", stop_hits),
+        ):
+            hits = np.flatnonzero(mask)
+            if hits.size:
+                priority = 0 if name == "AMBIGUOUS" else 1 if name == "TARGET" else 2
+                candidates.append((int(hits[0] + fill_index), f"{priority}:{name}"))
+
+        if candidates:
+            event_index, encoded = min(candidates, key=lambda item: (item[0], item[1]))
+            event_type = encoded.split(":", 1)[1]
+            if event_type == "AMBIGUOUS":
+                mark_slice = marks[fill_index:event_index][
+                    self.valid[fill_index:event_index]
+                ]
+                favorable = _favorable_points(
+                    opportunity.direction,
+                    entry=entry,
+                    marks=mark_slice,
+                )
+                mfe = round(float(favorable.max()), 4) if favorable.size else 0.0
+                mae = round(float(favorable.min()), 4) if favorable.size else 0.0
+                return _base_result(
+                    "INSUFFICIENT_TICK_EVIDENCE",
+                    opportunity,
+                    reason="AMBIGUOUS_STOP_AND_TARGET",
+                    filled_at=fill_tick.time,
+                    entry=entry,
+                    stop=stop,
+                    target=target,
+                    mfe=mfe,
+                    mae=mae,
+                    spread_at_decision=spread,
+                )
+
+            mark_slice = marks[fill_index : event_index + 1][
+                self.valid[fill_index : event_index + 1]
+            ]
+            favorable = _favorable_points(
+                opportunity.direction,
+                entry=entry,
+                marks=mark_slice,
+            )
+            exit_price = target if event_type == "TARGET" else stop
+            return _base_result(
+                "CLOSED",
+                opportunity,
+                filled_at=fill_tick.time,
+                closed_at=self.ticks[event_index].time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                exit_reason=event_type,
+                profit=_profit(opportunity.direction, entry, exit_price),
+                mfe=round(float(favorable.max()), 4) if favorable.size else 0.0,
+                mae=round(float(favorable.min()), 4) if favorable.size else 0.0,
+                spread_at_decision=spread,
+            )
+
+        mark_slice = marks[fill_index:][self.valid[fill_index:]]
+        favorable = _favorable_points(
+            opportunity.direction,
+            entry=entry,
+            marks=mark_slice,
+        )
+        return _base_result(
+            "INSUFFICIENT_TICK_EVIDENCE",
+            opportunity,
+            reason="NO_EXIT_TICK",
+            filled_at=fill_tick.time,
+            entry=entry,
+            stop=stop,
+            target=target,
+            mfe=round(float(favorable.max()), 4) if favorable.size else 0.0,
+            mae=round(float(favorable.min()), 4) if favorable.size else 0.0,
+            spread_at_decision=spread,
+        )
 
 
 def simulate_opportunity(
@@ -300,6 +511,7 @@ def simulate_opportunity_from_sorted_ticks(
 
 __all__ = [
     "MarketTick",
+    "PreparedTickSeries",
     "ReplayConfig",
     "SimulatedOpeningTrade",
     "simulate_opportunity",

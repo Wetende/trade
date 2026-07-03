@@ -6,6 +6,7 @@ from tradingagents.agents.price_action.opening_state import (
 )
 from tradingagents.agents.price_action.opening_tick_replay import (
     MarketTick,
+    PreparedTickSeries,
     ReplayConfig,
     simulate_opportunity_from_sorted_ticks,
     simulate_opportunity,
@@ -112,6 +113,22 @@ def test_sorted_tick_replay_starts_at_supplied_index():
 
     assert result.status == "CLOSED"
     assert result.filled_at == ticks[1].time
+
+
+def test_prepared_tick_series_matches_scalar_replay_with_invalid_rows():
+    ticks = [
+        _tick(0, 4025.40, 0.0),
+        _tick(1, 100.05, 100.25),
+        _tick(3, 101.50, 101.70),
+    ]
+
+    scalar = simulate_opportunity(_buy_opportunity(), ticks, ReplayConfig())
+    prepared = PreparedTickSeries.from_ticks(ticks).simulate(
+        _buy_opportunity(),
+        ReplayConfig(),
+    )
+
+    assert prepared == scalar
 
 
 def test_ambiguous_stop_and_target_same_tick_is_excluded():

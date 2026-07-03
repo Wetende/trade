@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from bisect import bisect_left
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -25,8 +24,8 @@ from tradingagents.agents.price_action.opening_state import (
 )
 from tradingagents.agents.price_action.opening_tick_replay import (
     MarketTick,
+    PreparedTickSeries,
     ReplayConfig,
-    simulate_opportunity_from_sorted_ticks,
 )
 
 
@@ -56,15 +55,6 @@ def _group_ticks_by_day(ticks: tuple[MarketTick, ...]) -> dict[str, tuple[Market
     return {key: tuple(value) for key, value in sorted(grouped.items())}
 
 
-def _tick_times_by_day(
-    grouped_ticks: dict[str, tuple[MarketTick, ...]],
-) -> dict[str, tuple[datetime, ...]]:
-    return {
-        day: tuple(datetime.fromisoformat(tick.time) for tick in ticks)
-        for day, ticks in grouped_ticks.items()
-    }
-
-
 def _day_opportunities(
     fixture: OpeningResearchFixture,
 ) -> tuple[tuple[str, OpeningOpportunity], ...]:
@@ -79,24 +69,23 @@ def _rows_for_template(
     fixture: OpeningResearchFixture,
     template: OpeningTemplate,
 ) -> tuple[ScreeningRow, ...]:
-    ticks_by_day = _group_ticks_by_day(fixture.ticks)
-    tick_times_by_day = _tick_times_by_day(ticks_by_day)
+    tick_series_by_day = {
+        day: PreparedTickSeries.from_ticks(ticks)
+        for day, ticks in _group_ticks_by_day(fixture.ticks).items()
+    }
     rows: list[ScreeningRow] = []
     decision_index = 0
     for day, opportunity in _day_opportunities(fixture):
         if opportunity.template != template:
             continue
-        day_ticks = ticks_by_day.get(day, ())
-        tick_times = tick_times_by_day.get(day, ())
-        start_index = bisect_left(
-            tick_times,
-            datetime.fromisoformat(opportunity.signal_time),
-        )
-        result = simulate_opportunity_from_sorted_ticks(
-            opportunity,
-            day_ticks,
-            ReplayConfig(),
-            start_index=start_index,
+        series = tick_series_by_day.get(day)
+        result = (
+            series.simulate(opportunity, ReplayConfig())
+            if series is not None
+            else PreparedTickSeries.from_ticks(()).simulate(
+                opportunity,
+                ReplayConfig(),
+            )
         )
         rows.append(
             ScreeningRow(
