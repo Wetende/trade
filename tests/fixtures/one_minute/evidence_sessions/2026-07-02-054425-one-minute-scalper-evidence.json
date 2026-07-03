@@ -1,0 +1,467 @@
+{
+  "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+  "decisions": [
+    {
+      "as_of": "2026-07-02T09:44:29.745391Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 1.2424
+    },
+    {
+      "as_of": "2026-07-02T09:49:04.544966Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.6431
+    },
+    {
+      "as_of": "2026-07-02T09:52:04.056363Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 8,
+      "body_ratio": 0.5358
+    },
+    {
+      "as_of": "2026-07-02T09:53:01.114621Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.6785
+    },
+    {
+      "as_of": "2026-07-02T09:59:02.477032Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 8,
+      "body_ratio": 0.5382
+    },
+    {
+      "as_of": "2026-07-02T10:14:03.388416Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.6207
+    },
+    {
+      "as_of": "2026-07-02T10:16:02.089330Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 4,
+      "body_ratio": 0.6341
+    },
+    {
+      "as_of": "2026-07-02T10:17:03.757515Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.3178
+    },
+    {
+      "as_of": "2026-07-02T10:29:02.876333Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.9306
+    },
+    {
+      "as_of": "2026-07-02T10:36:01.602618Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.5017
+    },
+    {
+      "as_of": "2026-07-02T10:37:03.475279Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 0.9356
+    },
+    {
+      "as_of": "2026-07-02T10:39:01.677467Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 8,
+      "body_ratio": 0.7864
+    },
+    {
+      "as_of": "2026-07-02T10:42:00.741953Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 2.1806
+    },
+    {
+      "as_of": "2026-07-02T10:44:03.728338Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 2.3677
+    },
+    {
+      "as_of": "2026-07-02T10:51:03.206213Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 4,
+      "body_ratio": 1.4172
+    },
+    {
+      "as_of": "2026-07-02T10:55:04.786266Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.7934
+    },
+    {
+      "as_of": "2026-07-02T10:56:01.856621Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 9,
+      "body_ratio": 0.5703
+    },
+    {
+      "as_of": "2026-07-02T10:59:02.581362Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 2.1397
+    },
+    {
+      "as_of": "2026-07-02T11:28:02.979784Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 1.0297
+    },
+    {
+      "as_of": "2026-07-02T11:53:03.233896Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.3979
+    },
+    {
+      "as_of": "2026-07-02T11:55:02.123581Z",
+      "trigger": "FAILED_LOW_BREAK_BUY",
+      "direction": "BUY",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.0972
+    },
+    {
+      "as_of": "2026-07-02T11:56:00.453972Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.6316
+    },
+    {
+      "as_of": "2026-07-02T11:57:02.994555Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 4,
+      "body_ratio": 0.4211
+    }
+  ],
+  "trades": [
+    {
+      "decision_index": 0,
+      "filled": true,
+      "placed_at": "2026-07-02T09:44:29.745391Z",
+      "filled_at": "2026-07-02T09:44:49Z",
+      "closed_at": "2026-07-02T09:44:55Z",
+      "profit": -65.0,
+      "spread": 0.29,
+      "mfe": 0.0,
+      "mae": -0.65
+    },
+    {
+      "decision_index": 1,
+      "filled": true,
+      "placed_at": "2026-07-02T09:49:04.544966Z",
+      "filled_at": "2026-07-02T09:49:04.544966Z",
+      "closed_at": "2026-07-02T09:49:38Z",
+      "profit": 81.2,
+      "spread": 0.31,
+      "mfe": 0.84,
+      "mae": -0.36
+    },
+    {
+      "decision_index": 2,
+      "filled": true,
+      "placed_at": "2026-07-02T09:52:04.056363Z",
+      "filled_at": "2026-07-02T09:52:11Z",
+      "closed_at": "2026-07-02T09:52:34Z",
+      "profit": -55.0,
+      "spread": 0.31,
+      "mfe": 0.0,
+      "mae": -0.55
+    },
+    {
+      "decision_index": 3,
+      "filled": true,
+      "placed_at": "2026-07-02T09:53:01.114621Z",
+      "filled_at": "2026-07-02T09:53:16Z",
+      "closed_at": "2026-07-02T09:53:19Z",
+      "profit": -86.0,
+      "spread": 0.31,
+      "mfe": 0.0,
+      "mae": -0.86
+    },
+    {
+      "decision_index": 4,
+      "filled": true,
+      "placed_at": "2026-07-02T09:59:02.477032Z",
+      "filled_at": "2026-07-02T09:59:20Z",
+      "closed_at": "2026-07-02T09:59:30Z",
+      "profit": 65.0,
+      "spread": 0.33,
+      "mfe": 0.8,
+      "mae": -0.15
+    },
+    {
+      "decision_index": 5,
+      "filled": true,
+      "placed_at": "2026-07-02T10:14:03.388416Z",
+      "filled_at": "2026-07-02T10:14:08Z",
+      "closed_at": "2026-07-02T10:14:39Z",
+      "profit": -75.0,
+      "spread": 0.3,
+      "mfe": 0.0,
+      "mae": -0.78
+    },
+    {
+      "decision_index": 6,
+      "filled": true,
+      "placed_at": "2026-07-02T10:16:02.089330Z",
+      "filled_at": "2026-07-02T10:16:16Z",
+      "closed_at": "2026-07-02T10:16:18Z",
+      "profit": -46.0,
+      "spread": 0.31,
+      "mfe": 0.0,
+      "mae": -0.46
+    },
+    {
+      "decision_index": 7,
+      "filled": false,
+      "placed_at": "2026-07-02T10:17:03.757515Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 8,
+      "filled": true,
+      "placed_at": "2026-07-02T10:29:02.876333Z",
+      "filled_at": "2026-07-02T10:29:04Z",
+      "closed_at": "2026-07-02T10:29:17Z",
+      "profit": -53.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.53
+    },
+    {
+      "decision_index": 9,
+      "filled": false,
+      "placed_at": "2026-07-02T10:36:01.602618Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 10,
+      "filled": true,
+      "placed_at": "2026-07-02T10:37:03.475279Z",
+      "filled_at": "2026-07-02T10:37:08Z",
+      "closed_at": "2026-07-02T10:37:20Z",
+      "profit": -46.0,
+      "spread": 0.29,
+      "mfe": 0.0,
+      "mae": -0.46
+    },
+    {
+      "decision_index": 11,
+      "filled": true,
+      "placed_at": "2026-07-02T10:39:01.677467Z",
+      "filled_at": "2026-07-02T10:39:01.677467Z",
+      "closed_at": "2026-07-02T10:39:08Z",
+      "profit": -68.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.68
+    },
+    {
+      "decision_index": 12,
+      "filled": true,
+      "placed_at": "2026-07-02T10:42:00.741953Z",
+      "filled_at": "2026-07-02T10:42:01Z",
+      "closed_at": "2026-07-02T10:42:03Z",
+      "profit": -48.0,
+      "spread": 0.3,
+      "mfe": 0.0,
+      "mae": -0.48
+    },
+    {
+      "decision_index": 13,
+      "filled": false,
+      "placed_at": "2026-07-02T10:44:03.728338Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.31,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 14,
+      "filled": true,
+      "placed_at": "2026-07-02T10:51:03.206213Z",
+      "filled_at": "2026-07-02T10:51:04Z",
+      "closed_at": "2026-07-02T10:51:27Z",
+      "profit": -53.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.53
+    },
+    {
+      "decision_index": 15,
+      "filled": false,
+      "placed_at": "2026-07-02T10:55:04.786266Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 16,
+      "filled": true,
+      "placed_at": "2026-07-02T10:56:01.856621Z",
+      "filled_at": "2026-07-02T10:56:07Z",
+      "closed_at": "2026-07-02T10:56:42Z",
+      "profit": 9.0,
+      "spread": 0.33,
+      "mfe": 0.36,
+      "mae": -0.4
+    },
+    {
+      "decision_index": 17,
+      "filled": true,
+      "placed_at": "2026-07-02T10:59:02.581362Z",
+      "filled_at": "2026-07-02T10:59:04Z",
+      "closed_at": "2026-07-02T10:59:12Z",
+      "profit": 30.0,
+      "spread": 0.29,
+      "mfe": 0.69,
+      "mae": -0.18
+    },
+    {
+      "decision_index": 18,
+      "filled": false,
+      "placed_at": "2026-07-02T11:28:02.979784Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 19,
+      "filled": true,
+      "placed_at": "2026-07-02T11:53:03.233896Z",
+      "filled_at": "2026-07-02T11:53:03.233896Z",
+      "closed_at": "2026-07-02T11:53:22Z",
+      "profit": -71.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.71
+    },
+    {
+      "decision_index": 20,
+      "filled": true,
+      "placed_at": "2026-07-02T11:55:02.123581Z",
+      "filled_at": "2026-07-02T11:55:05Z",
+      "closed_at": "2026-07-02T11:55:35Z",
+      "profit": -79.0,
+      "spread": 0.33,
+      "mfe": 0.12,
+      "mae": -0.79
+    },
+    {
+      "decision_index": 21,
+      "filled": true,
+      "placed_at": "2026-07-02T11:56:00.453972Z",
+      "filled_at": "2026-07-02T11:56:02Z",
+      "closed_at": "2026-07-02T11:56:15Z",
+      "profit": 8.0,
+      "spread": 0.29,
+      "mfe": 0.36,
+      "mae": -0.3
+    },
+    {
+      "decision_index": 22,
+      "filled": true,
+      "placed_at": "2026-07-02T11:57:02.994555Z",
+      "filled_at": "2026-07-02T11:57:03Z",
+      "closed_at": "2026-07-02T11:57:08Z",
+      "profit": -79.0,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    }
+  ]
+}

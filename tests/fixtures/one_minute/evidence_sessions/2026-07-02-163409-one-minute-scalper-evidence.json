@@ -1,0 +1,967 @@
+{
+  "session_id": "2026-07-02-163409-one-minute-scalper-evidence",
+  "decisions": [
+    {
+      "as_of": "2026-07-02T20:35:04.409367Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.8065
+    },
+    {
+      "as_of": "2026-07-02T20:37:02.002028Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 9,
+      "body_ratio": 0.3011
+    },
+    {
+      "as_of": "2026-07-02T20:39:02.253233Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 1.825
+    },
+    {
+      "as_of": "2026-07-02T20:44:04.370086Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 4,
+      "body_ratio": 1.2687
+    },
+    {
+      "as_of": "2026-07-02T20:45:00.909814Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.5522
+    },
+    {
+      "as_of": "2026-07-02T22:16:00.912677Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.2391
+    },
+    {
+      "as_of": "2026-07-02T22:24:00.919060Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 0.3164
+    },
+    {
+      "as_of": "2026-07-02T22:32:01.083278Z",
+      "trigger": "FAILED_LOW_BREAK_BUY",
+      "direction": "BUY",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.2273
+    },
+    {
+      "as_of": "2026-07-02T22:34:15.744172Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.7425
+    },
+    {
+      "as_of": "2026-07-02T22:39:00.252584Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 9,
+      "body_ratio": 0.2428
+    },
+    {
+      "as_of": "2026-07-02T22:45:01.972283Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 0.9134
+    },
+    {
+      "as_of": "2026-07-02T22:49:03.621287Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.7176
+    },
+    {
+      "as_of": "2026-07-02T22:52:03.423496Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.3008
+    },
+    {
+      "as_of": "2026-07-02T22:54:19.092626Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 8,
+      "body_ratio": 0.3359
+    },
+    {
+      "as_of": "2026-07-02T22:58:05.113515Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 9,
+      "body_ratio": 0.375
+    },
+    {
+      "as_of": "2026-07-02T22:59:04.886467Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 12,
+      "body_ratio": 1.2931
+    },
+    {
+      "as_of": "2026-07-02T23:01:03.776073Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 1.2759
+    },
+    {
+      "as_of": "2026-07-02T23:02:01.941691Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 0.3121
+    },
+    {
+      "as_of": "2026-07-02T23:03:04.202056Z",
+      "trigger": "LOW_RESPECT_BUY",
+      "direction": "BUY",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 11,
+      "body_ratio": 0.2837
+    },
+    {
+      "as_of": "2026-07-02T23:04:31.722556Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 0.9231
+    },
+    {
+      "as_of": "2026-07-02T23:09:05.241488Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 1.1014
+    },
+    {
+      "as_of": "2026-07-02T23:12:01.171550Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 1.3333
+    },
+    {
+      "as_of": "2026-07-02T23:14:00.397102Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.9815
+    },
+    {
+      "as_of": "2026-07-02T23:17:03.077977Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 1.6333
+    },
+    {
+      "as_of": "2026-07-02T23:25:05.244521Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.6814
+    },
+    {
+      "as_of": "2026-07-02T23:51:04.077920Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.3005
+    },
+    {
+      "as_of": "2026-07-02T23:55:03.467825Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 1.1899
+    },
+    {
+      "as_of": "2026-07-03T00:20:00.727128Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.9634
+    },
+    {
+      "as_of": "2026-07-03T00:35:04.533496Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.3455
+    },
+    {
+      "as_of": "2026-07-03T00:47:02.698248Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 1.5655
+    },
+    {
+      "as_of": "2026-07-03T02:02:04.313424Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 1.625
+    },
+    {
+      "as_of": "2026-07-03T02:39:03.796002Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 2.1168
+    },
+    {
+      "as_of": "2026-07-03T03:14:00.979495Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.6826
+    },
+    {
+      "as_of": "2026-07-03T03:15:04.502860Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.3599
+    },
+    {
+      "as_of": "2026-07-03T03:20:03.699751Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 0.5922
+    },
+    {
+      "as_of": "2026-07-03T03:21:01.977874Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 7,
+      "body_ratio": 0.0923
+    },
+    {
+      "as_of": "2026-07-03T03:23:02.993971Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 3,
+      "body_ratio": 0.8691
+    },
+    {
+      "as_of": "2026-07-03T03:41:02.754048Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.5732
+    },
+    {
+      "as_of": "2026-07-03T03:59:04.816610Z",
+      "trigger": "CLEAN_LOW_IMPULSE_SELL",
+      "direction": "SELL",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 1.0452
+    },
+    {
+      "as_of": "2026-07-03T04:03:01.963291Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 0.7374
+    },
+    {
+      "as_of": "2026-07-03T04:07:00.636372Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 1.2487
+    },
+    {
+      "as_of": "2026-07-03T04:41:04.516862Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 9,
+      "body_ratio": 0.4
+    },
+    {
+      "as_of": "2026-07-03T04:42:03.307688Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 4,
+      "body_ratio": 0.1576
+    },
+    {
+      "as_of": "2026-07-03T04:45:03.920736Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 5,
+      "body_ratio": 0.1405
+    },
+    {
+      "as_of": "2026-07-03T04:49:02.677046Z",
+      "trigger": "HIGH_RESPECT_SELL",
+      "direction": "SELL",
+      "reaction_type": "respect",
+      "approved": true,
+      "touch_count": 10,
+      "body_ratio": 0.5434
+    },
+    {
+      "as_of": "2026-07-03T04:52:03.197146Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 1.0366
+    },
+    {
+      "as_of": "2026-07-03T04:53:01.965236Z",
+      "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+      "direction": "BUY",
+      "reaction_type": "impulse_break",
+      "approved": true,
+      "touch_count": 2,
+      "body_ratio": 1.4048
+    },
+    {
+      "as_of": "2026-07-03T04:55:01.648790Z",
+      "trigger": "FAILED_HIGH_BREAK_SELL",
+      "direction": "SELL",
+      "reaction_type": "fakeout",
+      "approved": true,
+      "touch_count": 6,
+      "body_ratio": 0.5567
+    }
+  ],
+  "trades": [
+    {
+      "decision_index": 0,
+      "filled": true,
+      "placed_at": "2026-07-02T20:35:04.409367Z",
+      "filled_at": "2026-07-02T20:35:04.409367Z",
+      "closed_at": "2026-07-02T20:35:13Z",
+      "profit": -65.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.65
+    },
+    {
+      "decision_index": 1,
+      "filled": true,
+      "placed_at": "2026-07-02T20:37:02.002028Z",
+      "filled_at": "2026-07-02T20:37:14Z",
+      "closed_at": "2026-07-02T20:38:12Z",
+      "profit": -71.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.72
+    },
+    {
+      "decision_index": 2,
+      "filled": true,
+      "placed_at": "2026-07-02T20:39:02.253233Z",
+      "filled_at": "2026-07-02T21:39:02.417000Z",
+      "closed_at": "2026-07-02T21:42:12.019000Z",
+      "profit": 22.5,
+      "spread": 0.33,
+      "mfe": 0.75,
+      "mae": -0.34
+    },
+    {
+      "decision_index": 3,
+      "filled": false,
+      "placed_at": "2026-07-02T20:44:04.370086Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 4,
+      "filled": true,
+      "placed_at": "2026-07-02T20:45:00.909814Z",
+      "filled_at": "2026-07-02T20:45:01.335000Z",
+      "closed_at": "2026-07-02T20:47:03.056000Z",
+      "profit": -34.0,
+      "spread": 0.33,
+      "mfe": 0.03,
+      "mae": -0.38
+    },
+    {
+      "decision_index": 5,
+      "filled": true,
+      "placed_at": "2026-07-02T22:16:00.912677Z",
+      "filled_at": "2026-07-02T22:16:14.241000Z",
+      "closed_at": "2026-07-02T22:17:56.362000Z",
+      "profit": -70.0,
+      "spread": 0.33,
+      "mfe": 0.08,
+      "mae": -0.7
+    },
+    {
+      "decision_index": 6,
+      "filled": true,
+      "placed_at": "2026-07-02T22:24:00.919060Z",
+      "filled_at": "2026-07-02T22:24:06.935000Z",
+      "closed_at": "2026-07-02T22:24:09.540000Z",
+      "profit": -67.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.67
+    },
+    {
+      "decision_index": 7,
+      "filled": true,
+      "placed_at": "2026-07-02T22:32:01.083278Z",
+      "filled_at": "2026-07-02T22:32:11.991000Z",
+      "closed_at": "2026-07-02T22:34:11.220000Z",
+      "profit": 66.0,
+      "spread": 0.33,
+      "mfe": 0.66,
+      "mae": -0.37
+    },
+    {
+      "decision_index": 8,
+      "filled": true,
+      "placed_at": "2026-07-02T22:34:15.744172Z",
+      "filled_at": "2026-07-02T22:34:21.430000Z",
+      "closed_at": "2026-07-02T22:35:14.681000Z",
+      "profit": 8.0,
+      "spread": 0.33,
+      "mfe": 0.58,
+      "mae": -0.11
+    },
+    {
+      "decision_index": 9,
+      "filled": true,
+      "placed_at": "2026-07-02T22:39:00.252584Z",
+      "filled_at": "2026-07-02T22:39:15.730000Z",
+      "closed_at": "2026-07-02T22:40:07.892000Z",
+      "profit": -50.0,
+      "spread": 0.29,
+      "mfe": 0.0,
+      "mae": -0.5
+    },
+    {
+      "decision_index": 10,
+      "filled": false,
+      "placed_at": "2026-07-02T22:45:01.972283Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 11,
+      "filled": false,
+      "placed_at": "2026-07-02T22:49:03.621287Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 12,
+      "filled": true,
+      "placed_at": "2026-07-02T22:52:03.423496Z",
+      "filled_at": "2026-07-02T22:52:07.787000Z",
+      "closed_at": "2026-07-02T22:54:18.438000Z",
+      "profit": 8.0,
+      "spread": 0.29,
+      "mfe": 0.35,
+      "mae": -0.42
+    },
+    {
+      "decision_index": 13,
+      "filled": false,
+      "placed_at": "2026-07-02T22:54:19.092626Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 14,
+      "filled": true,
+      "placed_at": "2026-07-02T22:58:05.113515Z",
+      "filled_at": "2026-07-02T22:58:09.527000Z",
+      "closed_at": "2026-07-02T22:59:02.431000Z",
+      "profit": -58.0,
+      "spread": 0.33,
+      "mfe": 0.08,
+      "mae": -0.58
+    },
+    {
+      "decision_index": 15,
+      "filled": false,
+      "placed_at": "2026-07-02T22:59:04.886467Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.32,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 16,
+      "filled": true,
+      "placed_at": "2026-07-02T23:01:03.776073Z",
+      "filled_at": "2026-07-02T23:01:40.557000Z",
+      "closed_at": "2026-07-02T23:01:53.357000Z",
+      "profit": -64.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.64
+    },
+    {
+      "decision_index": 17,
+      "filled": false,
+      "placed_at": "2026-07-02T23:02:01.941691Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 18,
+      "filled": true,
+      "placed_at": "2026-07-02T23:03:04.202056Z",
+      "filled_at": "2026-07-02T23:03:05.342000Z",
+      "closed_at": "2026-07-02T23:04:26.160000Z",
+      "profit": 82.8,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 19,
+      "filled": true,
+      "placed_at": "2026-07-02T23:04:31.722556Z",
+      "filled_at": "2026-07-02T23:04:32.493000Z",
+      "closed_at": "2026-07-02T23:04:41.861000Z",
+      "profit": -95.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.95
+    },
+    {
+      "decision_index": 20,
+      "filled": true,
+      "placed_at": "2026-07-02T23:09:05.241488Z",
+      "filled_at": "2026-07-02T23:09:06.203000Z",
+      "closed_at": "2026-07-02T23:09:13.096000Z",
+      "profit": -43.0,
+      "spread": 0.3,
+      "mfe": 0.0,
+      "mae": -0.43
+    },
+    {
+      "decision_index": 21,
+      "filled": false,
+      "placed_at": "2026-07-02T23:12:01.171550Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.3,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 22,
+      "filled": true,
+      "placed_at": "2026-07-02T23:14:00.397102Z",
+      "filled_at": "2026-07-02T23:14:02.167000Z",
+      "closed_at": "2026-07-02T23:16:00.732000Z",
+      "profit": -33.0,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 23,
+      "filled": true,
+      "placed_at": "2026-07-02T23:17:03.077977Z",
+      "filled_at": "2026-07-02T23:17:15.627000Z",
+      "closed_at": "2026-07-02T23:17:33.935000Z",
+      "profit": 58.6,
+      "spread": 0.31,
+      "mfe": 0.8,
+      "mae": -0.4
+    },
+    {
+      "decision_index": 24,
+      "filled": true,
+      "placed_at": "2026-07-02T23:25:05.244521Z",
+      "filled_at": "2026-07-02T23:25:06.253000Z",
+      "closed_at": "2026-07-02T23:25:53.595000Z",
+      "profit": 94.4,
+      "spread": 0.29,
+      "mfe": 0.95,
+      "mae": -0.36
+    },
+    {
+      "decision_index": 25,
+      "filled": true,
+      "placed_at": "2026-07-02T23:51:04.077920Z",
+      "filled_at": "2026-07-02T23:51:05.613000Z",
+      "closed_at": "2026-07-02T23:51:13.457000Z",
+      "profit": 67.8,
+      "spread": 0.29,
+      "mfe": 1.05,
+      "mae": -0.18
+    },
+    {
+      "decision_index": 26,
+      "filled": true,
+      "placed_at": "2026-07-02T23:55:03.467825Z",
+      "filled_at": "2026-07-02T23:55:06.080000Z",
+      "closed_at": "2026-07-02T23:55:07.945000Z",
+      "profit": -54.0,
+      "spread": 0.29,
+      "mfe": 0.0,
+      "mae": -0.54
+    },
+    {
+      "decision_index": 27,
+      "filled": true,
+      "placed_at": "2026-07-03T00:20:00.727128Z",
+      "filled_at": "2026-07-03T00:20:01.799000Z",
+      "closed_at": "2026-07-03T00:20:06.101000Z",
+      "profit": -63.0,
+      "spread": 0.29,
+      "mfe": 0.0,
+      "mae": -0.63
+    },
+    {
+      "decision_index": 28,
+      "filled": true,
+      "placed_at": "2026-07-03T00:35:04.533496Z",
+      "filled_at": "2026-07-03T00:35:06.964000Z",
+      "closed_at": "2026-07-03T00:35:15.793000Z",
+      "profit": 103.5,
+      "spread": 0.33,
+      "mfe": 1.21,
+      "mae": -0.29
+    },
+    {
+      "decision_index": 29,
+      "filled": true,
+      "placed_at": "2026-07-03T00:47:02.698248Z",
+      "filled_at": "2026-07-03T00:47:06.356000Z",
+      "closed_at": "2026-07-03T00:47:13.720000Z",
+      "profit": -53.0,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 30,
+      "filled": true,
+      "placed_at": "2026-07-03T02:02:04.313424Z",
+      "filled_at": "2026-07-03T02:02:09.996000Z",
+      "closed_at": "2026-07-03T02:02:20.083000Z",
+      "profit": 71.3,
+      "spread": 0.29,
+      "mfe": 0.95,
+      "mae": -0.09
+    },
+    {
+      "decision_index": 31,
+      "filled": true,
+      "placed_at": "2026-07-03T02:39:03.796002Z",
+      "filled_at": "2026-07-03T02:39:05.690000Z",
+      "closed_at": "2026-07-03T02:39:10.679000Z",
+      "profit": -54.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.57
+    },
+    {
+      "decision_index": 32,
+      "filled": true,
+      "placed_at": "2026-07-03T03:14:00.979495Z",
+      "filled_at": "2026-07-03T03:14:01.748000Z",
+      "closed_at": "2026-07-03T03:14:05.604000Z",
+      "profit": -60.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.6
+    },
+    {
+      "decision_index": 33,
+      "filled": false,
+      "placed_at": "2026-07-03T03:15:04.502860Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 34,
+      "filled": false,
+      "placed_at": "2026-07-03T03:20:03.699751Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 35,
+      "filled": false,
+      "placed_at": "2026-07-03T03:21:01.977874Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.29,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 36,
+      "filled": false,
+      "placed_at": "2026-07-03T03:23:02.993971Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 37,
+      "filled": true,
+      "placed_at": "2026-07-03T03:41:02.754048Z",
+      "filled_at": "2026-07-03T03:41:31.238000Z",
+      "closed_at": "2026-07-03T03:41:43.671000Z",
+      "profit": -63.0,
+      "spread": 0.29,
+      "mfe": 0.33,
+      "mae": -0.63
+    },
+    {
+      "decision_index": 38,
+      "filled": false,
+      "placed_at": "2026-07-03T03:59:04.816610Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 39,
+      "filled": true,
+      "placed_at": "2026-07-03T04:03:01.963291Z",
+      "filled_at": "2026-07-03T04:03:03.161000Z",
+      "closed_at": "2026-07-03T04:03:24.724000Z",
+      "profit": 32.0,
+      "spread": 0.32,
+      "mfe": 0.56,
+      "mae": -0.54
+    },
+    {
+      "decision_index": 40,
+      "filled": true,
+      "placed_at": "2026-07-03T04:07:00.636372Z",
+      "filled_at": "2026-07-03T04:07:06.508000Z",
+      "closed_at": "2026-07-03T04:07:55.743000Z",
+      "profit": -54.0,
+      "spread": 0.33,
+      "mfe": 0.0,
+      "mae": -0.55
+    },
+    {
+      "decision_index": 41,
+      "filled": false,
+      "placed_at": "2026-07-03T04:41:04.516862Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 42,
+      "filled": true,
+      "placed_at": "2026-07-03T04:42:03.307688Z",
+      "filled_at": "2026-07-03T04:42:04.051000Z",
+      "closed_at": "2026-07-03T04:42:14.733000Z",
+      "profit": -55.0,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 43,
+      "filled": false,
+      "placed_at": "2026-07-03T04:45:03.920736Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 44,
+      "filled": false,
+      "placed_at": "2026-07-03T04:49:02.677046Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 45,
+      "filled": false,
+      "placed_at": "2026-07-03T04:52:03.197146Z",
+      "filled_at": null,
+      "closed_at": null,
+      "profit": null,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 46,
+      "filled": true,
+      "placed_at": "2026-07-03T04:53:01.965236Z",
+      "filled_at": "2026-07-03T04:53:02.299000Z",
+      "closed_at": "2026-07-03T04:53:41.721000Z",
+      "profit": -51.0,
+      "spread": 0.33,
+      "mfe": null,
+      "mae": null
+    },
+    {
+      "decision_index": 47,
+      "filled": true,
+      "placed_at": "2026-07-03T04:55:01.648790Z",
+      "filled_at": "2026-07-03T04:55:09.149000Z",
+      "closed_at": "2026-07-03T04:55:31.120000Z",
+      "profit": -80.0,
+      "spread": 0.33,
+      "mfe": 0.15,
+      "mae": -0.8
+    }
+  ]
+}

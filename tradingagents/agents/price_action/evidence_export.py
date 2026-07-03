@@ -1,0 +1,127 @@
+"""Sanitize recorded runner sessions into deterministic evidence fixtures."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from tradingagents.agents.price_action.evidence_gate import (
+    EvidenceDecision,
+    EvidenceSession,
+    EvidenceTrade,
+)
+
+
+def _json_lines(path: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def export_session(session_root: str | Path) -> EvidenceSession:
+    root = Path(session_root)
+    runner = root / "mt5_runner"
+    cycles = [
+        cycle
+        for cycle in _json_lines(runner / "cycles.jsonl")
+        if cycle.get("status") == "ORDER_PLACED"
+    ]
+    summary = json.loads(
+        (runner / "summary.json").read_text(encoding="utf-8")
+    )
+    closed_by_order = {
+        int(trade["entry_order"]): trade
+        for trade in summary["trade_history"]["closed_trades"]
+    }
+
+    decisions: list[EvidenceDecision] = []
+    trades: list[EvidenceTrade] = []
+    seen_orders: set[int] = set()
+    for cycle in cycles:
+        execution = cycle.get("execution") or {}
+        order = int(execution.get("order") or 0)
+        if not order or order in seen_orders:
+            raise ValueError("placed cycles require unique broker order joins")
+        seen_orders.add(order)
+        proposal = cycle.get("proposal") or {}
+        closed = closed_by_order.get(order)
+        selected = (
+            (cycle.get("analysis") or {})
+            .get("telemetry", {})
+            .get("selected_candidate", {})
+        )
+        quality = selected.get("signal_quality") or {}
+        decision_index = len(decisions)
+        timeline = execution.get("execution_timeline") or {}
+        placed_at = timeline.get("submitted_at_utc") or (
+            closed.get("opened_at_utc")
+            if closed is not None
+            else cycle["heartbeat_utc"]
+        )
+        decisions.append(
+            EvidenceDecision(
+                as_of=placed_at,
+                trigger=selected.get("trigger")
+                or proposal.get("trigger_name"),
+                direction=selected.get("direction") or proposal.get("side"),
+                reaction_type=selected.get("reaction_type")
+                or proposal.get("reaction_type"),
+                approved=bool(selected.get("approved", True)),
+                touch_count=int(
+                    selected.get("touch_count")
+                    or proposal.get("touch_count")
+                ),
+                body_ratio=quality.get(
+                    "body_to_recent_median_range"
+                ),
+            )
+        )
+        quote = proposal.get("decision_quote") or {}
+        if closed is None:
+            trades.append(
+                EvidenceTrade(
+                    decision_index=decision_index,
+                    filled=False,
+                    placed_at=placed_at,
+                    filled_at=None,
+                    closed_at=None,
+                    profit=None,
+                    spread=quote.get("spread_price"),
+                    mfe=None,
+                    mae=None,
+                )
+            )
+            continue
+        filled_at = closed["opened_at_utc"]
+        placed_time = datetime.fromisoformat(placed_at)
+        filled_time = datetime.fromisoformat(filled_at)
+        if filled_time < placed_time:
+            if (placed_time - filled_time).total_seconds() > 1.0:
+                raise ValueError("fill time materially precedes submission")
+            filled_at = placed_at
+        trades.append(
+            EvidenceTrade(
+                decision_index=decision_index,
+                filled=True,
+                placed_at=placed_at,
+                filled_at=filled_at,
+                closed_at=closed["closed_at_utc"],
+                profit=float(closed["profit"]),
+                spread=quote.get("spread_price"),
+                mfe=closed.get("mfe_points"),
+                mae=closed.get("mae_points"),
+            )
+        )
+
+    unmatched = set(closed_by_order) - seen_orders
+    if unmatched:
+        raise ValueError("closed trades could not be joined to placed cycles")
+    return EvidenceSession(
+        session_id=root.name,
+        decisions=tuple(decisions),
+        trades=tuple(trades),
+    )
