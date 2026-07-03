@@ -1018,8 +1018,8 @@ def test_mt5_broker_fetch_ticks_range_normalizes_read_only_ticks():
     ]
     broker = MT5Broker(
         MT5ConnectionConfig(
-            login=123456789,
-            password="secret",
+            login=123,
+            password="x",
             server="ExampleBroker-Demo",
             symbol="XAUUSD",
         ),
