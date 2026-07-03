@@ -1348,6 +1348,46 @@ class MT5Broker:
         """
         return self._fetch_rates_from_pos(timeframe, count, start_pos=1)
 
+    def fetch_ticks_range(
+        self,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[dict[str, Any]]:
+        """Fetch normalized bid/ask ticks through the read-only MT5 API."""
+        self._assert_active_session()
+        if start_utc.tzinfo is None or end_utc.tzinfo is None:
+            raise MT5BrokerError("MT5 tick range timestamps must be timezone-aware")
+        if end_utc <= start_utc:
+            raise MT5BrokerError("MT5 tick range end must be after start")
+
+        mt5 = self._module()
+        copy_ticks_range = getattr(mt5, "copy_ticks_range", None)
+        if not callable(copy_ticks_range):
+            raise MT5BrokerError("MT5 copy_ticks_range is unavailable")
+        flags = getattr(mt5, "COPY_TICKS_ALL", None)
+        if flags is None:
+            raise MT5BrokerError("missing MT5 constant: COPY_TICKS_ALL")
+
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        query_start = start_utc.astimezone(timezone.utc) + timedelta(
+            seconds=server_time_offset_seconds
+        )
+        query_end = end_utc.astimezone(timezone.utc) + timedelta(
+            seconds=server_time_offset_seconds
+        )
+        ticks = copy_ticks_range(
+            self.config.symbol,
+            _mt5_history_datetime(query_start),
+            _mt5_history_datetime(query_end),
+            flags,
+        )
+        if ticks is None:
+            raise MT5BrokerError(f"MT5 copy_ticks_range failed: {mt5.last_error()}")
+        return [
+            self._normalize_tick(tick, server_time_offset_seconds)
+            for tick in ticks
+        ]
+
     def _fetch_rates_from_pos(
         self,
         timeframe: str,
@@ -1411,6 +1451,32 @@ class MT5Broker:
             ),
             "spread": float(self._rate_value(rate, item, "spread", 0)),
             "real_volume": float(self._rate_value(rate, item, "real_volume", 0)),
+        }
+
+    def _normalize_tick(
+        self,
+        tick: Any,
+        server_time_offset_seconds: int,
+    ) -> dict[str, Any]:
+        item = _asdict(tick)
+        raw_time_msc = item.get("time_msc")
+        if raw_time_msc not in (None, ""):
+            timestamp = datetime.fromtimestamp(
+                (float(raw_time_msc) / 1000.0) - server_time_offset_seconds,
+                tz=timezone.utc,
+            )
+        else:
+            raw_time = item.get("time")
+            if raw_time in (None, ""):
+                raise MT5BrokerError("MT5 tick row missing field: time")
+            timestamp = datetime.fromtimestamp(
+                float(raw_time) - server_time_offset_seconds,
+                tz=timezone.utc,
+            )
+        return {
+            "time": timestamp.isoformat(),
+            "bid": float(self._rate_value(tick, item, "bid")),
+            "ask": float(self._rate_value(tick, item, "ask")),
         }
 
     def _server_time_offset_seconds(

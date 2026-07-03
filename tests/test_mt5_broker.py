@@ -42,6 +42,7 @@ class FakeMT5:
     TIMEFRAME_M30 = 30
     TIMEFRAME_H1 = 60
     TIMEFRAME_D1 = 1440
+    COPY_TICKS_ALL = 0
 
     def __init__(self):
         self.initialized_with = None
@@ -50,6 +51,8 @@ class FakeMT5:
         self.sent_requests = []
         self.rates = []
         self.copy_rates_calls = []
+        self.ticks = []
+        self.copy_ticks_calls = []
         self.order_retcode = self.TRADE_RETCODE_DONE
         self.order_check_retcode = self.TRADE_RETCODE_DONE
         self.account = SimpleNamespace(
@@ -227,6 +230,10 @@ class FakeMT5:
     def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
         self.copy_rates_calls.append((symbol, timeframe, start_pos, count))
         return self.rates
+
+    def copy_ticks_range(self, symbol, date_from, date_to, flags):
+        self.copy_ticks_calls.append((symbol, date_from, date_to, flags))
+        return self.ticks
 
 
 def _set_required_mt5_env(monkeypatch):
@@ -993,6 +1000,54 @@ def test_mt5_broker_fetch_rates_supports_one_and_three_minute_timeframes():
         ("XAUUSD", fake.TIMEFRAME_M1, 0, 1),
         ("XAUUSD", fake.TIMEFRAME_M3, 0, 1),
     ]
+
+
+def test_mt5_broker_fetch_ticks_range_normalizes_read_only_ticks():
+    fake = FakeMT5()
+    fake.ticks = [
+        {
+            "time_msc": 1779613200123,
+            "bid": 4500.10,
+            "ask": 4500.35,
+        },
+        {
+            "time": 1779613201,
+            "bid": 4500.20,
+            "ask": 4500.45,
+        },
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    ticks = broker.fetch_ticks_range(
+        datetime(2026, 5, 24, 9, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 24, 9, 1, tzinfo=timezone.utc),
+    )
+
+    assert fake.copy_ticks_calls
+    assert fake.copy_ticks_calls[0][0] == "XAUUSD"
+    assert fake.copy_ticks_calls[0][3] == fake.COPY_TICKS_ALL
+    assert ticks == [
+        {
+            "time": "2026-05-24T09:00:00.123000+00:00",
+            "bid": 4500.10,
+            "ask": 4500.35,
+        },
+        {
+            "time": "2026-05-24T09:00:01+00:00",
+            "bid": 4500.20,
+            "ask": 4500.45,
+        },
+    ]
+    assert fake.sent_requests == []
 
 
 def test_mt5_broker_fetch_rates_supports_named_field_rows():
