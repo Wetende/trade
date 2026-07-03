@@ -516,6 +516,27 @@ def one_minute_screen(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-walk-forward")
+def one_minute_walk_forward(
+    evidence_dir: Path = typer.Option(..., "--evidence-dir"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Run broker-free walk-forward selection on sanitized evidence."""
+    from tradingagents.agents.price_action.walk_forward_selector import (
+        screen_walk_forward_dir,
+    )
+
+    report = screen_walk_forward_dir(evidence_dir)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("broker-probe")
 def broker_probe(
     json_only: bool = typer.Option(

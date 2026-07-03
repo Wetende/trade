@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from itertools import combinations
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -271,3 +273,29 @@ def run_walk_forward(
         metrics=metrics,
         gate=HistoricalGateResult(passed=not reasons, reasons=tuple(reasons)),
     )
+
+
+def screen_walk_forward_dir(evidence_dir: str | Path) -> dict[str, Any]:
+    root = Path(evidence_dir)
+    files = sorted(root.glob("*.json"))
+    sessions = tuple(
+        EvidenceSession.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in files
+    )
+    result = run_walk_forward(sessions)
+    return {
+        "schema_version": 1,
+        "broker_mutation_enabled": False,
+        "threshold_grid_version": 1,
+        "source_fixture_hashes": {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in files
+        },
+        "rule_count": len(generate_rules(sessions)),
+        "result": result.model_dump(mode="json"),
+        "decision": (
+            "FREEZE_WALK_FORWARD_CANDIDATE"
+            if result.gate.passed
+            else "NO_WALK_FORWARD_CANDIDATE"
+        ),
+    }
