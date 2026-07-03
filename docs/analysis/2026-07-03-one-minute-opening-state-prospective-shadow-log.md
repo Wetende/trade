@@ -160,6 +160,44 @@ currently above the prospective PF/expectancy/net thresholds. It still cannot
 pass the gate because all fills are from a single UTC-date session. The next
 required evidence is at least two more distinct sessions without retuning.
 
+## 2026-07-03T12:14:55Z shadow checkpoint
+
+Same frozen manifest and prospective start, using the `4320` closed-M1 default.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `COLLECTING_PROSPECTIVE_SHADOW`
+- Gate status: not evaluable yet
+- Gate reasons:
+  - `FEWER_THAN_3_CANDIDATE_SESSIONS`
+- Candidate opportunities after start: `71`
+- Raw opportunities after start: `72`
+- Candidate simulated fills: `49`
+- Candidate session count: `1`
+- Candidate wins/losses: `32 / 17`
+- Candidate net P/L: `+2.76`
+- Candidate profit factor: `1.4017`
+- Candidate expectancy: `+0.0563`
+- Candidate fill retention versus simultaneous baseline: `85.96%`
+- Candidate max loss streak: `3`
+- Candidate max session drawdown: `1.80`
+- Baseline simulated fills: `57`
+- Baseline wins/losses: `35 / 22`
+- Baseline net P/L: `+1.67`
+- Baseline profit factor: `1.1883`
+- Baseline expectancy: `+0.0293`
+- Baseline max loss streak: `3`
+- Baseline max session drawdown: `3.10`
+
+Interpretation: the candidate remains above the prospective PF/expectancy/net
+thresholds and no worse than baseline on max loss streak or max session
+drawdown. It still cannot pass because all simulated fills are from one
+UTC-date session. No retuning is allowed; the next requirement remains two more
+distinct sessions.
+
 ## Runtime defect fixed during this checkpoint
 
 The first live shadow attempt failed before writing a report because MT5 returned
