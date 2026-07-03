@@ -13,6 +13,7 @@ from tradingagents.agents.price_action.opening_state_screening import (
 from tradingagents.agents.price_action.opening_tick_replay import MarketTick
 from tradingagents.agents.price_action.opening_state_shadow import (
     FROZEN_TARGET_GRID_CANDIDATE,
+    SHADOW_DEFAULT_CANDLE_COUNT,
     build_shadow_report,
     build_shadow_report_from_broker,
     evaluate_shadow_gate,
@@ -235,6 +236,7 @@ class _Broker:
         self.positions = list(positions)
         self.connected = False
         self.fetched_ticks = False
+        self.fetch_closed_rates_calls = []
 
     def connect(self):
         self.connected = True
@@ -254,6 +256,7 @@ class _Broker:
         return self.positions
 
     def fetch_closed_rates(self, _timeframe, _count):
+        self.fetch_closed_rates_calls.append((_timeframe, _count))
         return []
 
     def fetch_ticks_range(self, _start, _end):
@@ -298,3 +301,21 @@ def test_shadow_broker_refuses_open_orders_or_positions():
     assert report["decision"] == "FAIL_PROSPECTIVE_SHADOW"
     assert "OPEN_BROKER_STATE_PRESENT" in report["gate"]["reasons"]
     assert broker.fetched_ticks is False
+
+
+def test_shadow_broker_default_candle_count_can_span_three_daily_sessions():
+    broker = _Broker()
+
+    build_shadow_report_from_broker(
+        broker,
+        config=SimpleNamespace(
+            symbol="XAUUSD",
+            allow_real_orders=False,
+            require_demo_account=True,
+        ),
+        manifest=MANIFEST,
+        prospective_start=START.isoformat(),
+    )
+
+    assert SHADOW_DEFAULT_CANDLE_COUNT >= 3 * 24 * 60
+    assert broker.fetch_closed_rates_calls == [("1m", SHADOW_DEFAULT_CANDLE_COUNT)]

@@ -35,6 +35,7 @@ FROZEN_TARGET_GRID_CANDIDATE = "OPENING_STATE_QUEUE_TARGET_GRID_V1"
 SHADOW_MIN_FILLS = 30
 SHADOW_MIN_SESSIONS = 3
 SHADOW_MIN_PROFIT_FACTOR = 1.10
+SHADOW_DEFAULT_CANDLE_COUNT = SHADOW_MIN_SESSIONS * 24 * 60
 
 
 def _parse(value: str) -> datetime:
@@ -312,7 +313,7 @@ def build_shadow_report_from_broker(
     config: Any,
     manifest: dict[str, Any],
     prospective_start: str,
-    candle_count: int = 1500,
+    candle_count: int = SHADOW_DEFAULT_CANDLE_COUNT,
 ) -> dict[str, Any]:
     if bool(getattr(config, "allow_real_orders", False)):
         return _empty_safety_failure(
@@ -380,6 +381,7 @@ __all__ = [
     "SHADOW_MIN_FILLS",
     "SHADOW_MIN_PROFIT_FACTOR",
     "SHADOW_MIN_SESSIONS",
+    "SHADOW_DEFAULT_CANDLE_COUNT",
     "build_shadow_report",
     "build_shadow_report_from_broker",
     "evaluate_shadow_gate",

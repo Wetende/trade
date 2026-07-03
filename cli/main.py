@@ -30,6 +30,9 @@ from cli.utils import (
     select_shallow_thinking_agent,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.agents.price_action.opening_state_shadow import (
+    SHADOW_DEFAULT_CANDLE_COUNT,
+)
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 console = Console()
@@ -628,7 +631,11 @@ def one_minute_opening_target_grid_shadow_step(
     prospective_start: str = typer.Option(..., "--prospective-start"),
     output: Path = typer.Option(..., "--output"),
     fixture: Path | None = typer.Option(None, "--fixture"),
-    candle_count: int = typer.Option(1500, "--candle-count", min=100),
+    candle_count: int = typer.Option(
+        SHADOW_DEFAULT_CANDLE_COUNT,
+        "--candle-count",
+        min=100,
+    ),
 ):
     """Run one read-only opening-state target-grid shadow step."""
     from tradingagents.agents.price_action.opening_state_screening import (

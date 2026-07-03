@@ -80,6 +80,46 @@ immature sample. The candidate must not be promoted until it has at least 30
 simulated fills across at least 3 distinct sessions and still satisfies the
 pre-registered PF/expectancy/net and risk gates.
 
+## 2026-07-03T11:46:05Z shadow checkpoint
+
+Same frozen manifest and prospective start, using the hardened live shadow
+default of `4320` closed M1 candles. This default is the minimum 3-day M1 window
+needed to support the pre-registered 3-session prospective gate without relying
+on an operator to remember `--candle-count`.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `COLLECTING_PROSPECTIVE_SHADOW`
+- Gate status: not evaluable yet
+- Gate reasons:
+  - `FEWER_THAN_30_CANDIDATE_FILLS`
+  - `FEWER_THAN_3_CANDIDATE_SESSIONS`
+- Candidate opportunities after start: `27`
+- Raw opportunities after start: `28`
+- Candidate simulated fills: `20`
+- Candidate session count: `1`
+- Candidate wins/losses: `12 / 8`
+- Candidate net P/L: `+0.40`
+- Candidate profit factor: `1.125`
+- Candidate expectancy: `+0.02`
+- Candidate fill retention versus simultaneous baseline: `90.91%`
+- Candidate max loss streak: `3`
+- Candidate max session drawdown: `1.20`
+- Baseline simulated fills: `22`
+- Baseline wins/losses: `10 / 12`
+- Baseline net P/L: `-1.80`
+- Baseline profit factor: `0.625`
+- Baseline expectancy: `-0.0818`
+- Baseline max loss streak: `3`
+- Baseline max session drawdown: `2.10`
+
+Interpretation: the candidate remains positive and no worse than baseline on
+loss streak/drawdown, but it still has only one UTC-date session. It cannot pass
+the prospective gate until at least two more distinct sessions are collected.
+
 ## Runtime defect fixed during this checkpoint
 
 The first live shadow attempt failed before writing a report because MT5 returned
@@ -96,3 +136,11 @@ Safety hardening added with the fix:
 
 The generated local shadow report remains under ignored `test-artifacts/`.
 This tracked log is the portable sanitized evidence.
+
+## Shadow collection tooling hardening
+
+The live shadow command now defaults to `4320` closed M1 candles, equal to three
+UTC days of one-minute candles. This supports the gate's minimum of three
+distinct daily sessions by default while preserving the existing read-only,
+broker-mutation-disabled behavior. Operators may still pass a larger
+`--candle-count` if a longer prospective window must be reconstructed.

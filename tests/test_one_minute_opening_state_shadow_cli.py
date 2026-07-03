@@ -3,7 +3,10 @@ import json
 from typer.testing import CliRunner
 
 from cli.main import app
-from tradingagents.agents.price_action.opening_state_shadow import build_shadow_report
+from tradingagents.agents.price_action.opening_state_shadow import (
+    SHADOW_DEFAULT_CANDLE_COUNT,
+    build_shadow_report,
+)
 from tradingagents.agents.price_action.opening_state_screening import (
     OpeningResearchFixture,
 )
@@ -42,3 +45,14 @@ def test_opening_shadow_cli_writes_deterministic_fixture_report(tmp_path):
         manifest=manifest,
         prospective_start=prospective_start,
     )
+
+
+def test_opening_shadow_cli_default_candle_count_supports_three_sessions():
+    result = CliRunner().invoke(
+        app,
+        ["one-minute-opening-target-grid-shadow-step", "--help"],
+    )
+
+    assert result.exit_code == 0
+    assert f"[default: {SHADOW_DEFAULT_CANDLE_COUNT}]" in result.output
+    assert SHADOW_DEFAULT_CANDLE_COUNT >= 3 * 24 * 60
