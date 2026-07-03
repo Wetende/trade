@@ -256,6 +256,25 @@ def test_mt5_config_from_env_does_not_require_account_or_execution_mode(monkeypa
     assert config.require_demo_account is True
 
 
+def test_mt5_connection_config_repr_hides_credentials_and_local_paths():
+    config = MT5ConnectionConfig(
+        login=987654321,
+        password="super-secret-password",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        terminal_path="C:\\Private\\Terminal\\terminal64.exe",
+        expected_login=987654321,
+        execution_state_dir="C:\\Private\\State",
+    )
+
+    rendered = repr(config)
+
+    assert "super-secret-password" not in rendered
+    assert "987654321" not in rendered
+    assert "C:\\Private" not in rendered
+    assert "symbol='XAUUSD'" in rendered
+
+
 def test_mt5_config_reads_real_order_acknowledgement(monkeypatch):
     _set_required_mt5_env(monkeypatch)
     monkeypatch.setenv(
@@ -1046,6 +1065,59 @@ def test_mt5_broker_fetch_ticks_range_normalizes_read_only_ticks():
             "bid": 4500.20,
             "ask": 4500.45,
         },
+    ]
+    assert fake.sent_requests == []
+
+
+def test_mt5_broker_fetch_ticks_range_supports_numpy_structured_tick_rows():
+    np = pytest.importorskip("numpy")
+    fake = FakeMT5()
+    fake.ticks = np.array(
+        [
+            (
+                1779613200,
+                4500.10,
+                4500.35,
+                0.0,
+                0,
+                1779613200123,
+                1030,
+                0.0,
+            )
+        ],
+        dtype=[
+            ("time", "<i8"),
+            ("bid", "<f8"),
+            ("ask", "<f8"),
+            ("last", "<f8"),
+            ("volume", "<u8"),
+            ("time_msc", "<i8"),
+            ("flags", "<u4"),
+            ("volume_real", "<f8"),
+        ],
+    )
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123,
+            password="x",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    ticks = broker.fetch_ticks_range(
+        datetime(2026, 5, 24, 9, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 24, 9, 1, tzinfo=timezone.utc),
+    )
+
+    assert ticks == [
+        {
+            "time": "2026-05-24T09:00:00.123000+00:00",
+            "bid": 4500.10,
+            "ask": 4500.35,
+        }
     ]
     assert fake.sent_requests == []
 

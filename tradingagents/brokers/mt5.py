@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from numbers import Integral
 from pathlib import Path
@@ -119,21 +119,21 @@ def _safe_mt5_comment(value: Any, *, fallback: str = "TA close") -> str:
 
 @dataclass(frozen=True)
 class MT5ConnectionConfig:
-    login: int
-    password: str
+    login: int = field(repr=False)
+    password: str = field(repr=False)
     server: str
     symbol: str = "XAUUSD"
-    terminal_path: str | None = None
+    terminal_path: str | None = field(default=None, repr=False)
     allow_real_orders: bool = False
     require_demo_account: bool = True
-    expected_login: int | None = None
+    expected_login: int | None = field(default=None, repr=False)
     expected_server: str | None = None
     volume: float = 0.01
     deviation: int = 20
     magic: int = 150015
     order_comment: str = "TradingAgents"
     use_server_expiration: bool = False
-    execution_state_dir: str | None = None
+    execution_state_dir: str | None = field(default=None, repr=False)
     max_entry_distance_points: float = 10.0
     min_stop_distance_price: float = 0.0
     min_stop_spread_multiple: float = 4.0
@@ -1459,14 +1459,14 @@ class MT5Broker:
         server_time_offset_seconds: int,
     ) -> dict[str, Any]:
         item = _asdict(tick)
-        raw_time_msc = item.get("time_msc")
+        raw_time_msc = self._rate_value(tick, item, "time_msc", None)
         if raw_time_msc not in (None, ""):
             timestamp = datetime.fromtimestamp(
                 (float(raw_time_msc) / 1000.0) - server_time_offset_seconds,
                 tz=timezone.utc,
             )
         else:
-            raw_time = item.get("time")
+            raw_time = self._rate_value(tick, item, "time", None)
             if raw_time in (None, ""):
                 raise MT5BrokerError("MT5 tick row missing field: time")
             timestamp = datetime.fromtimestamp(

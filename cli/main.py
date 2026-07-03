@@ -38,6 +38,7 @@ app = typer.Typer(
     name="TradingAgents",
     help="Price Action Playbook trading assistant",
     add_completion=True,
+    pretty_exceptions_show_locals=False,
 )
 
 

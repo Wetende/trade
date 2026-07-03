@@ -13,6 +13,10 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+def test_cli_pretty_exceptions_do_not_show_locals():
+    assert cli_main.app.pretty_exceptions_show_locals is False
+
+
 def test_get_user_selections_uses_config_broker_symbol(monkeypatch):
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "analysis_symbol", None)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "broker_symbol", "XAUUSD.vx")
