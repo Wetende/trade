@@ -891,8 +891,8 @@ def test_mt5_broker_fetch_rates_normalizes_mt5_candles():
     ]
     broker = MT5Broker(
         MT5ConnectionConfig(
-            login=123456789,
-            password="secret",
+            login=123,
+            password="x",
             server="ExampleBroker-Demo",
             symbol="XAUUSD",
         ),
