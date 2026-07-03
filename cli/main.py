@@ -558,6 +558,27 @@ def one_minute_opening_state_screen(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-opening-family-screen")
+def one_minute_opening_family_screen(
+    fixture: Path = typer.Option(..., "--fixture"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Run broker-free opening-state family screening on sanitized evidence."""
+    from tradingagents.agents.price_action.opening_state_family import (
+        screen_family_fixture,
+    )
+
+    report = screen_family_fixture(fixture)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("broker-probe")
 def broker_probe(
     json_only: bool = typer.Option(
