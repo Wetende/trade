@@ -234,6 +234,42 @@ Interpretation: candidate PF, expectancy, net P/L, fill retention, and risk
 comparisons remain inside the prospective thresholds. The result is still not
 evaluable because the sample has only one UTC-date session.
 
+## 2026-07-03T12:20:32Z shadow checkpoint
+
+Same frozen manifest and prospective start, using the `4320` closed-M1 default.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `COLLECTING_PROSPECTIVE_SHADOW`
+- Gate status: not evaluable yet
+- Gate reasons:
+  - `FEWER_THAN_3_CANDIDATE_SESSIONS`
+- Candidate opportunities after start: `75`
+- Raw opportunities after start: `76`
+- Candidate simulated fills: `52`
+- Candidate session count: `1`
+- Candidate wins/losses: `34 / 18`
+- Candidate net P/L: `+2.97`
+- Candidate profit factor: `1.4063`
+- Candidate expectancy: `+0.0571`
+- Candidate fill retention versus simultaneous baseline: `86.67%`
+- Candidate max loss streak: `3`
+- Candidate max session drawdown: `1.80`
+- Baseline simulated fills: `60`
+- Baseline wins/losses: `37 / 23`
+- Baseline net P/L: `+1.88`
+- Baseline profit factor: `1.2019`
+- Baseline expectancy: `+0.0313`
+- Baseline max loss streak: `3`
+- Baseline max session drawdown: `3.10`
+
+Interpretation: candidate remains above the PF, expectancy, net P/L, fill
+retention, max loss streak, and drawdown requirements, but it is still not
+evaluable because all fills are from one UTC-date session.
+
 ## Runtime defect fixed during this checkpoint
 
 The first live shadow attempt failed before writing a report because MT5 returned
