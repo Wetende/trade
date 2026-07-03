@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SETUP_SCRIPT = ROOT / "scripts" / "setup-windows.ps1"
 RUNNER_SCRIPT = ROOT / "scripts" / "start-one-minute-demo.ps1"
+SHADOW_WATCH_SCRIPT = ROOT / "scripts" / "start-opening-state-shadow-watch.ps1"
 
 
 def _powershell_parse(path: Path) -> subprocess.CompletedProcess[str]:
@@ -31,7 +32,7 @@ def _powershell_parse(path: Path) -> subprocess.CompletedProcess[str]:
 
 
 def test_windows_scripts_exist_and_parse_as_powershell():
-    for script in (SETUP_SCRIPT, RUNNER_SCRIPT):
+    for script in (SETUP_SCRIPT, RUNNER_SCRIPT, SHADOW_WATCH_SCRIPT):
         assert script.is_file()
         parsed = _powershell_parse(script)
         assert parsed.returncode == 0, parsed.stderr
@@ -82,6 +83,22 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
     assert "Get-CimInstance Win32_Process" in text
     assert "-WindowStyle Hidden" in text
     assert "Start-Process" in text
+
+
+def test_shadow_watch_script_is_read_only_and_stops_on_terminal_decision():
+    text = SHADOW_WATCH_SCRIPT.read_text(encoding="utf-8")
+
+    assert "one-minute-opening-target-grid-shadow-step" in text
+    assert "OPENING_STATE_QUEUE_TARGET_GRID_V1" in text
+    assert "PASS_PROSPECTIVE_SHADOW" in text
+    assert "FAIL_PROSPECTIVE_SHADOW" in text
+    assert "COLLECTING_PROSPECTIVE_SHADOW" in text
+    assert "shadow-heartbeat.json" in text
+    assert "shadow-watch.stop" in text
+    assert "mt5-run" not in text
+    assert "order-send" not in text.lower()
+    assert "Start-Process" in text
+    assert "-WindowStyle Hidden" in text
 
 
 def test_env_template_keeps_credentials_blank_and_real_orders_disabled():

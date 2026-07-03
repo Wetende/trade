@@ -13,6 +13,7 @@ BUY, SELL, HOLD, size, or exits. Start with:
 - [Post-change impulse loss review](docs/analysis/2026-07-02-one-minute-scalper-impulse-loss-review.md)
 - [Windows setup script](scripts/setup-windows.ps1)
 - [Safe DEMO runner script](scripts/start-one-minute-demo.ps1)
+- [Read-only opening-state shadow watcher](scripts/start-opening-state-shadow-watch.ps1)
 
 The active pipeline is:
 

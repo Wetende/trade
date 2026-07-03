@@ -224,6 +224,29 @@ open orders = 0
 open positions = 0
 ```
 
+## Run read-only prospective shadow validation
+
+Before promoting a frozen candidate to any execution runner, collect
+prospective shadow evidence with the tracked watcher:
+
+```powershell
+.\scripts\start-opening-state-shadow-watch.ps1
+```
+
+The watcher runs `one-minute-opening-target-grid-shadow-step` against the
+tracked frozen manifest for `OPENING_STATE_QUEUE_TARGET_GRID_V1`. It uses
+read-only MT5 candles/ticks, writes ignored runtime files under
+`test-artifacts/opening-state-shadow/`, and stops automatically when the shadow
+decision becomes `PASS_PROSPECTIVE_SHADOW` or `FAIL_PROSPECTIVE_SHADOW`.
+
+It does not start `mt5-run`, does not place orders, does not modify stops, and
+does not close positions. To stop collection manually, create the stop file
+shown by the launcher output:
+
+```powershell
+New-Item -ItemType File test-artifacts\opening-state-shadow\<session>\shadow-watch.stop
+```
+
 ## Files that must be transferred separately
 
 Only the populated `.env` values need secure re-entry or transfer through an
