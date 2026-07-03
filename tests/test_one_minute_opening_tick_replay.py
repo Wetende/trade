@@ -7,6 +7,7 @@ from tradingagents.agents.price_action.opening_state import (
 from tradingagents.agents.price_action.opening_tick_replay import (
     MarketTick,
     ReplayConfig,
+    simulate_opportunity_from_sorted_ticks,
     simulate_opportunity,
 )
 
@@ -70,6 +71,47 @@ def test_missing_decision_tick_is_insufficient_evidence():
 
     assert result.status == "INSUFFICIENT_TICK_EVIDENCE"
     assert result.reason == "NO_DECISION_TICK"
+
+
+def test_invalid_zero_ask_tick_is_ignored_before_decision_quote():
+    ticks = [
+        _tick(0, 4025.40, 0.0),
+        _tick(1, 100.05, 100.25),
+        _tick(3, 101.50, 101.70),
+    ]
+
+    result = simulate_opportunity(_buy_opportunity(), ticks, ReplayConfig())
+
+    assert result.status == "CLOSED"
+    assert result.filled_at == ticks[1].time
+    assert result.spread_at_decision == 0.2
+
+
+def test_all_invalid_ticks_are_insufficient_quote_evidence():
+    ticks = [_tick(0, 4025.40, 0.0), _tick(1, 4025.50, 0.0)]
+
+    result = simulate_opportunity(_buy_opportunity(), ticks, ReplayConfig())
+
+    assert result.status == "INSUFFICIENT_TICK_EVIDENCE"
+    assert result.reason == "NO_VALID_DECISION_TICK"
+
+
+def test_sorted_tick_replay_starts_at_supplied_index():
+    ticks = [
+        _tick(-10, 4025.40, 0.0),
+        _tick(0, 100.05, 100.25),
+        _tick(3, 101.50, 101.70),
+    ]
+
+    result = simulate_opportunity_from_sorted_ticks(
+        _buy_opportunity(),
+        ticks,
+        ReplayConfig(),
+        start_index=1,
+    )
+
+    assert result.status == "CLOSED"
+    assert result.filled_at == ticks[1].time
 
 
 def test_ambiguous_stop_and_target_same_tick_is_excluded():

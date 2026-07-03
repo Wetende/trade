@@ -65,6 +65,12 @@ def _exit_mark(direction: str, tick: MarketTick) -> float:
     return float(tick.bid if direction == "BUY" else tick.ask)
 
 
+def _valid_quote(tick: MarketTick) -> bool:
+    bid = float(tick.bid)
+    ask = float(tick.ask)
+    return bid > 0 and ask > 0 and ask >= bid
+
+
 def _profit(direction: str, entry: float, exit_price: float) -> float:
     if direction == "BUY":
         return round(exit_price - entry, 4)
@@ -153,16 +159,49 @@ def simulate_opportunity(
 ) -> SimulatedOpeningTrade:
     """Simulate one pending opening with conservative tick ambiguity handling."""
     ordered = sorted(ticks, key=lambda item: _parse(item.time))
+    return simulate_opportunity_from_sorted_ticks(
+        opportunity,
+        ordered,
+        config,
+        start_index=0,
+    )
+
+
+def simulate_opportunity_from_sorted_ticks(
+    opportunity: OpeningOpportunity,
+    sorted_ticks: list[MarketTick] | tuple[MarketTick, ...],
+    config: ReplayConfig,
+    *,
+    start_index: int = 0,
+) -> SimulatedOpeningTrade:
+    """Simulate one pending opening from a pre-sorted tick sequence."""
+    ordered = tuple(sorted_ticks)
     decision_time = _parse(opportunity.signal_time)
-    usable = [tick for tick in ordered if _parse(tick.time) >= decision_time]
-    if not usable:
+    first_index = max(0, int(start_index))
+    saw_after_signal = False
+    decision_index: int | None = None
+    for index in range(first_index, len(ordered)):
+        tick = ordered[index]
+        if _parse(tick.time) < decision_time:
+            continue
+        saw_after_signal = True
+        if _valid_quote(tick):
+            decision_index = index
+            break
+    if not saw_after_signal:
         return _base_result(
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_DECISION_TICK",
         )
+    if decision_index is None:
+        return _base_result(
+            "INSUFFICIENT_TICK_EVIDENCE",
+            opportunity,
+            reason="NO_VALID_DECISION_TICK",
+        )
 
-    decision_tick = usable[0]
+    decision_tick = ordered[decision_index]
     spread = round(float(decision_tick.ask) - float(decision_tick.bid), 4)
     entry = _entry_price(opportunity)
     stop, target = _levels(opportunity, entry, config)
@@ -175,7 +214,10 @@ def simulate_opportunity(
         )
     )
     fill_index: int | None = None
-    for index, tick in enumerate(usable):
+    for index in range(decision_index, len(ordered)):
+        tick = ordered[index]
+        if not _valid_quote(tick):
+            continue
         if _parse(tick.time) > expiry:
             break
         if _fills(opportunity.direction, entry, tick, config.max_quote_drift):
@@ -193,10 +235,12 @@ def simulate_opportunity(
             spread_at_decision=spread,
         )
 
-    fill = usable[fill_index]
+    fill = ordered[fill_index]
     mfe = 0.0
     mae = 0.0
-    for tick in usable[fill_index:]:
+    for tick in ordered[fill_index:]:
+        if not _valid_quote(tick):
+            continue
         if _ambiguous_quote_span(
             opportunity.direction,
             tick,
@@ -259,4 +303,5 @@ __all__ = [
     "ReplayConfig",
     "SimulatedOpeningTrade",
     "simulate_opportunity",
+    "simulate_opportunity_from_sorted_ticks",
 ]

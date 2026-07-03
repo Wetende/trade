@@ -225,6 +225,7 @@ __marimo__/
 /.worktrees/
 /runtime/
 /results/
+/test-artifacts/
 /reports/mt5_history_reverse_engineering/
 /image1.png
 write-test-workspace.txt
