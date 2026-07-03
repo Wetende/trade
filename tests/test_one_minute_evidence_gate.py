@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +8,7 @@ from tradingagents.agents.price_action.evidence_gate import (
     EvidenceSession,
     EvidenceTrade,
     VariantName,
+    evaluate_session,
     evaluate_variant,
 )
 
@@ -135,3 +136,76 @@ def test_variant_never_revives_a_baseline_rejection():
 
     assert result.accepted is False
     assert result.reason == "BASELINE_REJECTED"
+
+
+def test_post_loss_cluster_suppresses_until_five_minutes_have_elapsed():
+    decisions = tuple(
+        _decision(as_of=UTC_NOW + offset)
+        for offset in (
+            timedelta(seconds=0),
+            timedelta(minutes=4, seconds=59),
+            timedelta(minutes=5),
+        )
+    )
+    session = EvidenceSession(
+        session_id="cluster",
+        decisions=decisions,
+        trades=[
+            _filled_trade(
+                profit=-50.0,
+                closed_at=UTC_NOW,
+            )
+        ],
+    )
+
+    rows = evaluate_session(session, (VariantName.H3_POST_LOSS_CLUSTER,))
+
+    assert [row.accepted for row in rows] == [True, False, True]
+    assert rows[1].reasons == ("SHADOW_POST_LOSS_CLUSTER",)
+
+
+def test_post_loss_cluster_is_not_started_by_a_win():
+    session = EvidenceSession(
+        session_id="winning",
+        decisions=(
+            _decision(as_of=UTC_NOW),
+            _decision(as_of=UTC_NOW + timedelta(minutes=1)),
+        ),
+        trades=[_filled_trade(profit=50.0)],
+    )
+
+    rows = evaluate_session(session, (VariantName.H3_POST_LOSS_CLUSTER,))
+
+    assert [row.accepted for row in rows] == [True, True]
+
+
+def test_pairwise_variants_return_stable_ordered_reasons():
+    session = EvidenceSession(
+        session_id="pair",
+        decisions=(_decision(touch_count=2, body_ratio=1.3),),
+        trades=[],
+    )
+
+    rows = evaluate_session(
+        session,
+        (VariantName.H1_TOUCH_MATURITY, VariantName.H2_EXHAUSTION),
+    )
+
+    assert rows[0].reasons == (
+        "SHADOW_IMPULSE_REQUIRES_THIRD_TOUCH",
+        "SHADOW_IMPULSE_BODY_EXHAUSTED",
+    )
+
+
+def test_three_way_variant_is_not_part_of_historical_screening():
+    session = EvidenceSession(session_id="three-way", decisions=(), trades=())
+
+    with pytest.raises(ValueError, match="at most two"):
+        evaluate_session(
+            session,
+            (
+                VariantName.H1_TOUCH_MATURITY,
+                VariantName.H2_EXHAUSTION,
+                VariantName.H3_POST_LOSS_CLUSTER,
+            ),
+        )

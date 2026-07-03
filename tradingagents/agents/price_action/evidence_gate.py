@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 
@@ -72,6 +72,17 @@ class VariantDecision(BaseModel):
     reason: str | None = None
 
 
+class ScreeningRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_id: str
+    decision_index: int
+    accepted: bool
+    filled: bool
+    profit: float | None
+    reasons: tuple[str, ...] = ()
+
+
 def evaluate_variant(
     decision: EvidenceDecision,
     variant: VariantName | str,
@@ -92,3 +103,50 @@ def evaluate_variant(
             reason="SHADOW_IMPULSE_BODY_EXHAUSTED",
         )
     return VariantDecision(accepted=True)
+
+
+def evaluate_session(
+    session: EvidenceSession,
+    variants: tuple[VariantName | str, ...],
+) -> tuple[ScreeningRow, ...]:
+    selected = tuple(VariantName(item) for item in variants)
+    if len(selected) > 2:
+        raise ValueError("historical screening accepts at most two variants")
+    trades = {trade.decision_index: trade for trade in session.trades}
+    last_loss_closed_at: datetime | None = None
+    rows: list[ScreeningRow] = []
+
+    indexed_decisions = sorted(
+        enumerate(session.decisions),
+        key=lambda item: (item[1].as_of, item[0]),
+    )
+    for index, decision in indexed_decisions:
+        reasons: list[str] = []
+        for variant in selected:
+            result = evaluate_variant(decision, variant)
+            if not result.accepted and result.reason not in reasons:
+                reasons.append(str(result.reason))
+        if (
+            VariantName.H3_POST_LOSS_CLUSTER in selected
+            and last_loss_closed_at is not None
+            and decision.as_of < last_loss_closed_at + timedelta(minutes=5)
+        ):
+            reasons.append("SHADOW_POST_LOSS_CLUSTER")
+
+        trade = trades.get(index)
+        accepted = not reasons
+        filled = bool(accepted and trade is not None and trade.filled)
+        profit = trade.profit if filled else None
+        rows.append(
+            ScreeningRow(
+                session_id=session.session_id,
+                decision_index=index,
+                accepted=accepted,
+                filled=filled,
+                profit=profit,
+                reasons=tuple(reasons),
+            )
+        )
+        if filled and profit is not None and profit < 0:
+            last_loss_closed_at = trade.closed_at
+    return tuple(rows)
