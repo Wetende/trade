@@ -621,6 +621,60 @@ def one_minute_opening_target_grid_screen(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-opening-target-grid-shadow-step")
+def one_minute_opening_target_grid_shadow_step(
+    manifest: Path = typer.Option(..., "--manifest"),
+    prospective_start: str = typer.Option(..., "--prospective-start"),
+    output: Path = typer.Option(..., "--output"),
+    fixture: Path | None = typer.Option(None, "--fixture"),
+    candle_count: int = typer.Option(1500, "--candle-count", min=100),
+):
+    """Run one read-only opening-state target-grid shadow step."""
+    from tradingagents.agents.price_action.opening_state_screening import (
+        OpeningResearchFixture,
+    )
+    from tradingagents.agents.price_action.opening_state_shadow import (
+        build_shadow_report,
+        build_shadow_report_from_broker,
+        load_frozen_manifest,
+    )
+
+    frozen_manifest = load_frozen_manifest(manifest)
+    if fixture is not None:
+        shadow_fixture = OpeningResearchFixture.model_validate_json(
+            fixture.read_text(encoding="utf-8")
+        )
+        report = build_shadow_report(
+            shadow_fixture,
+            manifest=frozen_manifest,
+            prospective_start=prospective_start,
+        )
+    else:
+        from tradingagents.brokers.mt5 import MT5Broker, MT5ConnectionConfig
+
+        config = MT5ConnectionConfig.from_env()
+        broker = MT5Broker(config)
+        try:
+            report = build_shadow_report_from_broker(
+                broker,
+                config=config,
+                manifest=frozen_manifest,
+                prospective_start=prospective_start,
+                candle_count=candle_count,
+            )
+        finally:
+            broker.shutdown()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("broker-probe")
 def broker_probe(
     json_only: bool = typer.Option(
