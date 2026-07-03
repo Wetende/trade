@@ -128,6 +128,23 @@ def test_exhaustion_does_not_change_respect_candidates():
     assert result.accepted is True
 
 
+def test_exhaustion_rejects_impulse_when_body_evidence_is_missing():
+    result = evaluate_variant(
+        _decision(body_ratio=None),
+        VariantName.H2_EXHAUSTION,
+    )
+
+    assert result.accepted is False
+    assert result.reason == "INSUFFICIENT_IMPULSE_BODY_EVIDENCE"
+
+
+def test_filled_legacy_trade_can_preserve_actual_profit_without_excursion():
+    trade = _filled_trade(spread=None, mfe=None, mae=None)
+
+    assert trade.profit == 50.0
+    assert trade.mfe is None
+
+
 def test_variant_never_revives_a_baseline_rejection():
     result = evaluate_variant(
         _decision(approved=False),

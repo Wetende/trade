@@ -18,7 +18,7 @@ class EvidenceDecision(BaseModel):
     reaction_type: Literal["impulse_break", "respect", "fakeout"]
     approved: bool
     touch_count: int = Field(ge=2)
-    body_ratio: float = Field(ge=0)
+    body_ratio: float | None = Field(default=None, ge=0)
 
 
 class EvidenceTrade(BaseModel):
@@ -30,7 +30,7 @@ class EvidenceTrade(BaseModel):
     filled_at: datetime | None
     closed_at: datetime | None
     profit: float | None
-    spread: float = Field(ge=0)
+    spread: float | None = Field(default=None, ge=0)
     mfe: float | None
     mae: float | None
 
@@ -41,8 +41,8 @@ class EvidenceTrade(BaseModel):
             if any(value is not None for value in outcome):
                 raise ValueError("unfilled evidence cannot contain an outcome")
             return self
-        if any(value is None for value in outcome):
-            raise ValueError("filled evidence requires a complete outcome")
+        if any(value is None for value in outcome[:3]):
+            raise ValueError("filled evidence requires fill, close, and profit")
         if self.filled_at < self.placed_at:
             raise ValueError("filled_at cannot precede placed_at")
         if self.closed_at < self.filled_at:
@@ -97,11 +97,17 @@ def evaluate_variant(
             accepted=False,
             reason="SHADOW_IMPULSE_REQUIRES_THIRD_TOUCH",
         )
-    if selected == VariantName.H2_EXHAUSTION and decision.body_ratio > 1.20:
-        return VariantDecision(
-            accepted=False,
-            reason="SHADOW_IMPULSE_BODY_EXHAUSTED",
-        )
+    if selected == VariantName.H2_EXHAUSTION:
+        if decision.body_ratio is None:
+            return VariantDecision(
+                accepted=False,
+                reason="INSUFFICIENT_IMPULSE_BODY_EVIDENCE",
+            )
+        if decision.body_ratio > 1.20:
+            return VariantDecision(
+                accepted=False,
+                reason="SHADOW_IMPULSE_BODY_EXHAUSTED",
+            )
     return VariantDecision(accepted=True)
 
 
