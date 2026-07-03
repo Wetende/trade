@@ -126,6 +126,7 @@ def _base_result(
     opportunity: OpeningOpportunity,
     *,
     reason: str | None = None,
+    placed_at: str | None = None,
     completed_at: str | None = None,
     filled_at: str | None = None,
     closed_at: str | None = None,
@@ -142,7 +143,7 @@ def _base_result(
         status=status,
         reason=reason,
         direction=opportunity.direction,
-        placed_at=opportunity.signal_time,
+        placed_at=placed_at or opportunity.signal_time,
         completed_at=completed_at,
         filled_at=filled_at,
         closed_at=closed_at,
@@ -371,6 +372,215 @@ class PreparedTickSeries:
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_EXIT_TICK",
+            completed_at=completed_at,
+            filled_at=fill_tick.time,
+            entry=entry,
+            stop=stop,
+            target=target,
+            mfe=round(float(favorable.max()), 4) if favorable.size else 0.0,
+            mae=round(float(favorable.min()), 4) if favorable.size else 0.0,
+            spread_at_decision=spread,
+        )
+
+    def simulate_window(
+        self,
+        opportunity: OpeningOpportunity,
+        config: ReplayConfig,
+        *,
+        available_at: datetime,
+        expires_at: datetime,
+    ) -> SimulatedOpeningTrade:
+        signal_time = _parse(opportunity.signal_time)
+        placed_time = max(signal_time, available_at)
+        placed_at = placed_time.isoformat()
+        entry = _entry_price(opportunity)
+        stop, target = _levels(opportunity, entry, config)
+        if placed_time >= expires_at:
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="QUEUE_EXPIRED_BEFORE_AVAILABLE",
+                placed_at=placed_at,
+                completed_at=expires_at.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
+
+        first_index = int(
+            np.searchsorted(
+                self.epoch_seconds,
+                placed_time.timestamp(),
+                side="left",
+            )
+        )
+        expiry_index = int(
+            np.searchsorted(
+                self.epoch_seconds,
+                expires_at.timestamp(),
+                side="right",
+            )
+        )
+        if first_index >= len(self.ticks):
+            return _base_result(
+                "INSUFFICIENT_TICK_EVIDENCE",
+                opportunity,
+                reason="NO_DECISION_TICK",
+                placed_at=placed_at,
+                completed_at=placed_at,
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
+
+        valid_after = np.flatnonzero(self.valid[first_index:expiry_index])
+        if valid_after.size == 0:
+            return _base_result(
+                "INSUFFICIENT_TICK_EVIDENCE",
+                opportunity,
+                reason="NO_VALID_DECISION_TICK",
+                placed_at=placed_at,
+                completed_at=placed_at,
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
+        decision_index = int(valid_after[0] + first_index)
+        spread = round(float(self.asks[decision_index] - self.bids[decision_index]), 4)
+        if opportunity.direction == "BUY":
+            fill_window = (
+                self.valid[decision_index:expiry_index]
+                & (self.asks[decision_index:expiry_index] >= entry)
+                & (
+                    self.asks[decision_index:expiry_index]
+                    <= entry + config.max_quote_drift
+                )
+            )
+        else:
+            fill_window = (
+                self.valid[decision_index:expiry_index]
+                & (self.bids[decision_index:expiry_index] <= entry)
+                & (
+                    self.bids[decision_index:expiry_index]
+                    >= entry - config.max_quote_drift
+                )
+            )
+        fills = np.flatnonzero(fill_window)
+        if fills.size == 0:
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
+                placed_at=placed_at,
+                completed_at=expires_at.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
+
+        fill_index = int(fills[0] + decision_index)
+        fill_tick = self.ticks[fill_index]
+        tail = slice(fill_index, len(self.ticks))
+        valid_tail = self.valid[tail]
+        if opportunity.direction == "BUY":
+            ambiguous = valid_tail & (self.bids[tail] <= stop) & (
+                self.asks[tail] >= target
+            )
+            stop_hits = valid_tail & (self.bids[tail] <= stop)
+            target_hits = valid_tail & (self.bids[tail] >= target)
+            marks = self.bids
+        else:
+            ambiguous = valid_tail & (self.asks[tail] >= stop) & (
+                self.bids[tail] <= target
+            )
+            stop_hits = valid_tail & (self.asks[tail] >= stop)
+            target_hits = valid_tail & (self.asks[tail] <= target)
+            marks = self.asks
+
+        candidates: list[tuple[int, str]] = []
+        for name, mask in (
+            ("AMBIGUOUS", ambiguous),
+            ("TARGET", target_hits),
+            ("STOP", stop_hits),
+        ):
+            hits = np.flatnonzero(mask)
+            if hits.size:
+                priority = 0 if name == "AMBIGUOUS" else 1 if name == "TARGET" else 2
+                candidates.append((int(hits[0] + fill_index), f"{priority}:{name}"))
+
+        if candidates:
+            event_index, encoded = min(candidates, key=lambda item: (item[0], item[1]))
+            event_type = encoded.split(":", 1)[1]
+            if event_type == "AMBIGUOUS":
+                mark_slice = marks[fill_index:event_index][
+                    self.valid[fill_index:event_index]
+                ]
+                favorable = _favorable_points(
+                    opportunity.direction,
+                    entry=entry,
+                    marks=mark_slice,
+                )
+                mfe = round(float(favorable.max()), 4) if favorable.size else 0.0
+                mae = round(float(favorable.min()), 4) if favorable.size else 0.0
+                return _base_result(
+                    "INSUFFICIENT_TICK_EVIDENCE",
+                    opportunity,
+                    reason="AMBIGUOUS_STOP_AND_TARGET",
+                    placed_at=placed_at,
+                    completed_at=self.ticks[event_index].time,
+                    filled_at=fill_tick.time,
+                    entry=entry,
+                    stop=stop,
+                    target=target,
+                    mfe=mfe,
+                    mae=mae,
+                    spread_at_decision=spread,
+                )
+
+            mark_slice = marks[fill_index : event_index + 1][
+                self.valid[fill_index : event_index + 1]
+            ]
+            favorable = _favorable_points(
+                opportunity.direction,
+                entry=entry,
+                marks=mark_slice,
+            )
+            exit_price = target if event_type == "TARGET" else stop
+            return _base_result(
+                "CLOSED",
+                opportunity,
+                placed_at=placed_at,
+                completed_at=self.ticks[event_index].time,
+                filled_at=fill_tick.time,
+                closed_at=self.ticks[event_index].time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                exit_reason=event_type,
+                profit=_profit(opportunity.direction, entry, exit_price),
+                mfe=round(float(favorable.max()), 4) if favorable.size else 0.0,
+                mae=round(float(favorable.min()), 4) if favorable.size else 0.0,
+                spread_at_decision=spread,
+            )
+
+        valid_after_fill = np.flatnonzero(self.valid[fill_index:])
+        mark_slice = marks[fill_index:][self.valid[fill_index:]]
+        favorable = _favorable_points(
+            opportunity.direction,
+            entry=entry,
+            marks=mark_slice,
+        )
+        completed_at = (
+            self.ticks[int(valid_after_fill[-1] + fill_index)].time
+            if valid_after_fill.size
+            else fill_tick.time
+        )
+        return _base_result(
+            "INSUFFICIENT_TICK_EVIDENCE",
+            opportunity,
+            reason="NO_EXIT_TICK",
+            placed_at=placed_at,
             completed_at=completed_at,
             filled_at=fill_tick.time,
             entry=entry,

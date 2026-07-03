@@ -153,3 +153,68 @@ def test_ambiguous_stop_and_target_same_tick_is_excluded():
 
     assert result.status == "INSUFFICIENT_TICK_EVIDENCE"
     assert result.reason == "AMBIGUOUS_STOP_AND_TARGET"
+
+
+def test_window_replay_marks_stale_when_slot_frees_after_expiry():
+    opportunity = _buy_opportunity().model_copy(update={"entry_kind": "reaction"})
+    series = PreparedTickSeries.from_ticks((_tick(21, 100.30, 100.50),))
+
+    result = series.simulate_window(
+        opportunity,
+        ReplayConfig(),
+        available_at=START + timedelta(seconds=20),
+        expires_at=START + timedelta(seconds=20),
+    )
+
+    assert result.status == "EXPIRED"
+    assert result.reason == "QUEUE_EXPIRED_BEFORE_AVAILABLE"
+    assert result.placed_at == (START + timedelta(seconds=20)).isoformat()
+    assert result.completed_at == (START + timedelta(seconds=20)).isoformat()
+    assert result.filled_at is None
+
+
+def test_window_replay_uses_remaining_absolute_expiry():
+    opportunity = _buy_opportunity().model_copy(update={"entry_kind": "reaction"})
+    series = PreparedTickSeries.from_ticks(
+        (
+            _tick(10, 100.00, 100.10),
+            _tick(25, 100.30, 100.50),
+        )
+    )
+
+    result = series.simulate_window(
+        opportunity,
+        ReplayConfig(),
+        available_at=START + timedelta(seconds=10),
+        expires_at=START + timedelta(seconds=20),
+    )
+
+    assert result.status == "EXPIRED"
+    assert result.reason == "ENTRY_NOT_TOUCHED_BEFORE_EXPIRY"
+    assert result.placed_at == (START + timedelta(seconds=10)).isoformat()
+    assert result.completed_at == (START + timedelta(seconds=20)).isoformat()
+    assert result.filled_at is None
+
+
+def test_window_replay_places_after_active_slot_frees_and_closes():
+    opportunity = _buy_opportunity()
+    series = PreparedTickSeries.from_ticks(
+        (
+            _tick(12, 100.05, 100.25),
+            _tick(13, 100.12, 100.32),
+            _tick(14, 101.00, 101.20),
+        )
+    )
+
+    result = series.simulate_window(
+        opportunity,
+        ReplayConfig(risk_reward=1.0),
+        available_at=START + timedelta(seconds=12),
+        expires_at=START + timedelta(seconds=45),
+    )
+
+    assert result.status == "CLOSED"
+    assert result.placed_at == (START + timedelta(seconds=12)).isoformat()
+    assert result.filled_at == (START + timedelta(seconds=12)).isoformat()
+    assert result.exit_reason == "TARGET"
+    assert result.profit == 0.4
