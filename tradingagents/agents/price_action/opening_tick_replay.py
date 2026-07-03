@@ -37,6 +37,7 @@ class SimulatedOpeningTrade(BaseModel):
     reason: str | None = None
     direction: Literal["BUY", "SELL"]
     placed_at: str
+    completed_at: str | None
     filled_at: str | None
     closed_at: str | None
     entry_price: float | None
@@ -125,6 +126,7 @@ def _base_result(
     opportunity: OpeningOpportunity,
     *,
     reason: str | None = None,
+    completed_at: str | None = None,
     filled_at: str | None = None,
     closed_at: str | None = None,
     entry: float | None = None,
@@ -141,6 +143,7 @@ def _base_result(
         reason=reason,
         direction=opportunity.direction,
         placed_at=opportunity.signal_time,
+        completed_at=completed_at,
         filled_at=filled_at,
         closed_at=closed_at,
         entry_price=round(entry, 4) if entry is not None else None,
@@ -214,6 +217,7 @@ class PreparedTickSeries:
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
                 reason="NO_DECISION_TICK",
+                completed_at=opportunity.signal_time,
             )
 
         valid_after = np.flatnonzero(self.valid[first_index:])
@@ -222,15 +226,20 @@ class PreparedTickSeries:
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
                 reason="NO_VALID_DECISION_TICK",
+                completed_at=opportunity.signal_time,
             )
         decision_index = int(valid_after[0] + first_index)
         spread = round(float(self.asks[decision_index] - self.bids[decision_index]), 4)
         entry = _entry_price(opportunity)
         stop, target = _levels(opportunity, entry, config)
-        expiry_seconds = self.epoch_seconds[decision_index] + (
+        expiry_duration = (
             config.reaction_expiry_seconds
             if opportunity.entry_kind == "reaction"
             else config.continuation_expiry_seconds
+        )
+        expiry_seconds = self.epoch_seconds[decision_index] + expiry_duration
+        expiry_time = _parse(self.ticks[decision_index].time) + timedelta(
+            seconds=expiry_duration
         )
         expiry_index = int(
             np.searchsorted(self.epoch_seconds, expiry_seconds, side="right")
@@ -260,6 +269,7 @@ class PreparedTickSeries:
                 "EXPIRED",
                 opportunity,
                 reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
+                completed_at=expiry_time.isoformat(),
                 entry=entry,
                 stop=stop,
                 target=target,
@@ -310,6 +320,7 @@ class PreparedTickSeries:
                     "INSUFFICIENT_TICK_EVIDENCE",
                     opportunity,
                     reason="AMBIGUOUS_STOP_AND_TARGET",
+                    completed_at=self.ticks[event_index].time,
                     filled_at=fill_tick.time,
                     entry=entry,
                     stop=stop,
@@ -331,6 +342,7 @@ class PreparedTickSeries:
             return _base_result(
                 "CLOSED",
                 opportunity,
+                completed_at=self.ticks[event_index].time,
                 filled_at=fill_tick.time,
                 closed_at=self.ticks[event_index].time,
                 entry=entry,
@@ -343,16 +355,23 @@ class PreparedTickSeries:
                 spread_at_decision=spread,
             )
 
+        valid_after_fill = np.flatnonzero(self.valid[fill_index:])
         mark_slice = marks[fill_index:][self.valid[fill_index:]]
         favorable = _favorable_points(
             opportunity.direction,
             entry=entry,
             marks=mark_slice,
         )
+        completed_at = (
+            self.ticks[int(valid_after_fill[-1] + fill_index)].time
+            if valid_after_fill.size
+            else fill_tick.time
+        )
         return _base_result(
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_EXIT_TICK",
+            completed_at=completed_at,
             filled_at=fill_tick.time,
             entry=entry,
             stop=stop,
@@ -404,12 +423,14 @@ def simulate_opportunity_from_sorted_ticks(
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_DECISION_TICK",
+            completed_at=opportunity.signal_time,
         )
     if decision_index is None:
         return _base_result(
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_VALID_DECISION_TICK",
+            completed_at=opportunity.signal_time,
         )
 
     decision_tick = ordered[decision_index]
@@ -417,13 +438,12 @@ def simulate_opportunity_from_sorted_ticks(
     entry = _entry_price(opportunity)
     stop, target = _levels(opportunity, entry, config)
     decision_tick_time = _parse(decision_tick.time)
-    expiry = decision_tick_time + timedelta(
-        seconds=(
-            config.reaction_expiry_seconds
-            if opportunity.entry_kind == "reaction"
-            else config.continuation_expiry_seconds
-        )
+    expiry_duration = (
+        config.reaction_expiry_seconds
+        if opportunity.entry_kind == "reaction"
+        else config.continuation_expiry_seconds
     )
+    expiry = decision_tick_time + timedelta(seconds=expiry_duration)
     fill_index: int | None = None
     for index in range(decision_index, len(ordered)):
         tick = ordered[index]
@@ -440,6 +460,7 @@ def simulate_opportunity_from_sorted_ticks(
             "EXPIRED",
             opportunity,
             reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
+            completed_at=expiry.isoformat(),
             entry=entry,
             stop=stop,
             target=target,
@@ -449,9 +470,11 @@ def simulate_opportunity_from_sorted_ticks(
     fill = ordered[fill_index]
     mfe = 0.0
     mae = 0.0
+    last_valid_time = fill.time
     for tick in ordered[fill_index:]:
         if not _valid_quote(tick):
             continue
+        last_valid_time = tick.time
         if _ambiguous_quote_span(
             opportunity.direction,
             tick,
@@ -462,6 +485,7 @@ def simulate_opportunity_from_sorted_ticks(
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
                 reason="AMBIGUOUS_STOP_AND_TARGET",
+                completed_at=tick.time,
                 filled_at=fill.time,
                 entry=entry,
                 stop=stop,
@@ -483,6 +507,7 @@ def simulate_opportunity_from_sorted_ticks(
             return _base_result(
                 "CLOSED",
                 opportunity,
+                completed_at=tick.time,
                 filled_at=fill.time,
                 closed_at=tick.time,
                 entry=entry,
@@ -499,6 +524,7 @@ def simulate_opportunity_from_sorted_ticks(
         "INSUFFICIENT_TICK_EVIDENCE",
         opportunity,
         reason="NO_EXIT_TICK",
+        completed_at=last_valid_time,
         filled_at=fill.time,
         entry=entry,
         stop=stop,

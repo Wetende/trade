@@ -63,8 +63,20 @@ def test_reaction_order_expires_after_20_seconds_without_fill():
     result = simulate_opportunity(opportunity, ticks, ReplayConfig())
 
     assert result.status == "EXPIRED"
+    assert result.completed_at == (START + timedelta(seconds=20)).isoformat()
     assert result.filled_at is None
     assert result.profit is None
+
+
+def test_closed_trade_completion_time_is_close_time():
+    result = simulate_opportunity(
+        _buy_opportunity(),
+        [_tick(0, 100.05, 100.25), _tick(3, 101.50, 101.70)],
+        ReplayConfig(),
+    )
+
+    assert result.status == "CLOSED"
+    assert result.completed_at == result.closed_at
 
 
 def test_missing_decision_tick_is_insufficient_evidence():
