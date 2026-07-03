@@ -130,6 +130,20 @@ def _candidate_opportunities(
     return dedupe_signal_zone_opportunities(_raw_opportunities(fixture))
 
 
+def raw_opportunities(
+    fixture: OpeningResearchFixture,
+) -> tuple[OpeningOpportunity, ...]:
+    """Return all detected opening-state opportunities before queue selection."""
+    return _raw_opportunities(fixture)
+
+
+def candidate_opportunities(
+    fixture: OpeningResearchFixture,
+) -> tuple[OpeningOpportunity, ...]:
+    """Return signal-zone deduplicated opportunities for queue selection."""
+    return _candidate_opportunities(fixture)
+
+
 def _series_by_day(
     fixture: OpeningResearchFixture,
 ) -> dict[str, PreparedTickSeries]:
@@ -164,6 +178,14 @@ def _baseline_rows_with_config(
             )
         )
     return tuple(rows)
+
+
+def baseline_rows_with_config(
+    fixture: OpeningResearchFixture,
+    config: ReplayConfig,
+) -> tuple[ScreeningRow, ...]:
+    """Replay the all-template baseline with the supplied replay config."""
+    return _baseline_rows_with_config(fixture, config)
 
 
 def replay_queue_fast_target_fixture(
@@ -311,7 +333,10 @@ __all__ = [
     "FAST_TARGET_REPLAY_CONFIG",
     "QUEUE_FAST_TARGET_CANDIDATE_NAME",
     "QUEUE_POLICY_VERSION",
+    "baseline_rows_with_config",
+    "candidate_opportunities",
     "dedupe_signal_zone_opportunities",
+    "raw_opportunities",
     "replay_queue_fast_target_fixture",
     "screen_queue_fast_target_fixture",
 ]

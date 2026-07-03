@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from tradingagents.agents.price_action.models import Candle
 from tradingagents.agents.price_action.evidence_metrics import HistoricalGateResult
@@ -8,8 +9,12 @@ from tradingagents.agents.price_action.opening_state import (
 )
 from tradingagents.agents.price_action import opening_state_queue_fast_target
 from tradingagents.agents.price_action.opening_state_queue_fast_target import (
+    FAST_TARGET_REPLAY_CONFIG,
     QUEUE_FAST_TARGET_CANDIDATE_NAME,
+    baseline_rows_with_config,
+    candidate_opportunities,
     dedupe_signal_zone_opportunities,
+    raw_opportunities,
     replay_queue_fast_target_fixture,
     screen_queue_fast_target_fixture,
 )
@@ -153,3 +158,19 @@ def test_queue_screen_freezes_manifest_when_gate_passes(monkeypatch):
     assert report["decision"] == "FREEZE_OPENING_STATE_QUEUE_FAST_TARGET"
     assert report["frozen_manifest"]["candidate"] == QUEUE_FAST_TARGET_CANDIDATE_NAME
     assert report["frozen_manifest"]["replay_config"]["risk_reward"] == 1.0
+
+
+def test_queue_replay_helpers_expose_same_config_inputs():
+    fixture = OpeningResearchFixture.model_validate_json(
+        Path("tests/fixtures/one_minute/opening_state/sample-openings.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    raw = raw_opportunities(fixture)
+    candidate = candidate_opportunities(fixture)
+    rows = baseline_rows_with_config(fixture, FAST_TARGET_REPLAY_CONFIG)
+
+    assert len(raw) >= len(candidate) > 0
+    assert len(rows) == len(raw)
+    assert any(row.accepted for row in rows)
