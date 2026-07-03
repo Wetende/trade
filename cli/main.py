@@ -537,6 +537,27 @@ def one_minute_walk_forward(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-opening-state-screen")
+def one_minute_opening_state_screen(
+    fixture: Path = typer.Option(..., "--fixture"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Run broker-free opening-state template screening on sanitized evidence."""
+    from tradingagents.agents.price_action.opening_state_screening import (
+        screen_opening_fixture_path,
+    )
+
+    report = screen_opening_fixture_path(fixture)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("broker-probe")
 def broker_probe(
     json_only: bool = typer.Option(

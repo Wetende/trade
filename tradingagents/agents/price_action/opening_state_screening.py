@@ -113,9 +113,9 @@ def _source_hash(fixture: OpeningResearchFixture) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _folds(rows: tuple[ScreeningRow, ...]) -> tuple[dict[str, Any], ...]:
+def _folds(rows: tuple[ScreeningRow, ...]) -> list[dict[str, Any]]:
     days = sorted({row.session_id for row in rows})
-    return tuple(
+    return [
         {
             "held_out_day": day,
             "metrics": summarize_variant(
@@ -131,7 +131,7 @@ def _folds(rows: tuple[ScreeningRow, ...]) -> tuple[dict[str, Any], ...]:
             ).model_dump(mode="json"),
         }
         for day in days
-    )
+    ]
 
 
 def screen_opening_fixture(fixture: OpeningResearchFixture) -> dict[str, Any]:
