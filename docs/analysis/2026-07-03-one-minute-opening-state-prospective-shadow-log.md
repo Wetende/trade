@@ -41,6 +41,45 @@ The pre-registered gate still requires at least 30 candidate fills across at
 least 3 sessions, PF >= 1.10, positive expectancy/net P/L, and no worse loss
 streak than the simultaneous baseline.
 
+## 2026-07-03T11:38:20Z shadow checkpoint
+
+Same frozen manifest, same prospective start, same read-only command family.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `COLLECTING_PROSPECTIVE_SHADOW`
+- Gate status: not evaluable yet
+- Gate reasons:
+  - `FEWER_THAN_30_CANDIDATE_FILLS`
+  - `FEWER_THAN_3_CANDIDATE_SESSIONS`
+- Candidate opportunities after start: `15`
+- Raw opportunities after start: `16`
+- Candidate simulated fills: `10`
+- Candidate session count: `1`
+- Candidate wins/losses: `6 / 4`
+- Candidate net P/L: `+0.20`
+- Candidate profit factor: `1.125`
+- Candidate expectancy: `+0.02`
+- Candidate fill retention versus simultaneous baseline: `90.91%`
+- Candidate max loss streak: `2`
+- Candidate max session drawdown: `1.00`
+- Baseline simulated fills: `11`
+- Baseline wins/losses: `6 / 5`
+- Baseline net P/L: `-0.20`
+- Baseline profit factor: `0.90`
+- Baseline expectancy: `-0.0182`
+- Baseline max loss streak: `2`
+- Baseline max session drawdown: `1.10`
+
+Interpretation: the candidate is positive in the early prospective window and
+currently no worse than baseline on loss streak or drawdown, but this remains an
+immature sample. The candidate must not be promoted until it has at least 30
+simulated fills across at least 3 distinct sessions and still satisfies the
+pre-registered PF/expectancy/net and risk gates.
+
 ## Runtime defect fixed during this checkpoint
 
 The first live shadow attempt failed before writing a report because MT5 returned
