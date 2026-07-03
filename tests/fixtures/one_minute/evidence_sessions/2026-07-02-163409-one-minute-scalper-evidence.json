@@ -8,7 +8,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.8065
+      "body_ratio": 0.8065,
+      "confirmation_type": "rejection",
+      "score": 7.0,
+      "level_type": "three_touch",
+      "touch_age": 4,
+      "entry_distance": 0.8785,
+      "opposing_wick_ratio": 0.2647,
+      "stop_to_spread_ratio": 2.9518,
+      "pressure_relation": "opposed",
+      "pulse_relation": "neutral",
+      "utc_hour": 20
     },
     {
       "as_of": "2026-07-02T20:37:02.002028Z",
@@ -17,7 +27,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 9,
-      "body_ratio": 0.3011
+      "body_ratio": 0.3011,
+      "confirmation_type": "rejection",
+      "score": 9.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.8525,
+      "opposing_wick_ratio": 0.1852,
+      "stop_to_spread_ratio": 2.6782,
+      "pressure_relation": "aligned",
+      "pulse_relation": "neutral",
+      "utc_hour": 20
     },
     {
       "as_of": "2026-07-02T20:39:02.253233Z",
@@ -26,7 +46,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 10,
-      "body_ratio": 1.825
+      "body_ratio": 1.825,
+      "confirmation_type": "strong_close",
+      "score": 12.0,
+      "level_type": "three_touch",
+      "touch_age": 2,
+      "entry_distance": 0.9705,
+      "opposing_wick_ratio": 0.1272,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "opposed",
+      "pulse_relation": "neutral",
+      "utc_hour": 20
     },
     {
       "as_of": "2026-07-02T20:44:04.370086Z",
@@ -35,7 +65,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 4,
-      "body_ratio": 1.2687
+      "body_ratio": 1.2687,
+      "confirmation_type": "rejection",
+      "score": 11.0,
+      "level_type": "three_touch",
+      "touch_age": 0,
+      "entry_distance": 0.7,
+      "opposing_wick_ratio": 0.1584,
+      "stop_to_spread_ratio": 2.1552,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 20
     },
     {
       "as_of": "2026-07-02T20:45:00.909814Z",
@@ -44,7 +84,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.5522
+      "body_ratio": 0.5522,
+      "confirmation_type": "rejection",
+      "score": 11.0,
+      "level_type": "three_touch",
+      "touch_age": 3,
+      "entry_distance": 0.8008,
+      "opposing_wick_ratio": 0.0145,
+      "stop_to_spread_ratio": 2.6473,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 20
     },
     {
       "as_of": "2026-07-02T22:16:00.912677Z",
@@ -53,7 +103,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.2391
+      "body_ratio": 0.2391,
+      "confirmation_type": "rejection",
+      "score": 9.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.6985,
+      "opposing_wick_ratio": 0.1856,
+      "stop_to_spread_ratio": 2.6742,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:24:00.919060Z",
@@ -62,7 +122,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 10,
-      "body_ratio": 0.3164
+      "body_ratio": 0.3164,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 42,
+      "entry_distance": 0.9345,
+      "opposing_wick_ratio": 0.1129,
+      "stop_to_spread_ratio": 3.0076,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:32:01.083278Z",
@@ -71,7 +141,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.2273
+      "body_ratio": 0.2273,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.6792,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.5227,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:34:15.744172Z",
@@ -80,7 +160,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 3,
-      "body_ratio": 0.7425
+      "body_ratio": 0.7425,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 1.3692,
+      "opposing_wick_ratio": 0.1282,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:39:00.252584Z",
@@ -89,7 +179,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 9,
-      "body_ratio": 0.2428
+      "body_ratio": 0.2428,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.4914,
+      "opposing_wick_ratio": 0.0408,
+      "stop_to_spread_ratio": 2.4914,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:45:01.972283Z",
@@ -98,7 +198,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 7,
-      "body_ratio": 0.9134
+      "body_ratio": 0.9134,
+      "confirmation_type": "strong_close",
+      "score": 14.0,
+      "level_type": "three_touch",
+      "touch_age": 4,
+      "entry_distance": 0.8568,
+      "opposing_wick_ratio": 0.0597,
+      "stop_to_spread_ratio": 2.8994,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:49:03.621287Z",
@@ -107,7 +217,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.7176
+      "body_ratio": 0.7176,
+      "confirmation_type": "rejection",
+      "score": 11.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.7785,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.719,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:52:03.423496Z",
@@ -116,7 +236,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.3008
+      "body_ratio": 0.3008,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.6342,
+      "opposing_wick_ratio": 0.069,
+      "stop_to_spread_ratio": 2.2214,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:54:19.092626Z",
@@ -125,7 +255,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 8,
-      "body_ratio": 0.3359
+      "body_ratio": 0.3359,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.94,
+      "opposing_wick_ratio": 0.0513,
+      "stop_to_spread_ratio": 3.2759,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:58:05.113515Z",
@@ -134,7 +274,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 9,
-      "body_ratio": 0.375
+      "body_ratio": 0.375,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 19,
+      "entry_distance": 0.7225,
+      "opposing_wick_ratio": 0.2187,
+      "stop_to_spread_ratio": 2.2197,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T22:59:04.886467Z",
@@ -143,7 +293,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 12,
-      "body_ratio": 1.2931
+      "body_ratio": 1.2931,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.8717,
+      "opposing_wick_ratio": 0.0385,
+      "stop_to_spread_ratio": 3.0366,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 22
     },
     {
       "as_of": "2026-07-02T23:01:03.776073Z",
@@ -152,7 +312,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 1.2759
+      "body_ratio": 1.2759,
+      "confirmation_type": "strong_close",
+      "score": 14.0,
+      "level_type": "three_touch",
+      "touch_age": 2,
+      "entry_distance": 1.1558,
+      "opposing_wick_ratio": 0.0824,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:02:01.941691Z",
@@ -161,7 +331,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 10,
-      "body_ratio": 0.3121
+      "body_ratio": 0.3121,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.3365,
+      "opposing_wick_ratio": 0.037,
+      "stop_to_spread_ratio": 2.2803,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:03:04.202056Z",
@@ -170,7 +350,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 11,
-      "body_ratio": 0.2837
+      "body_ratio": 0.2837,
+      "confirmation_type": "rejection",
+      "score": 9.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.897,
+      "opposing_wick_ratio": 0.3148,
+      "stop_to_spread_ratio": 2.7485,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:04:31.722556Z",
@@ -179,7 +369,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 10,
-      "body_ratio": 0.9231
+      "body_ratio": 0.9231,
+      "confirmation_type": "strong_close",
+      "score": 14.0,
+      "level_type": "three_touch",
+      "touch_age": 3,
+      "entry_distance": 0.8485,
+      "opposing_wick_ratio": 0.0833,
+      "stop_to_spread_ratio": 2.8742,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:09:05.241488Z",
@@ -188,7 +388,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 1.1014
+      "body_ratio": 1.1014,
+      "confirmation_type": "strong_close",
+      "score": 14.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 1.243,
+      "opposing_wick_ratio": 0.087,
+      "stop_to_spread_ratio": 2.1667,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:12:01.171550Z",
@@ -197,7 +407,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 1.3333
+      "body_ratio": 1.3333,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "two_touch",
+      "touch_age": 3,
+      "entry_distance": 0.78,
+      "opposing_wick_ratio": 0.0843,
+      "stop_to_spread_ratio": 2.6333,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:14:00.397102Z",
@@ -206,7 +426,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 0.9815
+      "body_ratio": 0.9815,
+      "confirmation_type": "strong_close",
+      "score": 11.0,
+      "level_type": "two_touch",
+      "touch_age": 3,
+      "entry_distance": 0.8025,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.7348,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:17:03.077977Z",
@@ -215,7 +445,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 7,
-      "body_ratio": 1.6333
+      "body_ratio": 1.6333,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 1.1046,
+      "opposing_wick_ratio": 0.1327,
+      "stop_to_spread_ratio": 2.1613,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:25:05.244521Z",
@@ -224,7 +464,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.6814
+      "body_ratio": 0.6814,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 8,
+      "entry_distance": 1.1842,
+      "opposing_wick_ratio": 0.1134,
+      "stop_to_spread_ratio": 2.1724,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:51:04.077920Z",
@@ -233,7 +483,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 3,
-      "body_ratio": 0.3005
+      "body_ratio": 0.3005,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.7558,
+      "opposing_wick_ratio": 0.2833,
+      "stop_to_spread_ratio": 3.119,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-02T23:55:03.467825Z",
@@ -242,7 +502,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 3,
-      "body_ratio": 1.1899
+      "body_ratio": 1.1899,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 2,
+      "entry_distance": 1.3092,
+      "opposing_wick_ratio": 0.0283,
+      "stop_to_spread_ratio": 2.1724,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 23
     },
     {
       "as_of": "2026-07-03T00:20:00.727128Z",
@@ -251,7 +521,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 0.9634
+      "body_ratio": 0.9634,
+      "confirmation_type": "strong_close",
+      "score": 12.0,
+      "level_type": "two_touch",
+      "touch_age": 1,
+      "entry_distance": 1.0475,
+      "opposing_wick_ratio": 0.1661,
+      "stop_to_spread_ratio": 2.1724,
+      "pressure_relation": "neutral",
+      "pulse_relation": "aligned",
+      "utc_hour": 0
     },
     {
       "as_of": "2026-07-03T00:35:04.533496Z",
@@ -260,7 +540,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 0.3455
+      "body_ratio": 0.3455,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "two_touch",
+      "touch_age": 0,
+      "entry_distance": 0.5875,
+      "opposing_wick_ratio": 0.1133,
+      "stop_to_spread_ratio": 2.4406,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 0
     },
     {
       "as_of": "2026-07-03T00:47:02.698248Z",
@@ -269,7 +559,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 1.5655
+      "body_ratio": 1.5655,
+      "confirmation_type": "strong_close",
+      "score": 11.0,
+      "level_type": "two_touch",
+      "touch_age": 4,
+      "entry_distance": 0.9625,
+      "opposing_wick_ratio": 0.0769,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 0
     },
     {
       "as_of": "2026-07-03T02:02:04.313424Z",
@@ -278,7 +578,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 7,
-      "body_ratio": 1.625
+      "body_ratio": 1.625,
+      "confirmation_type": "strong_close",
+      "score": 12.0,
+      "level_type": "three_touch",
+      "touch_age": 5,
+      "entry_distance": 0.8782,
+      "opposing_wick_ratio": 0.0415,
+      "stop_to_spread_ratio": 2.1724,
+      "pressure_relation": "opposed",
+      "pulse_relation": "opposed",
+      "utc_hour": 2
     },
     {
       "as_of": "2026-07-03T02:39:03.796002Z",
@@ -287,7 +597,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 3,
-      "body_ratio": 2.1168
+      "body_ratio": 2.1168,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 38,
+      "entry_distance": 1.4858,
+      "opposing_wick_ratio": 0.1263,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 2
     },
     {
       "as_of": "2026-07-03T03:14:00.979495Z",
@@ -296,7 +616,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.6826
+      "body_ratio": 0.6826,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 1.1585,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:15:04.502860Z",
@@ -305,7 +635,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.3599
+      "body_ratio": 0.3599,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.1708,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.5773,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:20:03.699751Z",
@@ -314,7 +654,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 7,
-      "body_ratio": 0.5922
+      "body_ratio": 0.5922,
+      "confirmation_type": "engulfing",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.8396,
+      "opposing_wick_ratio": 0.0732,
+      "stop_to_spread_ratio": 2.5988,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:21:01.977874Z",
@@ -323,7 +673,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 7,
-      "body_ratio": 0.0923
+      "body_ratio": 0.0923,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.9196,
+      "opposing_wick_ratio": 0.1134,
+      "stop_to_spread_ratio": 3.231,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:23:02.993971Z",
@@ -332,7 +692,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 3,
-      "body_ratio": 0.8691
+      "body_ratio": 0.8691,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 20,
+      "entry_distance": 0.9092,
+      "opposing_wick_ratio": 0.063,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "opposed",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:41:02.754048Z",
@@ -341,7 +711,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.5732
+      "body_ratio": 0.5732,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 1.1365,
+      "opposing_wick_ratio": 0.0167,
+      "stop_to_spread_ratio": 2.1724,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T03:59:04.816610Z",
@@ -350,7 +730,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 1.0452
+      "body_ratio": 1.0452,
+      "confirmation_type": "strong_close",
+      "score": 13.0,
+      "level_type": "three_touch",
+      "touch_age": 3,
+      "entry_distance": 1.1758,
+      "opposing_wick_ratio": 0.0174,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 3
     },
     {
       "as_of": "2026-07-03T04:03:01.963291Z",
@@ -359,7 +749,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 0.7374
+      "body_ratio": 0.7374,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "two_touch",
+      "touch_age": 0,
+      "entry_distance": 0.905,
+      "opposing_wick_ratio": 0.234,
+      "stop_to_spread_ratio": 2.8647,
+      "pressure_relation": "aligned",
+      "pulse_relation": "aligned",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:07:00.636372Z",
@@ -368,7 +768,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 1.2487
+      "body_ratio": 1.2487,
+      "confirmation_type": "strong_close",
+      "score": 10.0,
+      "level_type": "two_touch",
+      "touch_age": 1,
+      "entry_distance": 1.2125,
+      "opposing_wick_ratio": 0.0266,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "opposed",
+      "pulse_relation": "opposed",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:41:04.516862Z",
@@ -377,7 +787,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 9,
-      "body_ratio": 0.4
+      "body_ratio": 0.4,
+      "confirmation_type": "rejection",
+      "score": 12.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.8925,
+      "opposing_wick_ratio": 0.0154,
+      "stop_to_spread_ratio": 2.7348,
+      "pressure_relation": "aligned",
+      "pulse_relation": "aligned",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:42:03.307688Z",
@@ -386,7 +806,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 4,
-      "body_ratio": 0.1576
+      "body_ratio": 0.1576,
+      "confirmation_type": "rejection",
+      "score": 9.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.7225,
+      "opposing_wick_ratio": 0.3182,
+      "stop_to_spread_ratio": 2.2197,
+      "pressure_relation": "aligned",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:45:03.920736Z",
@@ -395,7 +825,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 5,
-      "body_ratio": 0.1405
+      "body_ratio": 0.1405,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.7925,
+      "opposing_wick_ratio": 0.0723,
+      "stop_to_spread_ratio": 2.6439,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:49:02.677046Z",
@@ -404,7 +844,17 @@
       "reaction_type": "respect",
       "approved": true,
       "touch_count": 10,
-      "body_ratio": 0.5434
+      "body_ratio": 0.5434,
+      "confirmation_type": "rejection",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 6,
+      "entry_distance": 0.7845,
+      "opposing_wick_ratio": 0.0988,
+      "stop_to_spread_ratio": 2.4318,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:52:03.197146Z",
@@ -413,7 +863,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 1.0366
+      "body_ratio": 1.0366,
+      "confirmation_type": "rejection",
+      "score": 8.0,
+      "level_type": "two_touch",
+      "touch_age": 46,
+      "entry_distance": 0.5925,
+      "opposing_wick_ratio": 0.0,
+      "stop_to_spread_ratio": 2.8258,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:53:01.965236Z",
@@ -422,7 +882,17 @@
       "reaction_type": "impulse_break",
       "approved": true,
       "touch_count": 2,
-      "body_ratio": 1.4048
+      "body_ratio": 1.4048,
+      "confirmation_type": "strong_close",
+      "score": 11.0,
+      "level_type": "two_touch",
+      "touch_age": 47,
+      "entry_distance": 1.0325,
+      "opposing_wick_ratio": 0.0853,
+      "stop_to_spread_ratio": 2.1515,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     },
     {
       "as_of": "2026-07-03T04:55:01.648790Z",
@@ -431,7 +901,17 @@
       "reaction_type": "fakeout",
       "approved": true,
       "touch_count": 6,
-      "body_ratio": 0.5567
+      "body_ratio": 0.5567,
+      "confirmation_type": "engulfing",
+      "score": 10.0,
+      "level_type": "three_touch",
+      "touch_age": 1,
+      "entry_distance": 0.7175,
+      "opposing_wick_ratio": 0.1154,
+      "stop_to_spread_ratio": 2.4318,
+      "pressure_relation": "neutral",
+      "pulse_relation": "neutral",
+      "utc_hour": 4
     }
   ],
   "trades": [

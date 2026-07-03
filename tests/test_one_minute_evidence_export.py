@@ -32,9 +32,18 @@ def _write_session(root: Path):
                     "trigger": "CLEAN_HIGH_IMPULSE_BUY",
                     "direction": "BUY",
                     "reaction_type": "impulse_break",
+                    "confirmation_type": "strong_close",
+                    "score": 12.0,
+                    "level_type": "three_touch",
                     "touch_count": 3,
+                    "pressure": {"direction": "bullish"},
+                    "active_pulse": {"direction": "bearish"},
                     "signal_quality": {
-                        "body_to_recent_median_range": 0.75
+                        "body_to_recent_median_range": 0.75,
+                        "touch_age_closed_bars": 2,
+                        "entry_distance_from_level": 1.1,
+                        "opposing_wick_to_range": 0.1,
+                        "stop_to_spread_ratio": 2.5,
                     },
                 }
             }
@@ -72,6 +81,12 @@ def test_export_session_is_strict_and_contains_no_broker_identifiers(tmp_path):
     assert len(exported.decisions) == 1
     assert exported.trades[0].profit == 50.0
     assert exported.trades[0].filled_at == exported.trades[0].placed_at
+    decision = exported.decisions[0]
+    assert decision.confirmation_type == "strong_close"
+    assert decision.score == 12.0
+    assert decision.pressure_relation == "aligned"
+    assert decision.pulse_relation == "opposed"
+    assert decision.utc_hour == 20
     for forbidden in (
         "account",
         "login",

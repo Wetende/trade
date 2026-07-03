@@ -19,6 +19,16 @@ class EvidenceDecision(BaseModel):
     approved: bool
     touch_count: int = Field(ge=2)
     body_ratio: float | None = Field(default=None, ge=0)
+    confirmation_type: str | None = None
+    score: float | None = None
+    level_type: str | None = None
+    touch_age: int | None = Field(default=None, ge=0)
+    entry_distance: float | None = Field(default=None, ge=0)
+    opposing_wick_ratio: float | None = Field(default=None, ge=0)
+    stop_to_spread_ratio: float | None = Field(default=None, ge=0)
+    pressure_relation: Literal["aligned", "opposed", "neutral"] | None = None
+    pulse_relation: Literal["aligned", "opposed", "neutral"] | None = None
+    utc_hour: int | None = Field(default=None, ge=0, le=23)
 
 
 class EvidenceTrade(BaseModel):

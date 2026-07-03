@@ -22,6 +22,15 @@ def _json_lines(path: Path) -> list[dict[str, Any]]:
     ]
 
 
+def _relationship(direction: str, context: str | None) -> str:
+    if context not in {"bullish", "bearish"}:
+        return "neutral"
+    aligned = (direction == "BUY" and context == "bullish") or (
+        direction == "SELL" and context == "bearish"
+    )
+    return "aligned" if aligned else "opposed"
+
+
 def export_session(session_root: str | Path) -> EvidenceSession:
     root = Path(session_root)
     runner = root / "mt5_runner"
@@ -62,12 +71,13 @@ def export_session(session_root: str | Path) -> EvidenceSession:
             if closed is not None
             else cycle["heartbeat_utc"]
         )
+        direction = selected.get("direction") or proposal.get("side")
         decisions.append(
             EvidenceDecision(
                 as_of=placed_at,
                 trigger=selected.get("trigger")
                 or proposal.get("trigger_name"),
-                direction=selected.get("direction") or proposal.get("side"),
+                direction=direction,
                 reaction_type=selected.get("reaction_type")
                 or proposal.get("reaction_type"),
                 approved=bool(selected.get("approved", True)),
@@ -78,6 +88,24 @@ def export_session(session_root: str | Path) -> EvidenceSession:
                 body_ratio=quality.get(
                     "body_to_recent_median_range"
                 ),
+                confirmation_type=selected.get("confirmation_type"),
+                score=selected.get("score"),
+                level_type=selected.get("level_type"),
+                touch_age=quality.get("touch_age_closed_bars"),
+                entry_distance=quality.get("entry_distance_from_level"),
+                opposing_wick_ratio=quality.get(
+                    "opposing_wick_to_range"
+                ),
+                stop_to_spread_ratio=quality.get("stop_to_spread_ratio"),
+                pressure_relation=_relationship(
+                    direction,
+                    (selected.get("pressure") or {}).get("direction"),
+                ),
+                pulse_relation=_relationship(
+                    direction,
+                    (selected.get("active_pulse") or {}).get("direction"),
+                ),
+                utc_hour=datetime.fromisoformat(placed_at).hour,
             )
         )
         quote = proposal.get("decision_quote") or {}
