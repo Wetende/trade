@@ -1,0 +1,38 @@
+{
+  "broker_mutation_enabled": false,
+  "candidate": "OPENING_STATE_QUEUE_TARGET_GRID_V1",
+  "final_target": 0.75,
+  "fold_targets": [
+    0.6,
+    0.75,
+    0.6,
+    0.6,
+    0.6
+  ],
+  "historical_metrics": {
+    "expectancy": 0.2016,
+    "fill_retention": 0.6327,
+    "fills": 3132,
+    "gross_loss": -467.92,
+    "gross_profit": 1099.44,
+    "losses": 701,
+    "max_loss_streak": 5,
+    "max_session_drawdown": 5.66,
+    "name": "OPENING_STATE_QUEUE_TARGET_GRID_V1",
+    "net_profit": 631.52,
+    "no_gross_loss": false,
+    "profit_factor": 2.3496,
+    "profitable_session_count": 5,
+    "wins": 2431
+  },
+  "next_stage": "READ_ONLY_PROSPECTIVE_SHADOW",
+  "queue_policy_version": 1,
+  "source_fixture_hash": "3decfe31de607678de2a76fd94ae4c5fdc805602caefd1521848a6446dbb047e",
+  "target_grid": [
+    0.6,
+    0.75,
+    0.9,
+    1.0
+  ],
+  "target_grid_version": 1
+}
