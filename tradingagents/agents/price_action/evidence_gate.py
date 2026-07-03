@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -55,3 +56,39 @@ class EvidenceSession(BaseModel):
     session_id: str
     decisions: tuple[EvidenceDecision, ...]
     trades: tuple[EvidenceTrade, ...]
+
+
+class VariantName(StrEnum):
+    BASELINE = "baseline"
+    H1_TOUCH_MATURITY = "h1_touch_maturity"
+    H2_EXHAUSTION = "h2_exhaustion"
+    H3_POST_LOSS_CLUSTER = "h3_post_loss_cluster"
+
+
+class VariantDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    accepted: bool
+    reason: str | None = None
+
+
+def evaluate_variant(
+    decision: EvidenceDecision,
+    variant: VariantName | str,
+) -> VariantDecision:
+    selected = VariantName(variant)
+    if not decision.approved:
+        return VariantDecision(accepted=False, reason="BASELINE_REJECTED")
+    if decision.reaction_type != "impulse_break":
+        return VariantDecision(accepted=True)
+    if selected == VariantName.H1_TOUCH_MATURITY and decision.touch_count < 3:
+        return VariantDecision(
+            accepted=False,
+            reason="SHADOW_IMPULSE_REQUIRES_THIRD_TOUCH",
+        )
+    if selected == VariantName.H2_EXHAUSTION and decision.body_ratio > 1.20:
+        return VariantDecision(
+            accepted=False,
+            reason="SHADOW_IMPULSE_BODY_EXHAUSTED",
+        )
+    return VariantDecision(accepted=True)

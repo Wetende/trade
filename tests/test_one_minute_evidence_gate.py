@@ -7,6 +7,8 @@ from tradingagents.agents.price_action.evidence_gate import (
     EvidenceDecision,
     EvidenceSession,
     EvidenceTrade,
+    VariantName,
+    evaluate_variant,
 )
 
 
@@ -74,3 +76,62 @@ def test_unfilled_evidence_trade_rejects_outcome_values():
             mfe=None,
             mae=None,
         )
+
+
+def _decision(**updates):
+    values = {
+        "as_of": UTC_NOW,
+        "trigger": "CLEAN_HIGH_IMPULSE_BUY",
+        "direction": "BUY",
+        "reaction_type": "impulse_break",
+        "approved": True,
+        "touch_count": 2,
+        "body_ratio": 0.75,
+    }
+    values.update(updates)
+    return EvidenceDecision(**values)
+
+
+def test_touch_maturity_rejects_only_two_touch_impulses():
+    impulse = _decision()
+
+    assert evaluate_variant(impulse, VariantName.BASELINE).accepted is True
+    result = evaluate_variant(impulse, VariantName.H1_TOUCH_MATURITY)
+    assert result.accepted is False
+    assert result.reason == "SHADOW_IMPULSE_REQUIRES_THIRD_TOUCH"
+
+
+@pytest.mark.parametrize(
+    ("body_ratio", "accepted"),
+    [(1.20, True), (1.2001, False)],
+)
+def test_exhaustion_has_an_inclusive_upper_boundary(body_ratio, accepted):
+    result = evaluate_variant(
+        _decision(body_ratio=body_ratio),
+        VariantName.H2_EXHAUSTION,
+    )
+
+    assert result.accepted is accepted
+
+
+def test_exhaustion_does_not_change_respect_candidates():
+    result = evaluate_variant(
+        _decision(
+            trigger="LOW_RESPECT_BUY",
+            reaction_type="respect",
+            body_ratio=2.0,
+        ),
+        VariantName.H2_EXHAUSTION,
+    )
+
+    assert result.accepted is True
+
+
+def test_variant_never_revives_a_baseline_rejection():
+    result = evaluate_variant(
+        _decision(approved=False),
+        VariantName.H1_TOUCH_MATURITY,
+    )
+
+    assert result.accepted is False
+    assert result.reason == "BASELINE_REJECTED"
