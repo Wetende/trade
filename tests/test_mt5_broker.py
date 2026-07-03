@@ -778,8 +778,8 @@ def test_mt5_broker_normalizes_position_open_time_from_server_offset():
     ]
     broker = MT5Broker(
         MT5ConnectionConfig(
-            login=123456789,
-            password="secret",
+            login=123,
+            password="x",
             server="ExampleBroker-Demo",
             symbol="XAUUSD",
         ),
