@@ -18,6 +18,7 @@ MANIFEST = "docs/analysis/2026-07-03-one-minute-opening-state-target-grid-frozen
 
 def test_opening_shadow_cli_writes_deterministic_fixture_report(tmp_path):
     output = tmp_path / "shadow-report.json"
+    heartbeat = tmp_path / "shadow-heartbeat.json"
     prospective_start = "2026-07-01T00:00:00+00:00"
 
     result = CliRunner().invoke(
@@ -45,6 +46,18 @@ def test_opening_shadow_cli_writes_deterministic_fixture_report(tmp_path):
         manifest=manifest,
         prospective_start=prospective_start,
     )
+    heartbeat_payload = json.loads(heartbeat.read_text(encoding="utf-8"))
+    assert heartbeat_payload["schema_version"] == 1
+    assert heartbeat_payload["report_path"] == str(output)
+    assert heartbeat_payload["candidate"] == heartbeat_payload["report"]["candidate"]
+    assert heartbeat_payload["decision"] == heartbeat_payload["report"]["decision"]
+    assert heartbeat_payload["broker_mutation_enabled"] is False
+    assert heartbeat_payload["open_order_count"] == 0
+    assert heartbeat_payload["open_position_count"] == 0
+    assert "heartbeat_utc" in heartbeat_payload
+    rendered = json.dumps(heartbeat_payload)
+    assert "password" not in rendered.lower()
+    assert "login" not in rendered.lower()
 
 
 def test_opening_shadow_cli_default_candle_count_supports_three_sessions():

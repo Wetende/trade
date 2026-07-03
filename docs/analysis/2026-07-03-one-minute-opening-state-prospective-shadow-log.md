@@ -120,6 +120,46 @@ Interpretation: the candidate remains positive and no worse than baseline on
 loss streak/drawdown, but it still has only one UTC-date session. It cannot pass
 the prospective gate until at least two more distinct sessions are collected.
 
+## 2026-07-03T11:55:16Z shadow checkpoint
+
+Same frozen manifest and prospective start, using the `4320` closed-M1 default.
+The CLI also wrote the ignored runtime heartbeat file
+`test-artifacts/opening-state-shadow/2026-07-03-112500-target-grid-shadow/shadow-heartbeat.json`
+beside the shadow report.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `COLLECTING_PROSPECTIVE_SHADOW`
+- Gate status: not evaluable yet
+- Gate reasons:
+  - `FEWER_THAN_3_CANDIDATE_SESSIONS`
+- Candidate opportunities after start: `42`
+- Raw opportunities after start: `43`
+- Candidate simulated fills: `31`
+- Candidate session count: `1`
+- Candidate wins/losses: `20 / 11`
+- Candidate net P/L: `+1.60`
+- Candidate profit factor: `1.3636`
+- Candidate expectancy: `+0.0516`
+- Candidate fill retention versus simultaneous baseline: `88.57%`
+- Candidate max loss streak: `3`
+- Candidate max session drawdown: `1.80`
+- Baseline simulated fills: `35`
+- Baseline wins/losses: `19 / 16`
+- Baseline net P/L: `-0.70`
+- Baseline profit factor: `0.8906`
+- Baseline expectancy: `-0.02`
+- Baseline max loss streak: `3`
+- Baseline max session drawdown: `3.10`
+
+Interpretation: the minimum-fill condition is now met and the candidate is
+currently above the prospective PF/expectancy/net thresholds. It still cannot
+pass the gate because all fills are from a single UTC-date session. The next
+required evidence is at least two more distinct sessions without retuning.
+
 ## Runtime defect fixed during this checkpoint
 
 The first live shadow attempt failed before writing a report because MT5 returned
@@ -144,3 +184,9 @@ UTC days of one-minute candles. This supports the gate's minimum of three
 distinct daily sessions by default while preserving the existing read-only,
 broker-mutation-disabled behavior. Operators may still pass a larger
 `--candle-count` if a longer prospective window must be reconstructed.
+
+The same command now writes `shadow-heartbeat.json` beside the ignored runtime
+report. The heartbeat is sanitized and contains only the report path, current
+decision, gate summary, aggregate metrics, and open broker order/position
+counts. It does not include credentials, account login, account server, terminal
+paths, raw ticks, or raw candles.

@@ -45,6 +45,46 @@ app = typer.Typer(
 )
 
 
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _write_opening_shadow_outputs(output: Path, report: dict) -> Path:
+    _write_json_atomic(output, report)
+    safety = report.get("safety") or {}
+    heartbeat = {
+        "schema_version": 1,
+        "heartbeat_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "report_path": str(output),
+        "candidate": report.get("candidate"),
+        "decision": report.get("decision"),
+        "broker_mutation_enabled": False,
+        "open_order_count": int(safety.get("open_order_count", 0) or 0),
+        "open_position_count": int(safety.get("open_position_count", 0) or 0),
+        "report": {
+            "candidate": report.get("candidate"),
+            "decision": report.get("decision"),
+            "gate": report.get("gate"),
+            "metrics": report.get("metrics"),
+            "baseline": report.get("baseline"),
+            "candidate_session_count": report.get("candidate_session_count"),
+            "raw_opportunities_after_start": report.get("raw_opportunities_after_start"),
+            "candidate_opportunities_after_start": report.get(
+                "candidate_opportunities_after_start"
+            ),
+        },
+    }
+    heartbeat_path = output.parent / "shadow-heartbeat.json"
+    _write_json_atomic(heartbeat_path, heartbeat)
+    return heartbeat_path
+
+
 def _load_runtime_env() -> None:
     """Load local .env and refresh config values used by the CLI."""
     load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
@@ -510,13 +550,7 @@ def one_minute_screen(
     )
 
     report = screen_evidence_dir(evidence_dir)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(output)
+    _write_json_atomic(output, report)
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
@@ -531,13 +565,7 @@ def one_minute_walk_forward(
     )
 
     report = screen_walk_forward_dir(evidence_dir)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(output)
+    _write_json_atomic(output, report)
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
@@ -552,13 +580,7 @@ def one_minute_opening_state_screen(
     )
 
     report = screen_opening_fixture_path(fixture)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(output)
+    _write_json_atomic(output, report)
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
@@ -673,13 +695,7 @@ def one_minute_opening_target_grid_shadow_step(
         finally:
             broker.shutdown()
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(output)
+    _write_opening_shadow_outputs(output, report)
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
