@@ -300,3 +300,36 @@ report. The heartbeat is sanitized and contains only the report path, current
 decision, gate summary, aggregate metrics, and open broker order/position
 counts. It does not include credentials, account login, account server, terminal
 paths, raw ticks, or raw candles.
+
+## 2026-07-06T00:55:06Z prospective shadow pass
+
+Same frozen manifest and prospective start, resumed on the new Windows MT5
+machine. The watcher stopped automatically after the pre-registered prospective
+gate passed.
+
+- Broker mutation enabled: `false`
+- DEMO/account safety: passed
+- Open broker orders: `0`
+- Open broker positions: `0`
+- stderr: empty
+- Decision: `PASS_PROSPECTIVE_SHADOW`
+- Candidate simulated fills: `380`
+- Candidate session count: `3`
+- Candidate wins/losses: `261 / 119`
+- Candidate net P/L: `+54.65`
+- Candidate profit factor: `1.8554`
+- Candidate expectancy: `+0.1438`
+- Candidate max loss streak: `5`
+- Candidate max session drawdown: `3.88`
+- Baseline simulated fills: `573`
+- Baseline net P/L: `+68.52`
+- Baseline profit factor: `1.6409`
+- Baseline expectancy: `+0.1196`
+- Baseline max loss streak: `6`
+- Baseline max session drawdown: `4.62`
+
+Interpretation: `OPENING_STATE_QUEUE_TARGET_GRID_V1` met the prospective
+shadow gate without retuning. It had at least 30 fills across at least three
+UTC-date sessions, positive net P/L and expectancy, profit factor above 1.10,
+and risk statistics no worse than the simultaneous baseline. This permits the
+next guarded DEMO-runner step; it does not authorize real-money trading.
