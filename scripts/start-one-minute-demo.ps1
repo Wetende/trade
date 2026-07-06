@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$BlockedStrategyRules = "",
+    [double]$MaxSessionLoss = 600.0,
+    [double]$Volume = 1.0
+)
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -27,7 +31,7 @@ if ($existingWorkers.Count -ne 0) {
 # These process-level values override .env and pin the canonical DEMO profile.
 $env:TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT = "true"
 $env:TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS = "false"
-$env:TRADINGAGENTS_MT5_VOLUME = "1.0"
+$env:TRADINGAGENTS_MT5_VOLUME = $Volume.ToString([Globalization.CultureInfo]::InvariantCulture)
 $env:TRADINGAGENTS_TRADING_MODE = "ENTRY_ONLY"
 $env:TRADINGAGENTS_DECISION_MODE = "engine"
 $env:TRADINGAGENTS_ENTRY_PROFILE_MODE = "fast_only"
@@ -42,7 +46,10 @@ $env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = "45"
 $env:TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED = "false"
 $env:TRADINGAGENTS_RUNNER_POLL_SECONDS = "5"
 $env:TRADINGAGENTS_RUNNER_MAINTENANCE_POLL_SECONDS = "1"
-$env:TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS = "600"
+$env:TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS = $MaxSessionLoss.ToString([Globalization.CultureInfo]::InvariantCulture)
+if ($BlockedStrategyRules) {
+    $env:TRADINGAGENTS_RUNNER_BLOCKED_STRATEGY_RULES = $BlockedStrategyRules
+}
 
 $probeLines = & $Python -m cli.main broker-probe --json-only
 if ($LASTEXITCODE -ne 0) {
