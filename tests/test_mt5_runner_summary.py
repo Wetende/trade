@@ -1,5 +1,7 @@
 import json
+from pathlib import Path
 
+import tradingagents.brokers.runner_summary as runner_summary
 from tradingagents.brokers.runner_summary import (
     RunnerSummaryStore,
     categorize_hold_reason,
@@ -627,3 +629,28 @@ def test_runner_summary_excludes_duplicate_processed_candles_from_check_counts(t
     assert second["total_checks"] == 1
     assert second["status_counts"] == {"NO_TRADE": 1}
     assert second["latest_cycle"]["status"] == "CANDLE_ALREADY_PROCESSED"
+
+
+def test_runner_summary_retries_transient_locked_summary_replace(
+    monkeypatch,
+    tmp_path,
+):
+    store = RunnerSummaryStore(tmp_path)
+    original_replace = Path.replace
+    attempts = []
+
+    def flaky_replace(self, target):
+        if self == store.summary_path.with_suffix(".tmp") and len(attempts) < 2:
+            attempts.append("locked")
+            raise PermissionError("summary locked")
+        attempts.append("replaced")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    monkeypatch.setattr(runner_summary.time, "sleep", lambda _seconds: None)
+
+    summary = store.record_cycle({"status": "NO_TRADE"})
+
+    assert summary["total_checks"] == 1
+    assert store.summary_path.exists()
+    assert attempts == ["locked", "locked", "replaced"]

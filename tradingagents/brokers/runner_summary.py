@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_SUMMARY_REPLACE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.2)
 
 
 def _utc_now() -> str:
@@ -166,6 +169,7 @@ class RunnerSummaryStore:
         self.runner_dir.mkdir(parents=True, exist_ok=True)
         self.summary_path = self.runner_dir / "summary.json"
         self.cycles_path = self.runner_dir / "cycles.jsonl"
+        self.summary_write_errors_path = self.runner_dir / "summary_write_errors.jsonl"
 
     def _empty_summary(self) -> dict[str, Any]:
         now = _utc_now()
@@ -550,4 +554,26 @@ class RunnerSummaryStore:
             json.dumps(summary, indent=2, sort_keys=True, default=str),
             encoding="utf-8",
         )
-        temp_path.replace(self.summary_path)
+        last_error: PermissionError | None = None
+        for delay_seconds in (0.0, *_SUMMARY_REPLACE_RETRY_DELAYS):
+            if delay_seconds:
+                time.sleep(delay_seconds)
+            try:
+                temp_path.replace(self.summary_path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+        if last_error is not None:
+            self._record_summary_write_error(last_error)
+
+    def _record_summary_write_error(self, error: PermissionError) -> None:
+        payload = {
+            "at_utc": _utc_now(),
+            "summary_path": str(self.summary_path),
+            "error": repr(error),
+        }
+        try:
+            with self.summary_write_errors_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        except OSError:
+            return
