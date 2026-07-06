@@ -56,7 +56,6 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
     required_assignments = {
         "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT": "true",
         "TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS": "false",
-        "TRADINGAGENTS_MT5_VOLUME": "1.0",
         "TRADINGAGENTS_TRADING_MODE": "ENTRY_ONLY",
         "TRADINGAGENTS_DECISION_MODE": "engine",
         "TRADINGAGENTS_ENTRY_PROFILE_MODE": "fast_only",
@@ -65,12 +64,34 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
         "TRADINGAGENTS_FAST_TIMEFRAME": "1m",
         "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "1m",
         "TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED": "false",
-        "TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS": "600",
     }
     for name, value in required_assignments.items():
         pattern = rf'\$env:{name}\s*=\s*"{re.escape(value)}"'
         assert re.search(pattern, text)
 
+    required_parameterized_defaults = {
+        "Volume": "1.0",
+        "MaxSessionLoss": "600.0",
+        "ReactionPendingSeconds": "20.0",
+        "ImpulsePendingSeconds": "45.0",
+    }
+    for name, value in required_parameterized_defaults.items():
+        pattern = rf"\[double\]\${name}\s*=\s*{re.escape(value)}"
+        assert re.search(pattern, text)
+
+    assert "$env:TRADINGAGENTS_MT5_VOLUME = $Volume.ToString" in text
+    assert (
+        "$env:TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS = "
+        "$MaxSessionLoss.ToString"
+    ) in text
+    assert (
+        "$env:TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS = "
+        "$ReactionPendingSeconds.ToString"
+    ) in text
+    assert (
+        "$env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = "
+        "$ImpulsePendingSeconds.ToString"
+    ) in text
     assert "broker-probe" in text
     assert "--json-only" in text
     assert "account_safety.passed" in text

@@ -48,6 +48,10 @@ RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
 )
 IMPULSE_INSUFFICIENT_DISPLACEMENT = "IMPULSE_INSUFFICIENT_DISPLACEMENT"
 WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
+COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT = (
+    "COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT"
+)
+COUNTER_PRESSURE_STALE_IMPULSE = "COUNTER_PRESSURE_STALE_IMPULSE"
 
 LOW_RESPECT_BUY = "LOW_RESPECT_BUY"
 HIGH_RESPECT_SELL = "HIGH_RESPECT_SELL"
@@ -1544,6 +1548,34 @@ def _score_candidate(
         **candidate.risk.get("fast_trigger_quality", {}),
         "signal_quality": signal_quality,
     }
+    pressure_relation = _direction_relation(candidate.direction, pressure.direction)
+    active_pulse_relation = (
+        _direction_relation(candidate.direction, active_pulse.direction)
+        if active_pulse.sample_size >= 8
+        else "neutral"
+    )
+    counter_pressure_context = {
+        "pressure_relation": pressure_relation,
+        "active_pulse_relation": active_pulse_relation,
+        "touch_age_closed_bars": signal_quality.get("touch_age_closed_bars"),
+    }
+    candidate.risk["fast_trigger_quality"] = {
+        **candidate.risk.get("fast_trigger_quality", {}),
+        "counter_pressure_context": counter_pressure_context,
+    }
+    if pressure_relation == "opposed":
+        if active_pulse_relation == "opposed":
+            if not _allows_counter_pressure_active_pulse_override(candidate):
+                candidate.rejection_reasons.append(
+                    COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT
+                )
+        elif (
+            candidate.reaction_type == "impulse_break"
+            and active_pulse_relation != "aligned"
+            and signal_quality["touch_age_closed_bars"] > 3
+        ):
+            candidate.rejection_reasons.append(COUNTER_PRESSURE_STALE_IMPULSE)
+
     if candidate.reaction_type == "impulse_break":
         if (
             signal_quality["entry_distance_from_level"]
@@ -1645,6 +1677,24 @@ def _latest_relation_rejection(
     ):
         return RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION
     return None
+
+
+def _direction_relation(direction: str, context_direction: str | None) -> str:
+    if context_direction not in {"bullish", "bearish"}:
+        return "neutral"
+    expected = "BUY" if context_direction == "bullish" else "SELL"
+    return "aligned" if direction == expected else "opposed"
+
+
+def _allows_counter_pressure_active_pulse_override(
+    candidate: OneMinuteCandidate,
+) -> bool:
+    return (
+        candidate.reaction_type == "fakeout"
+        and candidate.confirmation_type == "engulfing"
+        and candidate.level.touch_count >= 3
+        and "CLOSE_INVALIDATION" in candidate.score_reasons
+    )
 
 
 def _minimum_required_score(

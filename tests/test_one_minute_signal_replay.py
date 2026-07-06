@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
+    COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT,
     analyze_one_minute_entry,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -251,6 +252,41 @@ def test_clean_current_impulse_can_reverse_old_pressure(
     assert (
         "ONE_MINUTE_ACTIVE_PULSE_NOT_ALIGNED"
         not in candidate["rejection_reasons"]
+    )
+
+
+def test_counter_pressure_respect_requires_active_pulse_support():
+    payload = _decision_at("2026-07-01T21:37:00+00:00")
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "LOW_RESPECT_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["pressure"]["direction"] == "bearish"
+    assert candidate["active_pulse"]["direction"] == "bearish"
+    assert (
+        COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT
+        in candidate["rejection_reasons"]
+    )
+
+
+def test_counter_pressure_impulse_rejects_stale_opposed_pulse():
+    payload = _decision_at("2026-07-01T21:43:00+00:00")
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["touch_age_closed_bars"] > 3
+    assert candidate["pressure"]["direction"] == "bearish"
+    assert candidate["active_pulse"]["direction"] == "bearish"
+    assert (
+        COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT
+        in candidate["rejection_reasons"]
     )
 
 

@@ -2,7 +2,9 @@
 param(
     [string]$BlockedStrategyRules = "",
     [double]$MaxSessionLoss = 600.0,
-    [double]$Volume = 1.0
+    [double]$Volume = 1.0,
+    [double]$ReactionPendingSeconds = 20.0,
+    [double]$ImpulsePendingSeconds = 45.0
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,8 +43,8 @@ $env:TRADINGAGENTS_CONFIRMATION_TIMEFRAME = "1m"
 $env:TRADINGAGENTS_FAST_TIMEFRAME = "1m"
 $env:TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME = "1m"
 $env:TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES = "60"
-$env:TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS = "20"
-$env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = "45"
+$env:TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS = $ReactionPendingSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)
+$env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = $ImpulsePendingSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)
 $env:TRADINGAGENTS_FAST_VOLUME_BOOST_ENABLED = "false"
 $env:TRADINGAGENTS_RUNNER_POLL_SECONDS = "5"
 $env:TRADINGAGENTS_RUNNER_MAINTENANCE_POLL_SECONDS = "1"

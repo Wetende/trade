@@ -192,6 +192,14 @@ the older net move was bearish or bullish. Long-window pressure may be recorded
 and may affect ranking, but the current repeated level plus latest closed
 candle determines the actionable direction.
 
+Evidence from the 2026-07-06 DEMO run tightened this without returning to a
+blanket old-pressure veto: if 60-candle pressure is opposed, the current active
+M1 pulse must support the candidate unless the current candle is a clean
+engulfing failed-break reversal. A candidate fighting both long pressure and
+active pulse is rejected as `COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT`. A stale
+impulse candidate fighting long pressure without active pulse support is
+rejected as `COUNTER_PRESSURE_STALE_IMPULSE`.
+
 Similarly, memory is a map of openings, not a global conflict switch. An old
 high and old low elsewhere in the 60-candle window must not reject a clean
 candidate at the current local level.
@@ -247,6 +255,8 @@ impulse pending lifetime: 45 seconds
 
 These durations are starting values. Do not tune them until order/fill telemetry
 shows that expiry, rather than signal quality, is the limiting factor.
+For live DEMO experiments, `scripts/start-one-minute-demo.ps1` can override
+these per run with `-ReactionPendingSeconds` and `-ImpulsePendingSeconds`.
 
 ### Risk and Volume
 
