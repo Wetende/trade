@@ -569,6 +569,32 @@ def one_minute_walk_forward(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-failure-report")
+def one_minute_failure_report(
+    output: Path = typer.Option(..., "--output"),
+    session: Path | None = typer.Option(None, "--session"),
+    evidence_dir: Path | None = typer.Option(None, "--evidence-dir"),
+    min_samples: int = typer.Option(2, "--min-samples", min=1),
+):
+    """Build a broker-free failure-learning report for the One Minute Scalper."""
+    from tradingagents.agents.price_action.failure_learning import (
+        build_evidence_dir_learning_report,
+        build_session_learning_report,
+    )
+
+    if (session is None) == (evidence_dir is None):
+        raise typer.BadParameter("pass exactly one of --session or --evidence-dir")
+    if session is not None:
+        report = build_session_learning_report(session, min_samples=min_samples)
+    else:
+        report = build_evidence_dir_learning_report(
+            evidence_dir,
+            min_samples=min_samples,
+        )
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-opening-state-screen")
 def one_minute_opening_state_screen(
     fixture: Path = typer.Option(..., "--fixture"),
