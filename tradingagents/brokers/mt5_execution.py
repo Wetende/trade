@@ -265,6 +265,65 @@ class MT5Executor:
     def _timeline_now_utc() -> datetime:
         return datetime.now(timezone.utc)
 
+    def _rebuild_expiration_fallback_request(
+        self,
+        proposal: OrderProposal,
+        symbol_info: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        try:
+            return self.builder.build_pending_order_request(
+                proposal,
+                symbol_info,
+            ), None
+        except ValueError as exc:
+            if "entry price is stale or inside spread" not in str(exc):
+                raise
+        adjustment = self._fallback_entry_adjustment(proposal, symbol_info)
+        if adjustment is None:
+            raise ValueError("entry price is stale or inside spread")
+        adjusted = proposal.model_copy(
+            update={"entry_price": adjustment["adjusted_entry"]}
+        )
+        request = self.builder.build_pending_order_request(
+            adjusted,
+            symbol_info,
+        )
+        return request, adjustment
+
+    def _fallback_entry_adjustment(
+        self,
+        proposal: OrderProposal,
+        symbol_info: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        try:
+            bid = float(symbol_info.get("bid"))
+            ask = float(symbol_info.get("ask"))
+            entry = float(proposal.entry_price)
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(bid) and math.isfinite(ask) and math.isfinite(entry)):
+            return None
+        if not bid < entry < ask:
+            return None
+        tick_size = float(symbol_info.get("trade_tick_size") or 0.0)
+        point = float(symbol_info.get("point") or 0.0)
+        buffer = max(tick_size, point, 0.0)
+        side = str(getattr(proposal.side, "value", proposal.side)).upper()
+        if side == "BUY":
+            adjusted_entry = ask + buffer
+        elif side == "SELL":
+            adjusted_entry = bid - buffer
+        else:
+            return None
+        return {
+            "reason": "ENTRY_INSIDE_SPREAD_AFTER_EXPIRATION_FALLBACK",
+            "original_entry": round(entry, 8),
+            "adjusted_entry": round(adjusted_entry, 8),
+            "bid": round(bid, 8),
+            "ask": round(ask, 8),
+            "buffer": round(buffer, 8),
+        }
+
     def _expired_pending_window_result(
         self,
         proposal: OrderProposal,
@@ -546,6 +605,57 @@ class MT5Executor:
                 }
                 self.journal.append("ORDER_SKIPPED", result)
                 return result
+            fallback_submitted_at = self._timeline_now_utc()
+            if callable(snapshot_func):
+                fallback_snapshot = snapshot_func()
+            else:
+                fallback_snapshot = {"symbol": connection.get("symbol") or {}}
+            fallback_quote = _safe_quote_snapshot(
+                fallback_snapshot,
+                fallback_submitted_at,
+            )
+            fallback_symbol_info = fallback_snapshot.get("symbol") or (
+                connection.get("symbol") or {}
+            )
+            fallback_adjustment = None
+            try:
+                (
+                    fallback_request,
+                    fallback_adjustment,
+                ) = self._rebuild_expiration_fallback_request(
+                    proposal,
+                    fallback_symbol_info,
+                )
+            except ValueError as exc:
+                result = {
+                    "status": "SKIPPED_INVALID_ENTRY",
+                    "reason": (
+                        "ENTRY_PRICE_STALE_OR_INVALID_AFTER_EXPIRATION_FALLBACK"
+                    ),
+                    "error": str(exc),
+                    "proposal": proposal.model_dump(mode="json"),
+                    "request": request,
+                    "pending_policy": pending_policy,
+                    "expiration_fallback": True,
+                    "fallback_quote": fallback_quote,
+                    "account_safety": account_safety,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+            fallback_request["comment"] = ONE_MINUTE_POSITION_COMMENT
+            fallback_request["type_time"] = "ORDER_TIME_GTC"
+            fallback_request.pop("expiration", None)
+            self.journal.append(
+                "ORDER_EXPIRATION_FALLBACK_REBUILT",
+                {
+                    "reason": "REBUILT_WITH_LATEST_QUOTE",
+                    "original_request": request,
+                    "fallback_request": fallback_request,
+                    "fallback_adjustment": fallback_adjustment,
+                    "fallback_quote": fallback_quote,
+                    "pending_policy": pending_policy,
+                },
+            )
             if callable(check_order):
                 order_check_result = check_order(fallback_request)
                 self.journal.append("ORDER_CHECKED", order_check_result)
@@ -563,15 +673,6 @@ class MT5Executor:
                     self.journal.append("ORDER_SKIPPED", result)
                     return result
             request = fallback_request
-            fallback_submitted_at = self._timeline_now_utc()
-            if callable(snapshot_func):
-                fallback_snapshot = snapshot_func()
-            else:
-                fallback_snapshot = {"symbol": connection.get("symbol") or {}}
-            fallback_quote = _safe_quote_snapshot(
-                fallback_snapshot,
-                fallback_submitted_at,
-            )
             broker_result = self.broker.place_pending_order(request)
             fallback_acknowledged_at = self._timeline_now_utc()
             execution_timeline = {

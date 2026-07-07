@@ -282,6 +282,95 @@ def test_executor_falls_back_to_gtc_when_broker_rejects_short_expiration(tmp_pat
     assert "expiration" not in broker.placed_requests[2]
 
 
+def test_executor_rebuilds_expiration_fallback_with_latest_quote(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_info.update(
+        {
+            "bid": 2450.00,
+            "ask": 2450.10,
+            "spread_price": 0.10,
+        }
+    )
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2450.00,
+                "ask": 2450.10,
+                "spread_price": 0.10,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        },
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2450.18,
+                "ask": 2450.32,
+                "spread_price": 0.14,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:03+00:00"},
+        },
+    ]
+    broker.place_results = [
+        {
+            "ok": False,
+            "order": 0,
+            "retcode": 10022,
+            "comment": "Invalid expiration",
+        },
+        {
+            "ok": True,
+            "order": 111224,
+            "retcode": 10009,
+            "comment": "ok",
+        },
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+    fixed_now = datetime(2026, 7, 1, 14, 0, 10, tzinfo=timezone.utc)
+    executor._now_utc = lambda: fixed_now
+    proposal = _one_minute_proposal(
+        reaction_type="impulse_break",
+        trigger_name="CLEAN_HIGH_IMPULSE_BUY",
+    ).model_copy(
+        update={
+            "order_type": "AUTO",
+            "entry_price": 2450.20,
+            "stop_loss": 2447.50,
+            "take_profit": 2454.20,
+        }
+    )
+
+    result = executor.execute_proposal(proposal)
+
+    assert result["status"] == "PLACED"
+    assert result["expiration_fallback"] is True
+    assert broker.placed_requests[0]["type"] == "BUY_STOP"
+    assert broker.placed_requests[0]["type_time"] == "ORDER_TIME_SPECIFIED"
+    assert broker.placed_requests[1]["type"] == "BUY_STOP"
+    assert broker.placed_requests[1]["price"] == 2450.33
+    assert broker.placed_requests[1]["type_time"] == "ORDER_TIME_GTC"
+    assert broker.checked_requests[1]["type"] == "BUY_STOP"
+    assert "expiration" not in broker.placed_requests[1]
+
+    journal_path = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    events = [
+        json.loads(line)
+        for line in journal_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(
+        event["event_type"] == "ORDER_EXPIRATION_FALLBACK_REBUILT"
+        for event in events
+    )
+    rebuild = next(
+        event
+        for event in events
+        if event["event_type"] == "ORDER_EXPIRATION_FALLBACK_REBUILT"
+    )
+    assert rebuild["payload"]["fallback_adjustment"]["reason"] == (
+        "ENTRY_INSIDE_SPREAD_AFTER_EXPIRATION_FALLBACK"
+    )
+
+
 def test_executor_keeps_normal_order_time_policy(tmp_path):
     broker = FakeBroker()
     executor = MT5Executor(_config(), tmp_path, broker=broker)
