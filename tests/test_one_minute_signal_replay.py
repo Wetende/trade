@@ -6,9 +6,12 @@ import pytest
 from tradingagents.agents.price_action.one_minute_entry_model import (
     ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY,
     ACTIVE_PULSE_COUNTER_STALE_IMPULSE,
+    ACTIVE_PULSE_COUNTER_TIGHT_RESPECT,
     ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT,
     COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT,
+    STALE_WEAK_RESPECT_ENTRY,
     STALE_TIGHT_IMPULSE_OPPOSING_WICK,
+    TIGHT_IMPULSE_BODY_NOT_DECISIVE,
     analyze_one_minute_entry,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -314,6 +317,9 @@ def test_active_pulse_counter_rejects_two_touch_respect():
         "active_pulse_relation": "opposed",
         "allows_fakeout_override": False,
         "reaction_type": "respect",
+        "stop_to_spread_ratio": candidate["signal_quality"][
+            "stop_to_spread_ratio"
+        ],
         "touch_count": 2,
     }
 
@@ -339,6 +345,9 @@ def test_active_pulse_counter_allows_engulfing_fakeout_override():
         "active_pulse_relation": "opposed",
         "allows_fakeout_override": True,
         "reaction_type": "fakeout",
+        "stop_to_spread_ratio": candidate["signal_quality"][
+            "stop_to_spread_ratio"
+        ],
         "touch_count": candidate["touch_count"],
     }
 
@@ -381,6 +390,69 @@ def test_stale_tight_impulse_rejects_opposing_wick_risk():
     assert candidate["signal_quality"]["stop_to_spread_ratio"] <= 2.20
     assert candidate["signal_quality"]["opposing_wick_to_range"] >= 0.12
     assert STALE_TIGHT_IMPULSE_OPPOSING_WICK in candidate["rejection_reasons"]
+
+
+def test_tight_impulse_requires_decisive_body():
+    payload = _decision_at("2026-07-01T21:24:00+00:00")
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["stop_to_spread_ratio"] <= 2.20
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.80
+    assert (
+        TIGHT_IMPULSE_BODY_NOT_DECISIVE
+        in candidate["rejection_reasons"]
+    )
+
+
+def test_stale_weak_respect_entry_is_rejected():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T09:37:00+00:00",
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "HIGH_RESPECT_SELL"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["touch_age_closed_bars"] > 3
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.30
+    assert STALE_WEAK_RESPECT_ENTRY in candidate["rejection_reasons"]
+    assert candidate["respect_zero_mfe_context"] == {
+        "body_to_recent_median_range": (
+            candidate["signal_quality"]["body_to_recent_median_range"]
+        ),
+        "stale_level_touch": True,
+        "stale_touch_age_limit": 3,
+        "touch_age_closed_bars": (
+            candidate["signal_quality"]["touch_age_closed_bars"]
+        ),
+        "weak_body_ratio_limit": 0.3,
+        "weak_confirmation_body": True,
+    }
+
+
+def test_active_pulse_counter_tight_respect_is_rejected():
+    payload = _decision_at("2026-07-01T21:43:00+00:00")
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "LOW_RESPECT_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["active_pulse"]["direction"] == "bearish"
+    assert candidate["signal_quality"]["stop_to_spread_ratio"] <= 2.20
+    assert (
+        ACTIVE_PULSE_COUNTER_TIGHT_RESPECT
+        in candidate["rejection_reasons"]
+    )
 
 
 def test_confirmed_high_respect_sell_is_repriced_near_live_quote():

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
+    ACTIVE_PULSE_COUNTER_TIGHT_RESPECT,
     HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS,
     IMPULSE_EXHAUSTED_TIGHT_ENTRY,
     _dynamic_fast_exit_settings,
@@ -816,6 +817,7 @@ def test_one_minute_scalper_rejects_fresh_exhausted_tight_impulse():
     assert quality["touch_age_closed_bars"] <= 2
     assert candidate["impulse_zero_mfe_context"] == {
         "active_pulse_against": False,
+        "body_decisive_for_tight_stop": True,
         "body_exhausted": True,
         "exhausted_body_ratio": 1.5,
         "fresh_level_break": True,
@@ -825,6 +827,7 @@ def test_one_minute_scalper_rejects_fresh_exhausted_tight_impulse():
         "opposing_wick_reversal_risk": False,
         "stale_level_break": False,
         "stale_touch_age_limit": 3,
+        "tight_min_body_ratio": 0.8,
         "tight_stop_to_spread": True,
     }
     assert IMPULSE_EXHAUSTED_TIGHT_ENTRY in candidate["rejection_reasons"]

@@ -740,3 +740,37 @@ override. Stale, tight impulse entries are rejected when the active pulse is
 opposed, and stale, tight impulses with meaningful opposing wick are also
 rejected. This preserves trigger families but removes the specific weak
 conditions that produced the latest risk-limit stop.
+
+## 2026-07-07 Tight Entry Learning Addendum
+
+The next DEMO run at:
+
+```text
+results/2026-07-07-103403-one-minute-scalper-evidence
+```
+
+also stopped on risk limit after 11 orders, 6 closed fills, 2 wins, 4 losses,
+and `-163.50`. The active-pulse filters fired as intended, blocking 31 weak
+fakeouts, 14 two-touch respect entries, and 10 counter-pressure conflicts.
+The remaining losses were mostly zero-MFE tight entries:
+
+```text
+ZERO_MFE_REVERSAL: -210.00
+TIGHT_STOP_TO_SPREAD: -210.00
+HIGH_RESPECT_SELL: -138.00
+```
+
+The model now also rejects:
+
+```text
+TIGHT_IMPULSE_BODY_NOT_DECISIVE
+ACTIVE_PULSE_COUNTER_TIGHT_RESPECT
+STALE_WEAK_RESPECT_ENTRY
+```
+
+For tight impulse entries, stop-to-spread at or below `2.20` now requires
+body-to-recent-median-range of at least `0.80`. Respect entries against the
+active pulse are rejected when their stop-to-spread is at or below `2.20`.
+Respect entries with stale level touch age above `3` and confirmation body
+ratio below `0.30` are also rejected. This targets the latest zero-MFE losses
+while keeping stronger impulse winners and fresh respect entries available.
