@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
+    ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY,
+    ACTIVE_PULSE_COUNTER_STALE_IMPULSE,
+    ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT,
     COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT,
+    STALE_TIGHT_IMPULSE_OPPOSING_WICK,
     analyze_one_minute_entry,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -288,6 +292,95 @@ def test_counter_pressure_impulse_rejects_stale_opposed_pulse():
         COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT
         in candidate["rejection_reasons"]
     )
+
+
+def test_active_pulse_counter_rejects_two_touch_respect():
+    payload = _decision_at("2026-07-01T21:21:00+00:00")
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "HIGH_RESPECT_SELL"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["level_type"] == "two_touch"
+    assert candidate["active_pulse"]["direction"] == "bullish"
+    assert "ONE_MINUTE_ACTIVE_PULSE_COUNTER" in candidate["score_reasons"]
+    assert (
+        ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT
+        in candidate["rejection_reasons"]
+    )
+    assert candidate["active_pulse_gate_context"] == {
+        "active_pulse_relation": "opposed",
+        "allows_fakeout_override": False,
+        "reaction_type": "respect",
+        "touch_count": 2,
+    }
+
+
+def test_active_pulse_counter_allows_engulfing_fakeout_override():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T10:26:00+00:00",
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "FAILED_HIGH_BREAK_SELL"
+    )
+
+    assert candidate["approved"] is True
+    assert candidate["confirmation_type"] == "engulfing"
+    assert candidate["level_type"] == "three_touch"
+    assert candidate["active_pulse"]["direction"] == "bullish"
+    assert "ONE_MINUTE_ACTIVE_PULSE_COUNTER" in candidate["score_reasons"]
+    assert ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY not in candidate["rejection_reasons"]
+    assert candidate["active_pulse_gate_context"] == {
+        "active_pulse_relation": "opposed",
+        "allows_fakeout_override": True,
+        "reaction_type": "fakeout",
+        "touch_count": candidate["touch_count"],
+    }
+
+
+def test_active_pulse_counter_rejects_stale_tight_impulse():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T10:50:00+00:00",
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["signal_quality"]["touch_age_closed_bars"] > 3
+    assert candidate["signal_quality"]["stop_to_spread_ratio"] <= 2.20
+    assert candidate["active_pulse"]["direction"] == "bearish"
+    assert (
+        ACTIVE_PULSE_COUNTER_STALE_IMPULSE
+        in candidate["rejection_reasons"]
+    )
+
+
+def test_stale_tight_impulse_rejects_opposing_wick_risk():
+    payload = _decision_from_bars(
+        _impulse_quality_bars(),
+        "2026-07-02T09:18:00+00:00",
+    )
+    candidate = next(
+        item
+        for item in payload["telemetry"]["candidate_evaluations"]
+        if item["trigger"] == "CLEAN_HIGH_IMPULSE_BUY"
+    )
+
+    assert candidate["approved"] is False
+    assert candidate["active_pulse"]["direction"] == "neutral"
+    assert candidate["signal_quality"]["touch_age_closed_bars"] > 3
+    assert candidate["signal_quality"]["stop_to_spread_ratio"] <= 2.20
+    assert candidate["signal_quality"]["opposing_wick_to_range"] >= 0.12
+    assert STALE_TIGHT_IMPULSE_OPPOSING_WICK in candidate["rejection_reasons"]
 
 
 def test_confirmed_high_respect_sell_is_repriced_near_live_quote():

@@ -36,6 +36,8 @@ MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL = 0.80
 IMPULSE_ZERO_MFE_MAX_STOP_SPREAD_RATIO = 2.20
 IMPULSE_ZERO_MFE_EXHAUSTED_BODY_RATIO = 1.50
 IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE = 2
+IMPULSE_ZERO_MFE_STALE_TOUCH_AGE = 3
+IMPULSE_ZERO_MFE_OPPOSING_WICK_RATIO = 0.12
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -52,6 +54,12 @@ RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
 IMPULSE_INSUFFICIENT_DISPLACEMENT = "IMPULSE_INSUFFICIENT_DISPLACEMENT"
 WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
 IMPULSE_EXHAUSTED_TIGHT_ENTRY = "IMPULSE_EXHAUSTED_TIGHT_ENTRY"
+ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT = (
+    "ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT"
+)
+ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY = "ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY"
+ACTIVE_PULSE_COUNTER_STALE_IMPULSE = "ACTIVE_PULSE_COUNTER_STALE_IMPULSE"
+STALE_TIGHT_IMPULSE_OPPOSING_WICK = "STALE_TIGHT_IMPULSE_OPPOSING_WICK"
 COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT = (
     "COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT"
 )
@@ -1579,6 +1587,33 @@ def _score_candidate(
             and signal_quality["touch_age_closed_bars"] > 3
         ):
             candidate.rejection_reasons.append(COUNTER_PRESSURE_STALE_IMPULSE)
+    if active_pulse_relation == "opposed":
+        active_pulse_gate_context = {
+            "active_pulse_relation": active_pulse_relation,
+            "reaction_type": candidate.reaction_type,
+            "touch_count": candidate.level.touch_count,
+            "allows_fakeout_override": (
+                _allows_counter_pressure_active_pulse_override(candidate)
+            ),
+        }
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "active_pulse_gate_context": active_pulse_gate_context,
+        }
+        if (
+            candidate.reaction_type == "respect"
+            and candidate.level.touch_count < 3
+        ):
+            candidate.rejection_reasons.append(
+                ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT
+            )
+        elif (
+            candidate.reaction_type == "fakeout"
+            and not active_pulse_gate_context["allows_fakeout_override"]
+        ):
+            candidate.rejection_reasons.append(
+                ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY
+            )
 
     if candidate.reaction_type == "impulse_break":
         stop_to_spread_ratio = float(signal_quality["stop_to_spread_ratio"])
@@ -1586,6 +1621,7 @@ def _score_candidate(
             signal_quality["body_to_recent_median_range"]
         )
         touch_age_closed_bars = int(signal_quality["touch_age_closed_bars"])
+        opposing_wick_to_range = float(signal_quality["opposing_wick_to_range"])
         impulse_zero_mfe_context = {
             "body_exhausted": (
                 body_to_recent_median_range
@@ -1594,9 +1630,16 @@ def _score_candidate(
             "fresh_level_break": (
                 touch_age_closed_bars <= IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE
             ),
+            "stale_level_break": (
+                touch_age_closed_bars > IMPULSE_ZERO_MFE_STALE_TOUCH_AGE
+            ),
             "tight_stop_to_spread": (
                 0 < stop_to_spread_ratio
                 <= IMPULSE_ZERO_MFE_MAX_STOP_SPREAD_RATIO
+            ),
+            "opposing_wick_reversal_risk": (
+                opposing_wick_to_range
+                >= IMPULSE_ZERO_MFE_OPPOSING_WICK_RATIO
             ),
             "active_pulse_against": active_pulse_relation == "opposed",
             "max_stop_to_spread_ratio": (
@@ -1606,6 +1649,10 @@ def _score_candidate(
                 IMPULSE_ZERO_MFE_EXHAUSTED_BODY_RATIO
             ),
             "fresh_touch_age_limit": IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE,
+            "stale_touch_age_limit": IMPULSE_ZERO_MFE_STALE_TOUCH_AGE,
+            "opposing_wick_ratio_limit": (
+                IMPULSE_ZERO_MFE_OPPOSING_WICK_RATIO
+            ),
         }
         candidate.risk["fast_trigger_quality"] = {
             **candidate.risk.get("fast_trigger_quality", {}),
@@ -1631,6 +1678,22 @@ def _score_candidate(
             )
         ):
             candidate.rejection_reasons.append(IMPULSE_EXHAUSTED_TIGHT_ENTRY)
+        if (
+            impulse_zero_mfe_context["tight_stop_to_spread"]
+            and impulse_zero_mfe_context["stale_level_break"]
+            and impulse_zero_mfe_context["active_pulse_against"]
+        ):
+            candidate.rejection_reasons.append(
+                ACTIVE_PULSE_COUNTER_STALE_IMPULSE
+            )
+        if (
+            impulse_zero_mfe_context["tight_stop_to_spread"]
+            and impulse_zero_mfe_context["stale_level_break"]
+            and impulse_zero_mfe_context["opposing_wick_reversal_risk"]
+        ):
+            candidate.rejection_reasons.append(
+                STALE_TIGHT_IMPULSE_OPPOSING_WICK
+            )
 
     if candidate.confirmation_type == "mixed":
         candidate.score -= 3
@@ -2151,6 +2214,9 @@ def _candidate_to_telemetry(
         "impulse_zero_mfe_context": candidate.risk.get(
             "fast_trigger_quality", {}
         ).get("impulse_zero_mfe_context"),
+        "active_pulse_gate_context": candidate.risk.get(
+            "fast_trigger_quality", {}
+        ).get("active_pulse_gate_context"),
         "opening_context": _candidate_opening_context(
             candidate,
             history,

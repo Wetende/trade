@@ -709,3 +709,34 @@ orders to `6.0` seconds. In the reviewed run, the profitable fills all arrived
 within roughly 5 seconds, while stale losers filled after roughly 7 to 12
 seconds. The goal is to keep the scalper active while refusing entries that
 are no longer fresh.
+
+## 2026-07-07 Active Pulse Learning Addendum
+
+The follow-up DEMO run at:
+
+```text
+results/2026-07-07-034318-one-minute-scalper-evidence
+```
+
+stopped itself on risk limit after 11 orders, 7 closed fills, 2 wins, 5 losses,
+and `-192.00`. The prior exhaustion guard helped `CLEAN_HIGH_IMPULSE_BUY`,
+which ended slightly positive at `+24.00`, but the account-level session still
+failed.
+
+The next loss cluster was active-pulse opposition. Four losing fills carried
+`ACTIVE_PULSE_OPPOSED` for `-290.00`, and three zero-MFE reversals lost
+`-237.00`. The model now rejects these narrower shapes:
+
+```text
+ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT
+ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY
+ACTIVE_PULSE_COUNTER_STALE_IMPULSE
+STALE_TIGHT_IMPULSE_OPPOSING_WICK
+```
+
+Respect entries against the active M1 pulse now require at least a three-touch
+level. Fakeouts against the active pulse require the existing clean engulfing
+override. Stale, tight impulse entries are rejected when the active pulse is
+opposed, and stale, tight impulses with meaningful opposing wick are also
+rejected. This preserves trigger families but removes the specific weak
+conditions that produced the latest risk-limit stop.

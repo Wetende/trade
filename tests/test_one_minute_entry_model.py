@@ -821,6 +821,10 @@ def test_one_minute_scalper_rejects_fresh_exhausted_tight_impulse():
         "fresh_level_break": True,
         "fresh_touch_age_limit": 2,
         "max_stop_to_spread_ratio": 2.2,
+        "opposing_wick_ratio_limit": 0.12,
+        "opposing_wick_reversal_risk": False,
+        "stale_level_break": False,
+        "stale_touch_age_limit": 3,
         "tight_stop_to_spread": True,
     }
     assert IMPULSE_EXHAUSTED_TIGHT_ENTRY in candidate["rejection_reasons"]
