@@ -674,3 +674,38 @@ management behavior was globally disabled.
 MT5 deal-history timestamps now prefer the broker's millisecond `time_msc`
 field. This prevents false negative order-wait telemetry for fills occurring
 within the submission second; it does not change trading behavior.
+
+## 2026-07-07 DEMO Learning Addendum
+
+The fresh no-blocklist DEMO run at:
+
+```text
+results/2026-07-07-001512-one-minute-scalper-evidence
+```
+
+fixed frequency but failed profitability. It placed 11 orders, filled and
+closed 8, and ended at 3 wins, 5 losses, and `-185.50` after the session risk
+limit stopped the runner. The strongest trigger family in that sample was
+`HIGH_RESPECT_SELL` with 2 wins and `+90.00`; it must remain enabled.
+
+The loss cluster was concentrated in zero-MFE reversals, tight stop-to-spread
+entries, exhausted impulse bodies, stale level touches, and late fills. A broad
+trigger blocklist is not the right response, because it previously suppressed
+too many valid one-minute openings.
+
+The model now rejects fresh, tight, exhausted impulse breaks with:
+
+```text
+IMPULSE_EXHAUSTED_TIGHT_ENTRY
+```
+
+The rule is intentionally stacked: stop-to-spread must be at or below `2.20`,
+body-to-recent-median-range must be above `1.50`, and the level break must be
+fresh or actively opposed by the M1 pulse. This targets the zero-MFE impulse
+losses without disabling the older replayed impulse winner.
+
+The Windows demo launcher now defaults both reaction and impulse pending
+orders to `6.0` seconds. In the reviewed run, the profitable fills all arrived
+within roughly 5 seconds, while stale losers filled after roughly 7 to 12
+seconds. The goal is to keep the scalper active while refusing entries that
+are no longer fresh.

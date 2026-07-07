@@ -4,6 +4,7 @@ import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
     HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS,
+    IMPULSE_EXHAUSTED_TIGHT_ENTRY,
     _dynamic_fast_exit_settings,
     analyze_one_minute_entry,
 )
@@ -786,6 +787,43 @@ def test_one_minute_scalper_allows_decisive_break_with_minimum_displacement():
     assert candidate["signal_quality"]["entry_distance_from_level"] >= 0.80
     assert "RAW_BREAK_EXECUTION_DISABLED" not in candidate["rejection_reasons"]
     assert candidate["volume_decision"] == "BASE_1_0"
+
+
+def test_one_minute_scalper_rejects_fresh_exhausted_tight_impulse():
+    candles = [
+        _candle(0, 100.0, 100.95, 99.7, 100.2),
+        _candle(1, 100.2, 100.90, 99.9, 100.1),
+        _candle(2, 100.1, 100.92, 99.8, 100.3),
+        _candle(3, 100.3, 102.13, 100.2, 102.05),
+    ]
+
+    payload = _payload(
+        candles,
+        fast_history_window_candles=4,
+        fast_max_stop_distance_price=1.4,
+        fast_boost_max_stop_distance_price=1.5,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.58,
+    )
+
+    candidate = _candidate_by_trigger(payload, "CLEAN_HIGH_IMPULSE_BUY")
+    quality = candidate["signal_quality"]
+
+    assert payload["status"] == "NO_SETUP"
+    assert candidate["approved"] is False
+    assert quality["body_to_recent_median_range"] > 1.50
+    assert quality["stop_to_spread_ratio"] <= 2.20
+    assert quality["touch_age_closed_bars"] <= 2
+    assert candidate["impulse_zero_mfe_context"] == {
+        "active_pulse_against": False,
+        "body_exhausted": True,
+        "exhausted_body_ratio": 1.5,
+        "fresh_level_break": True,
+        "fresh_touch_age_limit": 2,
+        "max_stop_to_spread_ratio": 2.2,
+        "tight_stop_to_spread": True,
+    }
+    assert IMPULSE_EXHAUSTED_TIGHT_ENTRY in candidate["rejection_reasons"]
 
 
 def test_one_minute_model_respects_configured_minimum_stop_distance():

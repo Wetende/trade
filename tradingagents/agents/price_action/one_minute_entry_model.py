@@ -33,6 +33,9 @@ MINIMUM_STOP_DISTANCE_BUFFER = 0.05
 ACTIVE_PULSE_LOOKBACK_CANDLES = 12
 MIN_IMPULSE_BODY_TO_MEDIAN_RANGE = 0.50
 MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL = 0.80
+IMPULSE_ZERO_MFE_MAX_STOP_SPREAD_RATIO = 2.20
+IMPULSE_ZERO_MFE_EXHAUSTED_BODY_RATIO = 1.50
+IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE = 2
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -48,6 +51,7 @@ RESPECT_ENTRY_CONFLICTS_WITH_LATEST_RELATION = (
 )
 IMPULSE_INSUFFICIENT_DISPLACEMENT = "IMPULSE_INSUFFICIENT_DISPLACEMENT"
 WEAK_IMPULSE_BODY = "WEAK_IMPULSE_BODY"
+IMPULSE_EXHAUSTED_TIGHT_ENTRY = "IMPULSE_EXHAUSTED_TIGHT_ENTRY"
 COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT = (
     "COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT"
 )
@@ -1577,6 +1581,36 @@ def _score_candidate(
             candidate.rejection_reasons.append(COUNTER_PRESSURE_STALE_IMPULSE)
 
     if candidate.reaction_type == "impulse_break":
+        stop_to_spread_ratio = float(signal_quality["stop_to_spread_ratio"])
+        body_to_recent_median_range = float(
+            signal_quality["body_to_recent_median_range"]
+        )
+        touch_age_closed_bars = int(signal_quality["touch_age_closed_bars"])
+        impulse_zero_mfe_context = {
+            "body_exhausted": (
+                body_to_recent_median_range
+                > IMPULSE_ZERO_MFE_EXHAUSTED_BODY_RATIO
+            ),
+            "fresh_level_break": (
+                touch_age_closed_bars <= IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE
+            ),
+            "tight_stop_to_spread": (
+                0 < stop_to_spread_ratio
+                <= IMPULSE_ZERO_MFE_MAX_STOP_SPREAD_RATIO
+            ),
+            "active_pulse_against": active_pulse_relation == "opposed",
+            "max_stop_to_spread_ratio": (
+                IMPULSE_ZERO_MFE_MAX_STOP_SPREAD_RATIO
+            ),
+            "exhausted_body_ratio": (
+                IMPULSE_ZERO_MFE_EXHAUSTED_BODY_RATIO
+            ),
+            "fresh_touch_age_limit": IMPULSE_ZERO_MFE_FRESH_TOUCH_AGE,
+        }
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "impulse_zero_mfe_context": impulse_zero_mfe_context,
+        }
         if (
             signal_quality["entry_distance_from_level"]
             < MIN_IMPULSE_ENTRY_DISTANCE_FROM_LEVEL
@@ -1585,10 +1619,18 @@ def _score_candidate(
                 IMPULSE_INSUFFICIENT_DISPLACEMENT
             )
         if (
-            signal_quality["body_to_recent_median_range"]
-            < MIN_IMPULSE_BODY_TO_MEDIAN_RANGE
+            body_to_recent_median_range < MIN_IMPULSE_BODY_TO_MEDIAN_RANGE
         ):
             candidate.rejection_reasons.append(WEAK_IMPULSE_BODY)
+        if (
+            impulse_zero_mfe_context["tight_stop_to_spread"]
+            and impulse_zero_mfe_context["body_exhausted"]
+            and (
+                impulse_zero_mfe_context["fresh_level_break"]
+                or impulse_zero_mfe_context["active_pulse_against"]
+            )
+        ):
+            candidate.rejection_reasons.append(IMPULSE_EXHAUSTED_TIGHT_ENTRY)
 
     if candidate.confirmation_type == "mixed":
         candidate.score -= 3
@@ -2106,6 +2148,9 @@ def _candidate_to_telemetry(
         "memory_context": candidate.risk.get("fast_trigger_quality", {}).get(
             "memory_context"
         ),
+        "impulse_zero_mfe_context": candidate.risk.get(
+            "fast_trigger_quality", {}
+        ).get("impulse_zero_mfe_context"),
         "opening_context": _candidate_opening_context(
             candidate,
             history,
