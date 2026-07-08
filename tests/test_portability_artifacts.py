@@ -72,8 +72,8 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
     required_parameterized_defaults = {
         "Volume": "1.0",
         "MaxSessionLoss": "600.0",
-        "ReactionPendingSeconds": "6.0",
-        "ImpulsePendingSeconds": "6.0",
+        "ReactionPendingSeconds": "20.0",
+        "ImpulsePendingSeconds": "45.0",
     }
     for name, value in required_parameterized_defaults.items():
         pattern = rf"\[double\]\${name}\s*=\s*{re.escape(value)}"

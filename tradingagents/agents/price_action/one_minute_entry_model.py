@@ -42,6 +42,13 @@ IMPULSE_ZERO_MFE_OPPOSING_WICK_RATIO = 0.12
 RESPECT_ZERO_MFE_MAX_STOP_SPREAD_RATIO = 2.20
 RESPECT_ZERO_MFE_STALE_TOUCH_AGE = 3
 RESPECT_ZERO_MFE_WEAK_BODY_RATIO = 0.30
+RESPECT_FRAGILE_BODY_RATIO = 0.50
+RESPECT_FRAGILE_OPPOSING_WICK_RATIO = 0.25
+RESPECT_COUNTER_PRESSURE_WEAK_BODY_RATIO = 0.45
+FAKEOUT_WEAK_BODY_RATIO = 0.55
+FAKEOUT_OPPOSING_WICK_RATIO = 0.23
+FAKEOUT_STALE_TOUCH_AGE = 12
+FAKEOUT_TIGHT_STOP_SPREAD_RATIO = 2.25
 MODEL_NAME = "One Minute Scalper"
 TWO_TOUCH = "two_touch"
 THREE_TOUCH = "three_touch"
@@ -64,9 +71,13 @@ ACTIVE_PULSE_COUNTER_TWO_TOUCH_RESPECT = (
 )
 ACTIVE_PULSE_COUNTER_TIGHT_RESPECT = "ACTIVE_PULSE_COUNTER_TIGHT_RESPECT"
 STALE_WEAK_RESPECT_ENTRY = "STALE_WEAK_RESPECT_ENTRY"
+FRAGILE_RESPECT_CONFIRMATION = "FRAGILE_RESPECT_CONFIRMATION"
+COUNTER_PRESSURE_WEAK_RESPECT = "COUNTER_PRESSURE_WEAK_RESPECT"
 ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY = "ACTIVE_PULSE_COUNTER_FAKEOUT_ENTRY"
 ACTIVE_PULSE_COUNTER_STALE_IMPULSE = "ACTIVE_PULSE_COUNTER_STALE_IMPULSE"
 STALE_TIGHT_IMPULSE_OPPOSING_WICK = "STALE_TIGHT_IMPULSE_OPPOSING_WICK"
+WEAK_FAKEOUT_REQUIRES_ENGULFING = "WEAK_FAKEOUT_REQUIRES_ENGULFING"
+STALE_FAKEOUT_REENTRY = "STALE_FAKEOUT_REENTRY"
 COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT = (
     "COUNTER_PRESSURE_ACTIVE_PULSE_CONFLICT"
 )
@@ -1632,6 +1643,12 @@ def _score_candidate(
             )
 
     if candidate.reaction_type == "respect":
+        respect_body_to_median = float(
+            signal_quality["body_to_recent_median_range"]
+        )
+        respect_opposing_wick_to_range = float(
+            signal_quality["opposing_wick_to_range"]
+        )
         respect_zero_mfe_context = {
             "body_to_recent_median_range": (
                 signal_quality["body_to_recent_median_range"]
@@ -1648,15 +1665,105 @@ def _score_candidate(
             "stale_touch_age_limit": RESPECT_ZERO_MFE_STALE_TOUCH_AGE,
             "weak_body_ratio_limit": RESPECT_ZERO_MFE_WEAK_BODY_RATIO,
         }
+        respect_quality_gate_context = {
+            "body_to_recent_median_range": round(respect_body_to_median, 4),
+            "opposing_wick_to_range": round(respect_opposing_wick_to_range, 4),
+            "pressure_relation": pressure_relation,
+            "active_pulse_relation": active_pulse_relation,
+            "fragile_body": (
+                respect_body_to_median < RESPECT_FRAGILE_BODY_RATIO
+            ),
+            "large_opposing_wick": (
+                respect_opposing_wick_to_range
+                >= RESPECT_FRAGILE_OPPOSING_WICK_RATIO
+            ),
+            "weak_counter_pressure_body": (
+                respect_body_to_median
+                < RESPECT_COUNTER_PRESSURE_WEAK_BODY_RATIO
+            ),
+            "fragile_body_ratio_limit": RESPECT_FRAGILE_BODY_RATIO,
+            "opposing_wick_ratio_limit": RESPECT_FRAGILE_OPPOSING_WICK_RATIO,
+            "counter_pressure_weak_body_limit": (
+                RESPECT_COUNTER_PRESSURE_WEAK_BODY_RATIO
+            ),
+        }
         candidate.risk["fast_trigger_quality"] = {
             **candidate.risk.get("fast_trigger_quality", {}),
             "respect_zero_mfe_context": respect_zero_mfe_context,
+            "respect_quality_gate_context": respect_quality_gate_context,
         }
         if (
             respect_zero_mfe_context["stale_level_touch"]
             and respect_zero_mfe_context["weak_confirmation_body"]
         ):
             candidate.rejection_reasons.append(STALE_WEAK_RESPECT_ENTRY)
+        if (
+            respect_quality_gate_context["fragile_body"]
+            and respect_quality_gate_context["large_opposing_wick"]
+        ):
+            candidate.rejection_reasons.append(FRAGILE_RESPECT_CONFIRMATION)
+        if (
+            pressure_relation == "opposed"
+            and active_pulse_relation != "aligned"
+            and respect_quality_gate_context["weak_counter_pressure_body"]
+        ):
+            candidate.rejection_reasons.append(COUNTER_PRESSURE_WEAK_RESPECT)
+
+    if candidate.reaction_type == "fakeout":
+        fakeout_body_to_median = float(
+            signal_quality["body_to_recent_median_range"]
+        )
+        fakeout_opposing_wick_to_range = float(
+            signal_quality["opposing_wick_to_range"]
+        )
+        fakeout_stop_to_spread_ratio = float(
+            signal_quality["stop_to_spread_ratio"]
+        )
+        fakeout_touch_age_closed_bars = int(
+            signal_quality["touch_age_closed_bars"]
+        )
+        fakeout_quality_gate_context = {
+            "body_to_recent_median_range": round(fakeout_body_to_median, 4),
+            "opposing_wick_to_range": round(fakeout_opposing_wick_to_range, 4),
+            "stop_to_spread_ratio": round(fakeout_stop_to_spread_ratio, 4),
+            "touch_age_closed_bars": fakeout_touch_age_closed_bars,
+            "confirmation_type": candidate.confirmation_type,
+            "weak_body": fakeout_body_to_median < FAKEOUT_WEAK_BODY_RATIO,
+            "large_opposing_wick": (
+                fakeout_opposing_wick_to_range
+                >= FAKEOUT_OPPOSING_WICK_RATIO
+            ),
+            "stale_level_touch": (
+                fakeout_touch_age_closed_bars > FAKEOUT_STALE_TOUCH_AGE
+            ),
+            "tight_stop_to_spread": (
+                0 < fakeout_stop_to_spread_ratio
+                <= FAKEOUT_TIGHT_STOP_SPREAD_RATIO
+            ),
+            "weak_body_ratio_limit": FAKEOUT_WEAK_BODY_RATIO,
+            "opposing_wick_ratio_limit": FAKEOUT_OPPOSING_WICK_RATIO,
+            "stale_touch_age_limit": FAKEOUT_STALE_TOUCH_AGE,
+            "tight_stop_to_spread_limit": FAKEOUT_TIGHT_STOP_SPREAD_RATIO,
+        }
+        candidate.risk["fast_trigger_quality"] = {
+            **candidate.risk.get("fast_trigger_quality", {}),
+            "fakeout_quality_gate_context": fakeout_quality_gate_context,
+        }
+        if (
+            candidate.confirmation_type != "engulfing"
+            and fakeout_quality_gate_context["weak_body"]
+            and fakeout_quality_gate_context["large_opposing_wick"]
+        ):
+            candidate.rejection_reasons.append(WEAK_FAKEOUT_REQUIRES_ENGULFING)
+        if (
+            candidate.confirmation_type != "engulfing"
+            and fakeout_quality_gate_context["stale_level_touch"]
+            and (
+                fakeout_quality_gate_context["weak_body"]
+                or fakeout_quality_gate_context["tight_stop_to_spread"]
+            )
+        ):
+            candidate.rejection_reasons.append(STALE_FAKEOUT_REENTRY)
 
     if candidate.reaction_type == "impulse_break":
         stop_to_spread_ratio = float(signal_quality["stop_to_spread_ratio"])
@@ -2034,7 +2141,7 @@ def _dynamic_fast_exit_settings(
     spread = max(0.0, float(current_spread_price))
     break_even_trigger = min(
         1.2,
-        max(spread * 1.10, risk_distance * 0.45),
+        max(spread * 0.95, risk_distance * 0.38),
     )
     partial_first = min(
         1.5,
@@ -2275,6 +2382,12 @@ def _candidate_to_telemetry(
         "respect_zero_mfe_context": candidate.risk.get(
             "fast_trigger_quality", {}
         ).get("respect_zero_mfe_context"),
+        "respect_quality_gate_context": candidate.risk.get(
+            "fast_trigger_quality", {}
+        ).get("respect_quality_gate_context"),
+        "fakeout_quality_gate_context": candidate.risk.get(
+            "fast_trigger_quality", {}
+        ).get("fakeout_quality_gate_context"),
         "opening_context": _candidate_opening_context(
             candidate,
             history,

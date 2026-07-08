@@ -704,11 +704,11 @@ body-to-recent-median-range must be above `1.50`, and the level break must be
 fresh or actively opposed by the M1 pulse. This targets the zero-MFE impulse
 losses without disabling the older replayed impulse winner.
 
-The Windows demo launcher now defaults both reaction and impulse pending
-orders to `6.0` seconds. In the reviewed run, the profitable fills all arrived
-within roughly 5 seconds, while stale losers filled after roughly 7 to 12
-seconds. The goal is to keep the scalper active while refusing entries that
-are no longer fresh.
+At this point the Windows demo launcher was temporarily tightened to `6.0`
+seconds for both reaction and impulse pending orders. That experiment was later
+revised after the 2026-07-08 candle review showed several valid pending orders
+needed more than six seconds but still moved inside the active one-minute
+candle.
 
 ## 2026-07-07 Active Pulse Learning Addendum
 
@@ -774,3 +774,39 @@ active pulse are rejected when their stop-to-spread is at or below `2.20`.
 Respect entries with stale level touch age above `3` and confirmation body
 ratio below `0.30` are also rejected. This targets the latest zero-MFE losses
 while keeping stronger impulse winners and fresh respect entries available.
+
+## 2026-07-08 Candle Forensic Learning Addendum
+
+The next fresh DEMO run at:
+
+```text
+results/2026-07-07-161428-one-minute-scalper-evidence
+```
+
+placed 15 orders, filled and closed 10, and was still unprofitable at 4 wins,
+6 losses, and `-96.50`. The manual candle review is recorded in:
+
+```text
+results/2026-07-07-161428-one-minute-scalper-evidence/mt5_runner/manual_candle_forensic_review.md
+```
+
+The remaining entry leaks were not broad trigger-family failures. They were
+fragile reaction candles: weak-body respect sells with large opposing wicks,
+weak failed-high-break sells that were not engulfing confirmations, and stale
+failed-break reentries with tight/weak structure. The model now rejects these
+with:
+
+```text
+FRAGILE_RESPECT_CONFIRMATION
+COUNTER_PRESSURE_WEAK_RESPECT
+WEAK_FAKEOUT_REQUIRES_ENGULFING
+STALE_FAKEOUT_REENTRY
+```
+
+The same review also showed several cancelled pending orders would have moved
+in the intended direction. The execution layer already had tested defaults of
+20 seconds for reaction orders and 45 seconds for impulse orders, but the
+Windows demo launcher was overriding both to 6 seconds. The launcher now uses
+`20.0` and `45.0` by default so valid one-minute orders can survive closer to
+the candle boundary. Break-even protection is also calibrated earlier for
+small, spread-heavy fast scalps.

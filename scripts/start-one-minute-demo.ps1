@@ -3,8 +3,8 @@ param(
     [string]$BlockedStrategyRules = "",
     [double]$MaxSessionLoss = 600.0,
     [double]$Volume = 1.0,
-    [double]$ReactionPendingSeconds = 6.0,
-    [double]$ImpulsePendingSeconds = 6.0
+    [double]$ReactionPendingSeconds = 20.0,
+    [double]$ImpulsePendingSeconds = 45.0
 )
 
 $ErrorActionPreference = "Stop"

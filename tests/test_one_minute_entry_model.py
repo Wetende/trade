@@ -4,8 +4,11 @@ import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
     ACTIVE_PULSE_COUNTER_TIGHT_RESPECT,
+    FRAGILE_RESPECT_CONFIRMATION,
     HIGH_CONFIDENCE_ONE_MINUTE_TRIGGERS,
     IMPULSE_EXHAUSTED_TIGHT_ENTRY,
+    STALE_FAKEOUT_REENTRY,
+    WEAK_FAKEOUT_REQUIRES_ENGULFING,
     _dynamic_fast_exit_settings,
     analyze_one_minute_entry,
 )
@@ -35,7 +38,7 @@ def test_dynamic_fast_exit_settings_are_spread_aware():
         current_spread_price=0.2,
     )
 
-    assert settings["break_even_trigger_points"] == 0.36
+    assert settings["break_even_trigger_points"] == 0.3
     assert settings["partial_first_trigger_points"] == 0.48
     assert settings["partial_second_trigger_points"] == 0.8
     assert settings["scalp_profit_points"] == 0.72
@@ -1176,6 +1179,86 @@ def test_high_respect_relation_gate_is_candidate_local():
         "rejection_reasons"
     ]
     assert candidate["risk_distance"] > 0
+
+
+def test_fragile_respect_rejection_body_and_wick_are_not_approved():
+    candles = _base_history() + [
+        _candle(55, 101.8, 102.00, 101.4, 101.7),
+        _candle(56, 101.7, 102.05, 101.5, 101.9),
+        _candle(57, 101.9, 102.08, 101.6, 102.0),
+        _candle(58, 102.0, 102.35, 101.8, 102.2),
+        _candle(59, 102.14, 102.44, 101.59, 101.84),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.80,
+        current_ask_price=102.00,
+    )
+
+    candidate = _candidate_by_trigger(payload, "HIGH_RESPECT_SELL")
+    assert candidate["approved"] is False
+    assert candidate["confirmation_type"] == "rejection"
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.50
+    assert candidate["signal_quality"]["opposing_wick_to_range"] >= 0.25
+    assert FRAGILE_RESPECT_CONFIRMATION in candidate["rejection_reasons"]
+    assert candidate["respect_quality_gate_context"]["fragile_body"] is True
+    assert candidate["respect_quality_gate_context"]["large_opposing_wick"] is True
+
+
+def test_weak_fakeout_rejection_requires_engulfing_confirmation():
+    candles = _base_history() + [
+        _candle(55, 101.2, 102.00, 101.0, 101.6),
+        _candle(56, 101.6, 102.03, 101.3, 101.8),
+        _candle(57, 101.8, 102.02, 101.4, 101.7),
+        _candle(58, 102.1, 102.15, 101.8, 101.9),
+        _candle(59, 102.10, 102.60, 101.45, 101.75),
+    ]
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=101.70,
+        current_ask_price=101.90,
+    )
+
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["approved"] is False
+    assert candidate["confirmation_type"] == "rejection"
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.55
+    assert candidate["signal_quality"]["opposing_wick_to_range"] >= 0.23
+    assert WEAK_FAKEOUT_REQUIRES_ENGULFING in candidate["rejection_reasons"]
+    assert candidate["fakeout_quality_gate_context"]["weak_body"] is True
+    assert candidate["fakeout_quality_gate_context"]["large_opposing_wick"] is True
+
+
+def test_stale_weak_fakeout_reentry_is_not_approved():
+    candles = []
+    for index in range(31):
+        candles.append(_candle(index, 100.4, 101.0, 100.1, 100.5))
+    for index in range(31, 59):
+        candles.append(_candle(index, 100.25, 100.55, 100.0, 100.2))
+    candles.append(_candle(59, 101.10, 101.35, 100.70, 100.85))
+
+    payload = _payload(
+        candles,
+        minimum_stop_distance_price=0.25,
+        current_spread_price=0.20,
+        current_bid_price=100.80,
+        current_ask_price=101.00,
+    )
+
+    candidate = _candidate_by_trigger(payload, "FAILED_HIGH_BREAK_SELL")
+    assert candidate["approved"] is False
+    assert candidate["confirmation_type"] == "rejection"
+    assert candidate["signal_quality"]["touch_age_closed_bars"] > 12
+    assert candidate["signal_quality"]["body_to_recent_median_range"] < 0.55
+    assert STALE_FAKEOUT_REENTRY in candidate["rejection_reasons"]
+    assert candidate["fakeout_quality_gate_context"]["stale_level_touch"] is True
+    assert candidate["fakeout_quality_gate_context"]["weak_body"] is True
 
 
 def test_one_minute_scalper_rejects_fakeout_sell_against_bullish_active_pulse():
