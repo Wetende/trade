@@ -1,6 +1,7 @@
 param(
     [string]$ProspectiveStart = "2026-07-03T11:25:00+00:00",
     [string]$SessionName = "2026-07-03-112500-target-grid-shadow",
+    [string]$ManifestPath = "",
     [int]$PollSeconds = 3600,
     [int]$MaxCycles = 72,
     [switch]$Foreground
@@ -10,7 +11,12 @@ $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $Python = Join-Path $Root ".venv\Scripts\python.exe"
-$Manifest = Join-Path $Root "docs\analysis\2026-07-03-one-minute-opening-state-target-grid-frozen-manifest.json"
+$DefaultManifest = Join-Path $Root "docs\analysis\2026-07-03-one-minute-opening-state-target-grid-frozen-manifest.json"
+$Manifest = if ($ManifestPath) {
+    (Resolve-Path -LiteralPath $ManifestPath).Path
+} else {
+    $DefaultManifest
+}
 $OutputDir = Join-Path $Root ("test-artifacts\opening-state-shadow\" + $SessionName)
 $Report = Join-Path $OutputDir "shadow-report.json"
 $Heartbeat = Join-Path $OutputDir "shadow-heartbeat.json"
@@ -24,6 +30,12 @@ if (-not (Test-Path -LiteralPath $Python)) {
 }
 if (-not (Test-Path -LiteralPath $Manifest)) {
     throw "Frozen manifest not found: $Manifest"
+}
+$Candidate = "OPENING_STATE_QUEUE_TARGET_GRID_V1"
+try {
+    $Candidate = (Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json).candidate
+} catch {
+    throw "Could not read frozen manifest candidate: $($_.Exception.Message)"
 }
 if ($PollSeconds -lt 60) {
     throw "PollSeconds must be at least 60 for read-only shadow watching."
@@ -98,7 +110,7 @@ $Worker = Start-Process `
 [pscustomobject]@{
     process_id = $Worker.Id
     session_name = $SessionName
-    candidate = "OPENING_STATE_QUEUE_TARGET_GRID_V1"
+    candidate = $Candidate
     prospective_start = $ProspectiveStart
     poll_seconds = $PollSeconds
     max_cycles = $MaxCycles

@@ -5,11 +5,14 @@ from typer.testing import CliRunner
 from cli.main import app
 from tradingagents.agents.price_action.opening_state_shadow import (
     SHADOW_DEFAULT_CANDLE_COUNT,
+    SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+    SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
     build_shadow_report,
 )
 from tradingagents.agents.price_action.opening_state_screening import (
     OpeningResearchFixture,
 )
+from tradingagents.agents.price_action.opening_tick_replay import ReplayConfig
 
 
 FIXTURE = "tests/fixtures/one_minute/opening_state/sample-openings.json"
@@ -45,6 +48,13 @@ def test_opening_shadow_cli_writes_deterministic_fixture_report(tmp_path):
         fixture,
         manifest=manifest,
         prospective_start=prospective_start,
+        replay_config=ReplayConfig(
+            risk_reward=float(manifest["final_target"]),
+            candle_close_delay_seconds=SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+            placement_delay_seconds=SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=True,
+        ),
     )
     heartbeat_payload = json.loads(heartbeat.read_text(encoding="utf-8"))
     assert heartbeat_payload["schema_version"] == 1
@@ -68,4 +78,6 @@ def test_opening_shadow_cli_default_candle_count_supports_three_sessions():
 
     assert result.exit_code == 0
     assert f"[default: {SHADOW_DEFAULT_CANDLE_COUNT}]" in result.output
+    assert f"[default: {SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS:.1f}]" in result.output
+    assert f"[default: {SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS:.1f}]" in result.output
     assert SHADOW_DEFAULT_CANDLE_COUNT >= 3 * 24 * 60

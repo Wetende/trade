@@ -27,13 +27,19 @@ class ReplayConfig(BaseModel):
     continuation_expiry_seconds: int = 45
     risk_reward: float = 1.5
     minimum_stop_distance: float = 0.30
+    minimum_stop_spread_multiple: float = 0.0
     max_quote_drift: float = 0.60
+    max_entry_distance: float = 0.0
+    candle_close_delay_seconds: float = 0.0
+    placement_delay_seconds: float = 0.0
+    absolute_pending_expiry: bool = False
+    skip_if_entry_crossed_at_placement: bool = False
 
 
 class SimulatedOpeningTrade(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    status: Literal["CLOSED", "EXPIRED", "INSUFFICIENT_TICK_EVIDENCE"]
+    status: Literal["CLOSED", "EXPIRED", "INSUFFICIENT_TICK_EVIDENCE", "SKIPPED"]
     reason: str | None = None
     direction: Literal["BUY", "SELL"]
     placed_at: str
@@ -52,6 +58,46 @@ class SimulatedOpeningTrade(BaseModel):
 
 def _parse(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def _expiry_duration(opportunity: OpeningOpportunity, config: ReplayConfig) -> int:
+    return (
+        config.reaction_expiry_seconds
+        if opportunity.entry_kind == "reaction"
+        else config.continuation_expiry_seconds
+    )
+
+
+def orderable_at(
+    opportunity: OpeningOpportunity,
+    config: ReplayConfig,
+) -> datetime:
+    """Return when the closed-candle signal can first be acted on."""
+    return _parse(opportunity.signal_time) + timedelta(
+        seconds=float(config.candle_close_delay_seconds)
+    )
+
+
+def expires_at(
+    opportunity: OpeningOpportunity,
+    config: ReplayConfig,
+) -> datetime:
+    """Return the original absolute expiry tied to the signal story."""
+    return orderable_at(opportunity, config) + timedelta(
+        seconds=_expiry_duration(opportunity, config)
+    )
+
+
+def placement_time(
+    opportunity: OpeningOpportunity,
+    config: ReplayConfig,
+    *,
+    available_at: datetime,
+) -> datetime:
+    """Return the simulated broker submission time after slot availability."""
+    return max(orderable_at(opportunity, config), available_at) + timedelta(
+        seconds=float(config.placement_delay_seconds)
+    )
 
 
 def _entry_price(opportunity: OpeningOpportunity) -> float:
@@ -84,10 +130,16 @@ def _levels(
     opportunity: OpeningOpportunity,
     entry: float,
     config: ReplayConfig,
+    *,
+    spread: float | None = None,
 ) -> tuple[float, float]:
+    spread_floor = (
+        max(0.0, float(spread or 0.0)) * float(config.minimum_stop_spread_multiple)
+    )
     risk = max(
         abs(entry - float(opportunity.level)) + float(opportunity.tolerance),
         float(config.minimum_stop_distance),
+        spread_floor,
     )
     if opportunity.direction == "BUY":
         return round(entry - risk, 4), round(entry + risk * config.risk_reward, 4)
@@ -99,6 +151,27 @@ def _fills(direction: str, entry: float, tick: MarketTick, max_drift: float) -> 
     if direction == "BUY":
         return entry <= price <= entry + max_drift
     return entry - max_drift <= price <= entry
+
+
+def _entry_crossed_at_placement(
+    direction: str,
+    entry: float,
+    tick: MarketTick,
+) -> bool:
+    if direction == "BUY":
+        return float(tick.ask) >= entry
+    return float(tick.bid) <= entry
+
+
+def _entry_distance_exceeded(
+    entry: float,
+    tick: MarketTick,
+    max_distance: float,
+) -> bool:
+    if max_distance <= 0:
+        return False
+    distance = min(abs(entry - float(tick.bid)), abs(entry - float(tick.ask)))
+    return distance > max_distance
 
 
 def _ambiguous_quote_span(
@@ -122,7 +195,7 @@ def _hit_target(direction: str, mark: float, target: float) -> bool:
 
 
 def _base_result(
-    status: Literal["CLOSED", "EXPIRED", "INSUFFICIENT_TICK_EVIDENCE"],
+    status: Literal["CLOSED", "EXPIRED", "INSUFFICIENT_TICK_EVIDENCE", "SKIPPED"],
     opportunity: OpeningOpportunity,
     *,
     reason: str | None = None,
@@ -207,44 +280,131 @@ class PreparedTickSeries:
         *,
         start_index: int = 0,
     ) -> SimulatedOpeningTrade:
-        decision_seconds = _timestamp(opportunity.signal_time)
+        orderable = orderable_at(opportunity, config)
+        placed_time = placement_time(
+            opportunity,
+            config,
+            available_at=orderable,
+        )
+        entry = _entry_price(opportunity)
+        absolute_expiry = bool(config.absolute_pending_expiry)
+        expiry_time = expires_at(opportunity, config) if absolute_expiry else None
+        if expiry_time is not None and placed_time >= expiry_time:
+            stop, target = _levels(opportunity, entry, config)
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="PLACEMENT_DELAY_EXCEEDED_EXPIRY",
+                placed_at=placed_time.isoformat(),
+                completed_at=expiry_time.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
+
+        decision_seconds = placed_time.timestamp()
         first_index = max(
             0,
             int(start_index),
             int(np.searchsorted(self.epoch_seconds, decision_seconds, side="left")),
         )
+        expiry_index = (
+            int(
+                np.searchsorted(
+                    self.epoch_seconds,
+                    expiry_time.timestamp(),
+                    side="right",
+                )
+            )
+            if expiry_time is not None
+            else len(self.ticks)
+        )
         if first_index >= len(self.ticks):
+            stop, target = _levels(opportunity, entry, config)
             return _base_result(
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
                 reason="NO_DECISION_TICK",
-                completed_at=opportunity.signal_time,
+                placed_at=placed_time.isoformat(),
+                completed_at=placed_time.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
+        if first_index >= expiry_index:
+            stop, target = _levels(opportunity, entry, config)
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="NO_DECISION_TICK_BEFORE_EXPIRY",
+                placed_at=placed_time.isoformat(),
+                completed_at=expiry_time.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
             )
 
-        valid_after = np.flatnonzero(self.valid[first_index:])
+        valid_after = np.flatnonzero(self.valid[first_index:expiry_index])
         if valid_after.size == 0:
+            no_valid_reason = (
+                "NO_VALID_DECISION_TICK_BEFORE_EXPIRY"
+                if expiry_time is not None
+                else "NO_VALID_DECISION_TICK"
+            )
             return _base_result(
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
-                reason="NO_VALID_DECISION_TICK",
-                completed_at=opportunity.signal_time,
+                reason=no_valid_reason,
+                placed_at=placed_time.isoformat(),
+                completed_at=(
+                    expiry_time.isoformat()
+                    if expiry_time is not None
+                    else placed_time.isoformat()
+                ),
             )
         decision_index = int(valid_after[0] + first_index)
         spread = round(float(self.asks[decision_index] - self.bids[decision_index]), 4)
-        entry = _entry_price(opportunity)
-        stop, target = _levels(opportunity, entry, config)
-        expiry_duration = (
-            config.reaction_expiry_seconds
-            if opportunity.entry_kind == "reaction"
-            else config.continuation_expiry_seconds
-        )
-        expiry_seconds = self.epoch_seconds[decision_index] + expiry_duration
-        expiry_time = _parse(self.ticks[decision_index].time) + timedelta(
-            seconds=expiry_duration
-        )
-        expiry_index = int(
-            np.searchsorted(self.epoch_seconds, expiry_seconds, side="right")
-        )
+        stop, target = _levels(opportunity, entry, config, spread=spread)
+        decision_tick = self.ticks[decision_index]
+        if expiry_time is None:
+            expiry_time = _parse(decision_tick.time) + timedelta(
+                seconds=_expiry_duration(opportunity, config)
+            )
+            expiry_index = int(
+                np.searchsorted(
+                    self.epoch_seconds,
+                    expiry_time.timestamp(),
+                    side="right",
+                )
+            )
+        if config.skip_if_entry_crossed_at_placement and _entry_crossed_at_placement(
+            opportunity.direction,
+            entry,
+            decision_tick,
+        ):
+            return _base_result(
+                "SKIPPED",
+                opportunity,
+                reason="ENTRY_ALREADY_CROSSED_AT_PLACEMENT",
+                placed_at=placed_time.isoformat(),
+                completed_at=decision_tick.time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
+        if _entry_distance_exceeded(entry, decision_tick, config.max_entry_distance):
+            return _base_result(
+                "SKIPPED",
+                opportunity,
+                reason="ENTRY_TOO_FAR_FROM_PLACEMENT_QUOTE",
+                placed_at=placed_time.isoformat(),
+                completed_at=decision_tick.time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
         valid_window = self.valid[decision_index:expiry_index]
         if opportunity.direction == "BUY":
             fill_window = (
@@ -270,6 +430,7 @@ class PreparedTickSeries:
                 "EXPIRED",
                 opportunity,
                 reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
+                placed_at=placed_time.isoformat(),
                 completed_at=expiry_time.isoformat(),
                 entry=entry,
                 stop=stop,
@@ -321,6 +482,7 @@ class PreparedTickSeries:
                     "INSUFFICIENT_TICK_EVIDENCE",
                     opportunity,
                     reason="AMBIGUOUS_STOP_AND_TARGET",
+                    placed_at=placed_time.isoformat(),
                     completed_at=self.ticks[event_index].time,
                     filled_at=fill_tick.time,
                     entry=entry,
@@ -343,6 +505,7 @@ class PreparedTickSeries:
             return _base_result(
                 "CLOSED",
                 opportunity,
+                placed_at=placed_time.isoformat(),
                 completed_at=self.ticks[event_index].time,
                 filled_at=fill_tick.time,
                 closed_at=self.ticks[event_index].time,
@@ -372,6 +535,7 @@ class PreparedTickSeries:
             "INSUFFICIENT_TICK_EVIDENCE",
             opportunity,
             reason="NO_EXIT_TICK",
+            placed_at=placed_time.isoformat(),
             completed_at=completed_at,
             filled_at=fill_tick.time,
             entry=entry,
@@ -390,12 +554,15 @@ class PreparedTickSeries:
         available_at: datetime,
         expires_at: datetime,
     ) -> SimulatedOpeningTrade:
-        signal_time = _parse(opportunity.signal_time)
-        placed_time = max(signal_time, available_at)
+        placed_time = placement_time(
+            opportunity,
+            config,
+            available_at=available_at,
+        )
         placed_at = placed_time.isoformat()
         entry = _entry_price(opportunity)
-        stop, target = _levels(opportunity, entry, config)
         if placed_time >= expires_at:
+            stop, target = _levels(opportunity, entry, config)
             return _base_result(
                 "EXPIRED",
                 opportunity,
@@ -422,6 +589,7 @@ class PreparedTickSeries:
             )
         )
         if first_index >= len(self.ticks):
+            stop, target = _levels(opportunity, entry, config)
             return _base_result(
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
@@ -432,21 +600,60 @@ class PreparedTickSeries:
                 stop=stop,
                 target=target,
             )
+        if first_index >= expiry_index:
+            stop, target = _levels(opportunity, entry, config)
+            return _base_result(
+                "EXPIRED",
+                opportunity,
+                reason="NO_DECISION_TICK_BEFORE_EXPIRY",
+                placed_at=placed_at,
+                completed_at=expires_at.isoformat(),
+                entry=entry,
+                stop=stop,
+                target=target,
+            )
 
         valid_after = np.flatnonzero(self.valid[first_index:expiry_index])
         if valid_after.size == 0:
             return _base_result(
                 "INSUFFICIENT_TICK_EVIDENCE",
                 opportunity,
-                reason="NO_VALID_DECISION_TICK",
+                reason="NO_VALID_DECISION_TICK_BEFORE_EXPIRY",
                 placed_at=placed_at,
-                completed_at=placed_at,
-                entry=entry,
-                stop=stop,
-                target=target,
+                completed_at=expires_at.isoformat(),
             )
         decision_index = int(valid_after[0] + first_index)
         spread = round(float(self.asks[decision_index] - self.bids[decision_index]), 4)
+        stop, target = _levels(opportunity, entry, config, spread=spread)
+        decision_tick = self.ticks[decision_index]
+        if config.skip_if_entry_crossed_at_placement and _entry_crossed_at_placement(
+            opportunity.direction,
+            entry,
+            decision_tick,
+        ):
+            return _base_result(
+                "SKIPPED",
+                opportunity,
+                reason="ENTRY_ALREADY_CROSSED_AT_PLACEMENT",
+                placed_at=placed_at,
+                completed_at=decision_tick.time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
+        if _entry_distance_exceeded(entry, decision_tick, config.max_entry_distance):
+            return _base_result(
+                "SKIPPED",
+                opportunity,
+                reason="ENTRY_TOO_FAR_FROM_PLACEMENT_QUOTE",
+                placed_at=placed_at,
+                completed_at=decision_tick.time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                spread_at_decision=spread,
+            )
         if opportunity.direction == "BUY":
             fill_window = (
                 self.valid[decision_index:expiry_index]
@@ -615,133 +822,10 @@ def simulate_opportunity_from_sorted_ticks(
     start_index: int = 0,
 ) -> SimulatedOpeningTrade:
     """Simulate one pending opening from a pre-sorted tick sequence."""
-    ordered = tuple(sorted_ticks)
-    decision_time = _parse(opportunity.signal_time)
-    first_index = max(0, int(start_index))
-    saw_after_signal = False
-    decision_index: int | None = None
-    for index in range(first_index, len(ordered)):
-        tick = ordered[index]
-        if _parse(tick.time) < decision_time:
-            continue
-        saw_after_signal = True
-        if _valid_quote(tick):
-            decision_index = index
-            break
-    if not saw_after_signal:
-        return _base_result(
-            "INSUFFICIENT_TICK_EVIDENCE",
-            opportunity,
-            reason="NO_DECISION_TICK",
-            completed_at=opportunity.signal_time,
-        )
-    if decision_index is None:
-        return _base_result(
-            "INSUFFICIENT_TICK_EVIDENCE",
-            opportunity,
-            reason="NO_VALID_DECISION_TICK",
-            completed_at=opportunity.signal_time,
-        )
-
-    decision_tick = ordered[decision_index]
-    spread = round(float(decision_tick.ask) - float(decision_tick.bid), 4)
-    entry = _entry_price(opportunity)
-    stop, target = _levels(opportunity, entry, config)
-    decision_tick_time = _parse(decision_tick.time)
-    expiry_duration = (
-        config.reaction_expiry_seconds
-        if opportunity.entry_kind == "reaction"
-        else config.continuation_expiry_seconds
-    )
-    expiry = decision_tick_time + timedelta(seconds=expiry_duration)
-    fill_index: int | None = None
-    for index in range(decision_index, len(ordered)):
-        tick = ordered[index]
-        if not _valid_quote(tick):
-            continue
-        if _parse(tick.time) > expiry:
-            break
-        if _fills(opportunity.direction, entry, tick, config.max_quote_drift):
-            fill_index = index
-            break
-
-    if fill_index is None:
-        return _base_result(
-            "EXPIRED",
-            opportunity,
-            reason="ENTRY_NOT_TOUCHED_BEFORE_EXPIRY",
-            completed_at=expiry.isoformat(),
-            entry=entry,
-            stop=stop,
-            target=target,
-            spread_at_decision=spread,
-        )
-
-    fill = ordered[fill_index]
-    mfe = 0.0
-    mae = 0.0
-    last_valid_time = fill.time
-    for tick in ordered[fill_index:]:
-        if not _valid_quote(tick):
-            continue
-        last_valid_time = tick.time
-        if _ambiguous_quote_span(
-            opportunity.direction,
-            tick,
-            stop=stop,
-            target=target,
-        ):
-            return _base_result(
-                "INSUFFICIENT_TICK_EVIDENCE",
-                opportunity,
-                reason="AMBIGUOUS_STOP_AND_TARGET",
-                completed_at=tick.time,
-                filled_at=fill.time,
-                entry=entry,
-                stop=stop,
-                target=target,
-                mfe=round(mfe, 4),
-                mae=round(mae, 4),
-                spread_at_decision=spread,
-            )
-
-        mark = _exit_mark(opportunity.direction, tick)
-        favorable = _profit(opportunity.direction, entry, mark)
-        mfe = max(mfe, favorable)
-        mae = min(mae, favorable)
-        stop_hit = _hit_stop(opportunity.direction, mark, stop)
-        target_hit = _hit_target(opportunity.direction, mark, target)
-        if stop_hit or target_hit:
-            exit_reason = "TARGET" if target_hit else "STOP"
-            exit_price = target if target_hit else stop
-            return _base_result(
-                "CLOSED",
-                opportunity,
-                completed_at=tick.time,
-                filled_at=fill.time,
-                closed_at=tick.time,
-                entry=entry,
-                stop=stop,
-                target=target,
-                exit_reason=exit_reason,
-                profit=_profit(opportunity.direction, entry, exit_price),
-                mfe=round(mfe, 4),
-                mae=round(mae, 4),
-                spread_at_decision=spread,
-            )
-
-    return _base_result(
-        "INSUFFICIENT_TICK_EVIDENCE",
+    return PreparedTickSeries.from_ticks(tuple(sorted_ticks)).simulate(
         opportunity,
-        reason="NO_EXIT_TICK",
-        completed_at=last_valid_time,
-        filled_at=fill.time,
-        entry=entry,
-        stop=stop,
-        target=target,
-        mfe=round(mfe, 4),
-        mae=round(mae, 4),
-        spread_at_decision=spread,
+        config,
+        start_index=start_index,
     )
 
 
@@ -750,6 +834,9 @@ __all__ = [
     "PreparedTickSeries",
     "ReplayConfig",
     "SimulatedOpeningTrade",
+    "expires_at",
+    "orderable_at",
+    "placement_time",
     "simulate_opportunity",
     "simulate_opportunity_from_sorted_ticks",
 ]

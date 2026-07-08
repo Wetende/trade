@@ -32,6 +32,8 @@ from cli.utils import (
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.price_action.opening_state_shadow import (
     SHADOW_DEFAULT_CANDLE_COUNT,
+    SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+    SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
@@ -684,6 +686,23 @@ def one_minute_opening_target_grid_shadow_step(
         "--candle-count",
         min=100,
     ),
+    candle_close_delay_seconds: float = typer.Option(
+        SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+        "--candle-close-delay-seconds",
+        min=0.0,
+        help="Seconds after the M1 candle timestamp before the signal is orderable.",
+    ),
+    placement_delay_seconds: float = typer.Option(
+        SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
+        "--placement-delay-seconds",
+        min=0.0,
+        help="Simulated delay between orderability and broker submission.",
+    ),
+    skip_crossed_entry: bool = typer.Option(
+        True,
+        "--skip-crossed-entry/--allow-crossed-entry",
+        help="Skip when the live quote has already crossed the intended entry.",
+    ),
 ):
     """Run one read-only opening-state target-grid shadow step."""
     from tradingagents.agents.price_action.opening_state_screening import (
@@ -694,16 +713,25 @@ def one_minute_opening_target_grid_shadow_step(
         build_shadow_report_from_broker,
         load_frozen_manifest,
     )
+    from tradingagents.agents.price_action.opening_tick_replay import ReplayConfig
 
     frozen_manifest = load_frozen_manifest(manifest)
     if fixture is not None:
         shadow_fixture = OpeningResearchFixture.model_validate_json(
             fixture.read_text(encoding="utf-8")
         )
+        replay_config = ReplayConfig(
+            risk_reward=float(frozen_manifest["final_target"]),
+            candle_close_delay_seconds=candle_close_delay_seconds,
+            placement_delay_seconds=placement_delay_seconds,
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=skip_crossed_entry,
+        )
         report = build_shadow_report(
             shadow_fixture,
             manifest=frozen_manifest,
             prospective_start=prospective_start,
+            replay_config=replay_config,
         )
     else:
         from tradingagents.brokers.mt5 import MT5Broker, MT5ConnectionConfig
@@ -717,6 +745,9 @@ def one_minute_opening_target_grid_shadow_step(
                 manifest=frozen_manifest,
                 prospective_start=prospective_start,
                 candle_count=candle_count,
+                candle_close_delay_seconds=candle_close_delay_seconds,
+                placement_delay_seconds=placement_delay_seconds,
+                skip_if_entry_crossed_at_placement=skip_crossed_entry,
             )
         finally:
             broker.shutdown()

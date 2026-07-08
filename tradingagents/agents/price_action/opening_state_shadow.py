@@ -13,7 +13,10 @@ from tradingagents.agents.price_action.evidence_metrics import (
     summarize_variant,
 )
 from tradingagents.agents.price_action.models import Candle
-from tradingagents.agents.price_action.opening_state import OpeningOpportunity
+from tradingagents.agents.price_action.opening_state import (
+    OpeningOpportunity,
+    OpeningTemplate,
+)
 from tradingagents.agents.price_action.opening_state_queue_fast_target import (
     baseline_rows_with_config,
     candidate_opportunities as detected_candidate_opportunities,
@@ -32,10 +35,20 @@ from tradingagents.brokers.mt5 import safe_mt5_connection_status
 
 
 FROZEN_TARGET_GRID_CANDIDATE = "OPENING_STATE_QUEUE_TARGET_GRID_V1"
+FROZEN_BUY_CONTINUATION_CANDIDATE = "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1"
+SUPPORTED_FROZEN_CANDIDATES = frozenset(
+    {FROZEN_TARGET_GRID_CANDIDATE, FROZEN_BUY_CONTINUATION_CANDIDATE}
+)
+BUY_CONTINUATION_TEMPLATES = frozenset(
+    {OpeningTemplate.BREAK_HOLD, OpeningTemplate.BREAK_RETEST_HOLD}
+)
 SHADOW_MIN_FILLS = 30
 SHADOW_MIN_SESSIONS = 3
 SHADOW_MIN_PROFIT_FACTOR = 1.10
+SHADOW_MIN_WIN_RATE = 0.60
 SHADOW_DEFAULT_CANDLE_COUNT = SHADOW_MIN_SESSIONS * 24 * 60
+SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS = 60.0
+SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS = 5.0
 
 
 def _parse(value: str) -> datetime:
@@ -47,11 +60,29 @@ def _parse(value: str) -> datetime:
 
 def load_frozen_manifest(path: str | Path) -> dict[str, Any]:
     manifest = json.loads(Path(path).read_text(encoding="utf-8"))
-    if manifest.get("candidate") != FROZEN_TARGET_GRID_CANDIDATE:
+    if manifest.get("candidate") not in SUPPORTED_FROZEN_CANDIDATES:
         raise ValueError("unsupported frozen opening-state candidate")
     if manifest.get("broker_mutation_enabled") is not False:
         raise ValueError("frozen manifest must disable broker mutation")
     return manifest
+
+
+def _candidate_name(manifest: dict[str, Any]) -> str:
+    candidate = str(manifest.get("candidate") or "")
+    if candidate not in SUPPORTED_FROZEN_CANDIDATES:
+        raise ValueError("unsupported frozen opening-state candidate")
+    return candidate
+
+
+def _manifest_replay_config(
+    manifest: dict[str, Any],
+    config: ReplayConfig | None = None,
+) -> ReplayConfig:
+    updates: dict[str, Any] = {"risk_reward": float(manifest["final_target"])}
+    for key in ("reaction_expiry_seconds", "continuation_expiry_seconds"):
+        if manifest.get(key) is not None:
+            updates[key] = int(manifest[key])
+    return (config or ReplayConfig()).model_copy(update=updates)
 
 
 def _profit_factor_passes(candidate: VariantMetrics) -> bool:
@@ -84,6 +115,9 @@ def evaluate_shadow_gate(
         for reason in reasons
     )
     if evaluable:
+        win_rate = candidate.wins / candidate.fills if candidate.fills else 0.0
+        if win_rate < SHADOW_MIN_WIN_RATE:
+            reasons.append("WIN_RATE_BELOW_0_60")
         if not _profit_factor_passes(candidate):
             reasons.append("PROFIT_FACTOR_BELOW_1_10")
         if candidate.expectancy <= 0:
@@ -122,6 +156,28 @@ def _filter_opportunities(
     )
 
 
+def buy_continuation_opportunities(
+    fixture: OpeningResearchFixture,
+) -> tuple[OpeningOpportunity, ...]:
+    """Return the frozen post-close BUY continuation shadow candidates."""
+    return tuple(
+        opportunity
+        for opportunity in detected_candidate_opportunities(fixture)
+        if opportunity.direction == "BUY"
+        and opportunity.template in BUY_CONTINUATION_TEMPLATES
+    )
+
+
+def _candidate_opportunities_for_manifest(
+    fixture: OpeningResearchFixture,
+    manifest: dict[str, Any],
+) -> tuple[OpeningOpportunity, ...]:
+    candidate = _candidate_name(manifest)
+    if candidate == FROZEN_BUY_CONTINUATION_CANDIDATE:
+        return buy_continuation_opportunities(fixture)
+    return detected_candidate_opportunities(fixture)
+
+
 def _session_count(rows: tuple[ScreeningRow, ...]) -> int:
     return len(
         {
@@ -129,6 +185,35 @@ def _session_count(rows: tuple[ScreeningRow, ...]) -> int:
             for row in rows
             if row.accepted and row.filled and row.profit is not None
         }
+    )
+
+
+def realistic_replay_config_from_broker(
+    config: Any,
+    manifest: dict[str, Any],
+    *,
+    candle_close_delay_seconds: float = SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+    placement_delay_seconds: float = SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
+    skip_if_entry_crossed_at_placement: bool = True,
+) -> ReplayConfig:
+    """Build the replay policy intended to match the future DEMO executor."""
+    return _manifest_replay_config(
+        manifest,
+        ReplayConfig(
+            minimum_stop_distance=float(
+                getattr(config, "min_stop_distance_price", 0.30) or 0.30
+            ),
+            minimum_stop_spread_multiple=float(
+                getattr(config, "min_stop_spread_multiple", 0.0) or 0.0
+            ),
+            max_entry_distance=float(
+                getattr(config, "max_entry_distance_points", 0.0) or 0.0
+            ),
+            candle_close_delay_seconds=float(candle_close_delay_seconds),
+            placement_delay_seconds=float(placement_delay_seconds),
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=skip_if_entry_crossed_at_placement,
+        ),
     )
 
 
@@ -163,13 +248,13 @@ def build_shadow_report(
     candidate_opportunities: tuple[OpeningOpportunity, ...] | None = None,
     safety: dict[str, Any] | None = None,
     safety_reasons: tuple[str, ...] = (),
+    replay_config: ReplayConfig | None = None,
 ) -> dict[str, Any]:
-    if manifest.get("candidate") != FROZEN_TARGET_GRID_CANDIDATE:
-        raise ValueError("unsupported frozen opening-state candidate")
+    candidate_name = _candidate_name(manifest)
     if manifest.get("broker_mutation_enabled") is not False:
         raise ValueError("frozen manifest must disable broker mutation")
     target = float(manifest["final_target"])
-    config = ReplayConfig(risk_reward=target)
+    config = _manifest_replay_config(manifest, replay_config)
     raw = _filter_opportunities(
         raw_opportunities
         if raw_opportunities is not None
@@ -179,7 +264,7 @@ def build_shadow_report(
     candidate = _filter_opportunities(
         candidate_opportunities
         if candidate_opportunities is not None
-        else detected_candidate_opportunities(fixture),
+        else _candidate_opportunities_for_manifest(fixture, manifest),
         prospective_start,
     )
     baseline_rows = _same_target_baseline_rows(fixture, raw, config)
@@ -193,12 +278,12 @@ def build_shadow_report(
         for row in baseline_rows
     )
     baseline_metrics = summarize_variant(
-        f"{FROZEN_TARGET_GRID_CANDIDATE}_shadow_baseline",
+        f"{candidate_name}_shadow_baseline",
         baseline_rows,
         baseline_fill_count=max(1, baseline_fills),
     )
     candidate_metrics = summarize_variant(
-        FROZEN_TARGET_GRID_CANDIDATE,
+        candidate_name,
         candidate_rows,
         baseline_fill_count=max(1, baseline_fills),
     )
@@ -211,7 +296,7 @@ def build_shadow_report(
     )
     return {
         "schema_version": 1,
-        "candidate": FROZEN_TARGET_GRID_CANDIDATE,
+        "candidate": candidate_name,
         "broker_mutation_enabled": False,
         "prospective_start": prospective_start,
         "replay_config": config.model_dump(mode="json"),
@@ -220,6 +305,15 @@ def build_shadow_report(
             "final_target": target,
             "target_grid_version": manifest.get("target_grid_version"),
             "queue_policy_version": manifest.get("queue_policy_version"),
+            "buy_continuation_policy_version": manifest.get(
+                "buy_continuation_policy_version"
+            ),
+            "template_filter": manifest.get("template_filter"),
+            "direction_filter": manifest.get("direction_filter"),
+            "entry_policy": manifest.get("entry_policy"),
+            "continuation_expiry_seconds": manifest.get(
+                "continuation_expiry_seconds"
+            ),
             "source_fixture_hash": manifest.get("source_fixture_hash"),
         },
         "safety": dict(safety or {}),
@@ -259,8 +353,9 @@ def _empty_safety_failure(
     safety: dict[str, Any],
     reasons: tuple[str, ...],
 ) -> dict[str, Any]:
+    candidate_name = _candidate_name(manifest)
     empty = VariantMetrics(
-        name=FROZEN_TARGET_GRID_CANDIDATE,
+        name=candidate_name,
         fills=0,
         wins=0,
         losses=0,
@@ -283,17 +378,24 @@ def _empty_safety_failure(
     )
     return {
         "schema_version": 1,
-        "candidate": FROZEN_TARGET_GRID_CANDIDATE,
+        "candidate": candidate_name,
         "broker_mutation_enabled": False,
         "prospective_start": prospective_start,
-        "replay_config": ReplayConfig(
-            risk_reward=float(manifest["final_target"])
-        ).model_dump(mode="json"),
+        "replay_config": _manifest_replay_config(manifest).model_dump(mode="json"),
         "manifest": {
             "candidate": manifest.get("candidate"),
             "final_target": float(manifest["final_target"]),
             "target_grid_version": manifest.get("target_grid_version"),
             "queue_policy_version": manifest.get("queue_policy_version"),
+            "buy_continuation_policy_version": manifest.get(
+                "buy_continuation_policy_version"
+            ),
+            "template_filter": manifest.get("template_filter"),
+            "direction_filter": manifest.get("direction_filter"),
+            "entry_policy": manifest.get("entry_policy"),
+            "continuation_expiry_seconds": manifest.get(
+                "continuation_expiry_seconds"
+            ),
             "source_fixture_hash": manifest.get("source_fixture_hash"),
         },
         "safety": safety,
@@ -314,6 +416,9 @@ def build_shadow_report_from_broker(
     manifest: dict[str, Any],
     prospective_start: str,
     candle_count: int = SHADOW_DEFAULT_CANDLE_COUNT,
+    candle_close_delay_seconds: float = SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS,
+    placement_delay_seconds: float = SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS,
+    skip_if_entry_crossed_at_placement: bool = True,
 ) -> dict[str, Any]:
     if bool(getattr(config, "allow_real_orders", False)):
         return _empty_safety_failure(
@@ -360,8 +465,22 @@ def build_shadow_report_from_broker(
             safety=safety,
             reasons=("NO_CLOSED_M1_CANDLES",),
         )
+    replay_config = realistic_replay_config_from_broker(
+        config,
+        manifest,
+        candle_close_delay_seconds=candle_close_delay_seconds,
+        placement_delay_seconds=placement_delay_seconds,
+        skip_if_entry_crossed_at_placement=skip_if_entry_crossed_at_placement,
+    )
     latest_open = max(_parse(str(candle.timestamp)) for candle in candles)
-    tick_end = latest_open + timedelta(minutes=1)
+    latest_closed_boundary = latest_open + timedelta(minutes=1)
+    tick_end = latest_closed_boundary
+    tick_time = ((safety.get("symbol") or {}).get("tick_time_utc"))
+    if tick_time:
+        try:
+            tick_end = max(tick_end, _parse(str(tick_time)))
+        except ValueError:
+            pass
     tick_rows = broker.fetch_ticks_range(_parse(prospective_start), tick_end)
     fixture = OpeningResearchFixture(
         schema_version=1,
@@ -373,17 +492,25 @@ def build_shadow_report_from_broker(
         manifest=manifest,
         prospective_start=prospective_start,
         safety=safety,
+        replay_config=replay_config,
     )
 
 
 __all__ = [
+    "BUY_CONTINUATION_TEMPLATES",
+    "FROZEN_BUY_CONTINUATION_CANDIDATE",
     "FROZEN_TARGET_GRID_CANDIDATE",
     "SHADOW_MIN_FILLS",
     "SHADOW_MIN_PROFIT_FACTOR",
     "SHADOW_MIN_SESSIONS",
+    "SHADOW_MIN_WIN_RATE",
     "SHADOW_DEFAULT_CANDLE_COUNT",
+    "SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS",
+    "SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS",
     "build_shadow_report",
     "build_shadow_report_from_broker",
+    "buy_continuation_opportunities",
     "evaluate_shadow_gate",
     "load_frozen_manifest",
+    "realistic_replay_config_from_broker",
 ]

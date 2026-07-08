@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 from types import SimpleNamespace
 
 from tradingagents.agents.price_action.evidence_metrics import VariantMetrics
@@ -10,13 +11,16 @@ from tradingagents.agents.price_action.opening_state import (
 from tradingagents.agents.price_action.opening_state_screening import (
     OpeningResearchFixture,
 )
-from tradingagents.agents.price_action.opening_tick_replay import MarketTick
+from tradingagents.agents.price_action.opening_tick_replay import MarketTick, ReplayConfig
 from tradingagents.agents.price_action.opening_state_shadow import (
+    FROZEN_BUY_CONTINUATION_CANDIDATE,
     FROZEN_TARGET_GRID_CANDIDATE,
     SHADOW_DEFAULT_CANDLE_COUNT,
     build_shadow_report,
     build_shadow_report_from_broker,
+    buy_continuation_opportunities,
     evaluate_shadow_gate,
+    load_frozen_manifest,
 )
 
 
@@ -26,6 +30,17 @@ MANIFEST = {
     "final_target": 0.75,
     "target_grid_version": 1,
     "queue_policy_version": 1,
+    "broker_mutation_enabled": False,
+}
+BUY_CONTINUATION_MANIFEST = {
+    "candidate": FROZEN_BUY_CONTINUATION_CANDIDATE,
+    "final_target": 0.9,
+    "continuation_expiry_seconds": 120,
+    "reaction_expiry_seconds": 20,
+    "buy_continuation_policy_version": 1,
+    "template_filter": ["BREAK_HOLD", "BREAK_RETEST_HOLD"],
+    "direction_filter": "BUY",
+    "entry_policy": "POST_CLOSE_FIXED_PENDING_ENTRY",
     "broker_mutation_enabled": False,
 }
 
@@ -66,6 +81,26 @@ def _opportunity(signal_offset, *, level=100.0):
         direction="BUY",
         signal_time=(START + timedelta(seconds=signal_offset)).isoformat(),
         level_side="high",
+        level=level,
+        touch_count=2,
+        tolerance=0.2,
+        used_candle_indexes=(10, 11),
+        entry_kind="continuation",
+    )
+
+
+def _typed_opportunity(
+    signal_offset,
+    *,
+    template=OpeningTemplate.BREAK_HOLD,
+    direction="BUY",
+    level=100.0,
+):
+    return OpeningOpportunity(
+        template=template,
+        direction=direction,
+        signal_time=(START + timedelta(seconds=signal_offset)).isoformat(),
+        level_side="high" if direction == "BUY" else "low",
         level=level,
         touch_count=2,
         tolerance=0.2,
@@ -207,6 +242,37 @@ def test_shadow_gate_fails_when_evaluable_but_unprofitable():
     assert "MAX_LOSS_STREAK_WORSE_THAN_BASELINE" in gate["reasons"]
 
 
+def test_shadow_gate_requires_sixty_percent_win_rate():
+    gate = evaluate_shadow_gate(
+        candidate=_metrics(
+            fills=30,
+            wins=17,
+            losses=13,
+            net=5.0,
+            gross_profit=18.0,
+            gross_loss=-13.0,
+            pf=1.3846,
+            expectancy=0.1667,
+            max_loss_streak=2,
+        ),
+        baseline=_metrics(
+            fills=40,
+            wins=20,
+            losses=20,
+            net=0.0,
+            gross_profit=10.0,
+            gross_loss=-10.0,
+            pf=1.0,
+            expectancy=0.0,
+            max_loss_streak=3,
+        ),
+        candidate_session_count=3,
+    )
+
+    assert gate["decision"] == "FAIL_PROSPECTIVE_SHADOW"
+    assert "WIN_RATE_BELOW_0_60" in gate["reasons"]
+
+
 def test_shadow_report_filters_pre_start_and_uses_frozen_target():
     report = build_shadow_report(
         _fixture(),
@@ -228,6 +294,96 @@ def test_shadow_report_filters_pre_start_and_uses_frozen_target():
     assert report["candidate_opportunities_after_start"] == 1
     assert report["metrics"]["fills"] == 1
     assert report["broker_mutation_enabled"] is False
+
+
+def test_shadow_report_accepts_realistic_replay_config():
+    report = build_shadow_report(
+        _fixture(),
+        manifest=MANIFEST,
+        prospective_start=(START + timedelta(seconds=30)).isoformat(),
+        raw_opportunities=(_opportunity(70, level=100.0),),
+        candidate_opportunities=(_opportunity(70, level=100.0),),
+        replay_config=ReplayConfig(
+            risk_reward=0.75,
+            candle_close_delay_seconds=60,
+            placement_delay_seconds=5,
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=True,
+        ),
+    )
+
+    assert report["replay_config"]["candle_close_delay_seconds"] == 60
+    assert report["replay_config"]["placement_delay_seconds"] == 5
+    assert report["replay_config"]["absolute_pending_expiry"] is True
+    assert report["replay_config"]["skip_if_entry_crossed_at_placement"] is True
+
+
+def test_load_frozen_manifest_accepts_buy_continuation_candidate(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(BUY_CONTINUATION_MANIFEST),
+        encoding="utf-8",
+    )
+
+    manifest = load_frozen_manifest(manifest_path)
+
+    assert manifest["candidate"] == FROZEN_BUY_CONTINUATION_CANDIDATE
+
+
+def test_buy_continuation_shadow_uses_manifest_selector_and_expiry():
+    report = build_shadow_report(
+        _fixture(),
+        manifest=BUY_CONTINUATION_MANIFEST,
+        prospective_start=START.isoformat(),
+        raw_opportunities=(
+            _typed_opportunity(70, template=OpeningTemplate.BREAK_HOLD, direction="BUY"),
+            _typed_opportunity(
+                80,
+                template=OpeningTemplate.BREAK_RETEST_HOLD,
+                direction="BUY",
+            ),
+        ),
+        candidate_opportunities=(
+            _typed_opportunity(70, template=OpeningTemplate.BREAK_HOLD, direction="BUY"),
+            _typed_opportunity(
+                80,
+                template=OpeningTemplate.BREAK_RETEST_HOLD,
+                direction="BUY",
+            ),
+        ),
+    )
+
+    assert report["candidate"] == FROZEN_BUY_CONTINUATION_CANDIDATE
+    assert report["replay_config"]["risk_reward"] == 0.9
+    assert report["replay_config"]["continuation_expiry_seconds"] == 120
+    assert report["manifest"]["template_filter"] == ["BREAK_HOLD", "BREAK_RETEST_HOLD"]
+    assert report["manifest"]["direction_filter"] == "BUY"
+
+
+def test_buy_continuation_opportunities_keep_buy_break_templates(monkeypatch):
+    fixture = _fixture()
+    opportunities = (
+        _typed_opportunity(0, template=OpeningTemplate.BREAK_HOLD, direction="BUY"),
+        _typed_opportunity(
+            60,
+            template=OpeningTemplate.BREAK_RETEST_HOLD,
+            direction="BUY",
+        ),
+        _typed_opportunity(120, template=OpeningTemplate.BREAK_HOLD, direction="SELL"),
+        _typed_opportunity(180, template=OpeningTemplate.REJECTION, direction="BUY"),
+    )
+    monkeypatch.setattr(
+        "tradingagents.agents.price_action.opening_state_shadow.detected_candidate_opportunities",
+        lambda _fixture: opportunities,
+    )
+
+    selected = buy_continuation_opportunities(fixture)
+
+    assert [item.template for item in selected] == [
+        OpeningTemplate.BREAK_HOLD,
+        OpeningTemplate.BREAK_RETEST_HOLD,
+    ]
+    assert {item.direction for item in selected} == {"BUY"}
 
 
 class _Broker:

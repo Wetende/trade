@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ from tradingagents.agents.price_action.opening_state_screening import (
 from tradingagents.agents.price_action.opening_tick_replay import (
     PreparedTickSeries,
     ReplayConfig,
+    expires_at as replay_expires_at,
 )
 
 
@@ -46,18 +47,8 @@ def _parse(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def _expiry_seconds(opportunity: OpeningOpportunity, config: ReplayConfig) -> int:
-    return (
-        config.reaction_expiry_seconds
-        if opportunity.entry_kind == "reaction"
-        else config.continuation_expiry_seconds
-    )
-
-
 def _expires_at(opportunity: OpeningOpportunity, config: ReplayConfig) -> datetime:
-    return _parse(opportunity.signal_time) + timedelta(
-        seconds=_expiry_seconds(opportunity, config)
-    )
+    return replay_expires_at(opportunity, config)
 
 
 def _rank_key(opportunity: OpeningOpportunity) -> tuple[Any, ...]:
@@ -167,11 +158,12 @@ def _baseline_rows_with_config(
             else PreparedTickSeries.from_ticks(()).simulate(opportunity, config)
         )
         filled = result.status == "CLOSED" and result.profit is not None
+        accepted = result.status in {"CLOSED", "EXPIRED"} or result.filled_at is not None
         rows.append(
             ScreeningRow(
                 session_id=_day(opportunity.signal_time),
                 decision_index=index,
-                accepted=True,
+                accepted=accepted,
                 filled=filled,
                 profit=result.profit if filled else None,
                 reasons=(() if filled else (result.reason or result.status,)),

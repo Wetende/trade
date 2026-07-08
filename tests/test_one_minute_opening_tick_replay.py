@@ -218,3 +218,64 @@ def test_window_replay_places_after_active_slot_frees_and_closes():
     assert result.filled_at == (START + timedelta(seconds=12)).isoformat()
     assert result.exit_reason == "TARGET"
     assert result.profit == 0.4
+
+
+def test_realistic_replay_waits_for_candle_close_and_placement_delay():
+    ticks = [
+        _tick(0, 100.05, 100.25),
+        _tick(65, 100.00, 100.10),
+        _tick(66, 100.05, 100.25),
+        _tick(70, 100.70, 100.90),
+    ]
+
+    result = simulate_opportunity(
+        _buy_opportunity(),
+        ticks,
+        ReplayConfig(
+            risk_reward=1.0,
+            candle_close_delay_seconds=60,
+            placement_delay_seconds=5,
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=True,
+        ),
+    )
+
+    assert result.status == "CLOSED"
+    assert result.placed_at == (START + timedelta(seconds=65)).isoformat()
+    assert result.filled_at == (START + timedelta(seconds=66)).isoformat()
+    assert result.filled_at != ticks[0].time
+    assert result.exit_reason == "TARGET"
+
+
+def test_realistic_replay_skips_entry_already_crossed_at_placement():
+    ticks = [
+        _tick(65, 100.25, 100.45),
+        _tick(70, 100.70, 100.90),
+    ]
+
+    result = simulate_opportunity(
+        _buy_opportunity(),
+        ticks,
+        ReplayConfig(
+            candle_close_delay_seconds=60,
+            placement_delay_seconds=5,
+            absolute_pending_expiry=True,
+            skip_if_entry_crossed_at_placement=True,
+        ),
+    )
+
+    assert result.status == "SKIPPED"
+    assert result.reason == "ENTRY_ALREADY_CROSSED_AT_PLACEMENT"
+    assert result.filled_at is None
+
+
+def test_replay_uses_spread_floor_for_stop_and_target():
+    result = simulate_opportunity(
+        _buy_opportunity(),
+        [_tick(0, 100.00, 100.20), _tick(3, 101.01, 101.21)],
+        ReplayConfig(risk_reward=1.0, minimum_stop_spread_multiple=4.0),
+    )
+
+    assert result.status == "CLOSED"
+    assert result.stop_loss == 99.4
+    assert result.take_profit == 101.0

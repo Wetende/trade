@@ -1,0 +1,15 @@
+{
+  "broker_mutation_enabled": false,
+  "buy_continuation_policy_version": 1,
+  "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+  "continuation_expiry_seconds": 120,
+  "direction_filter": "BUY",
+  "entry_policy": "POST_CLOSE_FIXED_PENDING_ENTRY",
+  "final_target": 0.9,
+  "next_stage": "FRESH_READ_ONLY_PROSPECTIVE_SHADOW",
+  "reaction_expiry_seconds": 20,
+  "template_filter": [
+    "BREAK_HOLD",
+    "BREAK_RETEST_HOLD"
+  ]
+}
