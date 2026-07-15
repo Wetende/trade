@@ -111,18 +111,9 @@ def _summarize_pairs(
     return _finalize_stats(stats)
 
 
-def classify_trade_features(
-    decision: EvidenceDecision,
-    trade: EvidenceTrade,
-) -> tuple[str, ...]:
-    """Return deterministic feature tags that may explain a trade outcome."""
+def classify_entry_features(decision: EvidenceDecision) -> tuple[str, ...]:
+    """Return features that were knowable before an order could fill."""
     tags: list[str] = []
-    latency = _trade_latency_seconds(trade)
-    if latency is not None:
-        if latency > 10:
-            tags.append("VERY_LATE_FILL_AFTER_SIGNAL")
-        elif latency > 5:
-            tags.append("LATE_FILL_AFTER_SIGNAL")
     if decision.score is not None and decision.score < 8:
         tags.append("LOW_APPROVAL_SCORE")
     if (
@@ -145,12 +136,46 @@ def classify_trade_features(
             tags.append("WEAK_IMPULSE_BODY")
         elif decision.body_ratio > 1.20:
             tags.append("EXHAUSTED_IMPULSE_BODY")
+    return tuple(dict.fromkeys(tags))
+
+
+def classify_lifecycle_diagnostics(trade: EvidenceTrade) -> tuple[str, ...]:
+    """Return post-placement diagnostics that cannot be entry features."""
+    tags: list[str] = []
+    latency = _trade_latency_seconds(trade)
+    if latency is not None:
+        if latency > 10:
+            tags.append("VERY_LATE_FILL_AFTER_SIGNAL")
+        elif latency > 5:
+            tags.append("LATE_FILL_AFTER_SIGNAL")
+    return tuple(tags)
+
+
+def classify_outcome_diagnostics(trade: EvidenceTrade) -> tuple[str, ...]:
+    """Return outcome-only diagnostics that are unknowable at entry time."""
+    tags: list[str] = []
     if trade.mfe is not None:
         if trade.mfe <= 0.05:
             tags.append("ZERO_MFE_REVERSAL")
         elif trade.mfe < 0.20:
             tags.append("LOW_FAVORABLE_EXCURSION")
-    return tuple(dict.fromkeys(tags))
+    return tuple(tags)
+
+
+def classify_trade_features(
+    decision: EvidenceDecision,
+    trade: EvidenceTrade,
+) -> tuple[str, ...]:
+    """Return all deterministic diagnostics, labeled by knowledge time elsewhere."""
+    return tuple(
+        dict.fromkeys(
+            (
+                *classify_entry_features(decision),
+                *classify_lifecycle_diagnostics(trade),
+                *classify_outcome_diagnostics(trade),
+            )
+        )
+    )
 
 
 def classify_failure(
@@ -284,6 +309,9 @@ def _trigger_hypotheses(
                     "key": f"BLOCK_TRIGGER:{trigger}:*",
                     "type": "blocked_strategy_rule_candidate",
                     "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+                    "knowledge_time": "DECISION_TIME",
+                    "source_role": "HYPOTHESIS_GENERATION_ONLY",
+                    "causal_claim_allowed": False,
                     "candidate_rule": f"{trigger}:*",
                     "reason": (
                         "This trigger family has negative net outcome in the "
@@ -308,16 +336,16 @@ def _feature_hypotheses(
     features = sorted(
         {
             tag
-            for _session, _index, decision, trade in pairs
-            for tag in classify_trade_features(decision, trade)
+            for _session, _index, decision, _trade in pairs
+            for tag in classify_entry_features(decision)
         }
     )
     hypotheses: list[dict[str, Any]] = []
     for feature in features:
         what_if = _what_if_remove(
             pairs,
-            lambda decision, trade, selected=feature: selected
-            in classify_trade_features(decision, trade),
+            lambda decision, _trade, selected=feature: selected
+            in classify_entry_features(decision),
         )
         removed = what_if["removed"]
         if (
@@ -331,6 +359,9 @@ def _feature_hypotheses(
                     "key": f"FILTER_FEATURE:{feature}",
                     "type": "rule_threshold_candidate",
                     "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+                    "knowledge_time": "DECISION_TIME",
+                    "source_role": "HYPOTHESIS_GENERATION_ONLY",
+                    "causal_claim_allowed": False,
                     "candidate_filter": feature,
                     "reason": (
                         "This feature appears on a losing cluster. Convert it "
@@ -355,6 +386,11 @@ def build_learning_report(
 ) -> dict[str, Any]:
     selected_sessions = tuple(sessions)
     pairs = _filled_pairs(selected_sessions)
+    losses = [
+        trade
+        for _session, _index, _decision, trade in pairs
+        if trade.profit is not None and trade.profit < 0
+    ]
     failure_counts: Counter[str] = Counter()
     for _session, _index, decision, trade in pairs:
         for tag in classify_failure(decision, trade):
@@ -386,6 +422,18 @@ def build_learning_report(
             pairs,
             lambda decision, trade: classify_failure(decision, trade),
         ),
+        "by_entry_feature_tag": _stats_by_key(
+            pairs,
+            lambda decision, _trade: classify_entry_features(decision),
+        ),
+        "by_lifecycle_diagnostic_tag": _stats_by_key(
+            pairs,
+            lambda _decision, trade: classify_lifecycle_diagnostics(trade),
+        ),
+        "by_outcome_diagnostic_tag": _stats_by_key(
+            pairs,
+            lambda _decision, trade: classify_outcome_diagnostics(trade),
+        ),
         "by_feature_tag": _stats_by_key(
             pairs,
             lambda decision, trade: classify_trade_features(decision, trade),
@@ -393,10 +441,31 @@ def build_learning_report(
         "failure_taxonomy_counts": dict(sorted(failure_counts.items())),
         "loss_examples": _loss_examples(pairs, limit=loss_example_limit),
         "candidate_rule_hypotheses": hypotheses,
+        "data_quality": {
+            "filled_trades": len(pairs),
+            "filled_trades_with_mfe": sum(
+                trade.mfe is not None for _session, _index, _decision, trade in pairs
+            ),
+            "filled_trades_with_mae": sum(
+                trade.mae is not None for _session, _index, _decision, trade in pairs
+            ),
+            "losses": len(losses),
+            "losses_with_mfe": sum(trade.mfe is not None for trade in losses),
+            "losses_with_mae": sum(trade.mae is not None for trade in losses),
+            "mfe_is_sampled_not_tick_complete": True,
+        },
+        "leakage_controls": {
+            "candidate_rules_use_decision_time_features_only": True,
+            "fill_latency_is_diagnostic_only": True,
+            "mfe_and_mae_are_outcome_diagnostics_only": True,
+            "descriptive_exclusion_is_not_causal_evidence": True,
+        },
         "guardrails": [
             "report is read-only and broker-free",
             "do not mutate live rules during an active session",
             "promote candidates only through replay or prospective shadow gates",
+            "never convert post-fill or outcome data into an entry-time feature",
+            "hypothesis-generation sources cannot also serve as held-out evidence",
             "no martingale, recovery sizing, or LLM live decisions",
         ],
     }

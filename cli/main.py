@@ -597,6 +597,21 @@ def one_minute_failure_report(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-learn")
+def one_minute_learn(
+    source_manifest: Path = typer.Option(..., "--source-manifest"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Update the broker-free M1 hypothesis ledger from explicit sources."""
+    from tradingagents.agents.price_action.controlled_learning import (
+        build_controlled_learning_ledger_from_manifest,
+    )
+
+    report = build_controlled_learning_ledger_from_manifest(source_manifest)
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-opening-state-screen")
 def one_minute_opening_state_screen(
     fixture: Path = typer.Option(..., "--fixture"),

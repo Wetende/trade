@@ -89,6 +89,18 @@ def test_failure_learning_tags_losses_and_proposes_shadow_only_rule():
     assert report["candidate_rule_hypotheses"][0]["status"] == (
         "SHADOW_ONLY_NOT_AUTOPROMOTED"
     )
+    candidate_keys = {
+        item["key"] for item in report["candidate_rule_hypotheses"]
+    }
+    assert "FILTER_FEATURE:ZERO_MFE_REVERSAL" not in candidate_keys
+    assert "FILTER_FEATURE:LATE_FILL_AFTER_SIGNAL" not in candidate_keys
+    assert report["by_outcome_diagnostic_tag"]["ZERO_MFE_REVERSAL"]["losses"] == 1
+    assert report["leakage_controls"] == {
+        "candidate_rules_use_decision_time_features_only": True,
+        "fill_latency_is_diagnostic_only": True,
+        "mfe_and_mae_are_outcome_diagnostics_only": True,
+        "descriptive_exclusion_is_not_causal_evidence": True,
+    }
 
 
 def test_failure_learning_report_is_deterministic_for_fixture_dir():

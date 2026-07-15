@@ -1,0 +1,2337 @@
+{
+  "as_of_utc": "2026-07-15T19:16:26.577000Z",
+  "automatic_promotion_enabled": false,
+  "broker_mutation_enabled": false,
+  "candidate_incubation": {
+    "allowed_actions": [
+      "generate a separately named causal hypothesis",
+      "freeze detector, lifecycle, cost model, gates, and hashes",
+      "evaluate only on chronologically later, disjoint evidence"
+    ],
+    "evidence_isolation": {
+      "forbidden_evaluation_source_hashes": [
+        "00c8f741aac30cad29295562540aaf845e878c72987ed6409b58388b1b350a02",
+        "0e504c84fb14579c34d40a72b87c00f9a6a321337e09a529ec068b3ec3b4a3de",
+        "203499b950ce2cb6b2b839f4c738b3f161659e74c7e486582b895b488fac1a24",
+        "20cb8ce563b58afe900bf3f154064bb917844114a6778a32836874852d12ff90",
+        "480ffca7f7f3732344b4619d219a86c058bf6659d95015d6b1debb4597cea159",
+        "4e557ff17e4278013c75deadaeca60f4eaf10166af4dab0e1e00c37a7dc225ec",
+        "53487dc952de8aeb07cd0c008f11ea239158c0368a024b1bff2b4b653c55a566",
+        "76b42cb69e8148a3a4878ace314b4863012b951ea657a1bab4b522c70be7000f",
+        "867c66a90b33f9e68bec2e499c205bd24f561678fea2ea61383245da94b98772",
+        "8983fa9444e97f521e63d7aa86b7ff795a67f8742be0322df0c12c6a866161a4",
+        "89b5887119ec7a00e7b3c5fe8342eb5bbfdbc9298bee12425857cd4f423a84e4",
+        "adfbbdddb1dc48f70ba6851e299c4a9f468e190fad07f7535da9b30bf5bd210e",
+        "c48f1fb7f3442b88917db3b9f639b26f0eb322ecc8d828fae28ffc18ff07b48d",
+        "c9aa6725e235ef00c9da53a440f3c658c2e31677f306f2c583c6b235880f3dca",
+        "cac11eb537e27eb3aab13e17ee70b9201a9ce7c7fe3ed79aebc7943d77124090"
+      ],
+      "held_out_must_remain_unopened_until_discovery_passes": true,
+      "hypothesis_generation_cutoff_utc": "2026-07-15T19:16:26.577000Z",
+      "new_evidence_must_start_at_or_after_utc": "2026-07-15T19:16:26.577001Z"
+    },
+    "prohibited_actions": [
+      "mutate live rules from this ledger",
+      "auto-promote any hypothesis",
+      "tune or revive a retired candidate on its failed window",
+      "use post-fill or outcome data as an entry-time feature",
+      "increase volume or weaken risk and safety gates"
+    ],
+    "status": "NEW_NAMED_CANDIDATE_REQUIRES_PREREGISTRATION",
+    "suggested_research_question": "Can a new symmetric, closed-candle setup create a feasible post-close entry event that avoids immediate adverse selection without reusing V8 or adding another shallow legacy filter?"
+  },
+  "diagnostics": {
+    "broker_mutation_enabled": false,
+    "by_entry_feature_tag": {
+      "ACTIVE_PULSE_OPPOSED": {
+        "avg_fill_latency_seconds": 2.8244,
+        "avg_mae": -0.475,
+        "avg_mfe": 0.1975,
+        "expectancy": -28.1857,
+        "fills": 14,
+        "gross_loss": -604.0,
+        "gross_profit": 209.4,
+        "losses": 10,
+        "net_profit": -394.6,
+        "profit_factor": 0.3467,
+        "win_rate": 0.2857,
+        "wins": 4
+      },
+      "EXHAUSTED_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 5.613,
+        "avg_mae": -0.5133,
+        "avg_mfe": 0.1267,
+        "expectancy": -29.3571,
+        "fills": 7,
+        "gross_loss": -289.0,
+        "gross_profit": 83.5,
+        "losses": 5,
+        "net_profit": -205.5,
+        "profit_factor": 0.2889,
+        "win_rate": 0.2857,
+        "wins": 2
+      },
+      "IMPULSE_BODY_UNMEASURED": {
+        "avg_fill_latency_seconds": 0.0,
+        "avg_mae": null,
+        "avg_mfe": null,
+        "expectancy": -27.8364,
+        "fills": 11,
+        "gross_loss": -526.0,
+        "gross_profit": 219.8,
+        "losses": 7,
+        "net_profit": -306.2,
+        "profit_factor": 0.4179,
+        "win_rate": 0.3636,
+        "wins": 4
+      },
+      "LONG_PRESSURE_OPPOSED": {
+        "avg_fill_latency_seconds": 3.2663,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -52.1667,
+        "fills": 6,
+        "gross_loss": -418.0,
+        "gross_profit": 105.0,
+        "losses": 5,
+        "net_profit": -313.0,
+        "profit_factor": 0.2512,
+        "win_rate": 0.1667,
+        "wins": 1
+      },
+      "LOW_APPROVAL_SCORE": {
+        "avg_fill_latency_seconds": 3.2663,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -57.9667,
+        "fills": 6,
+        "gross_loss": -418.0,
+        "gross_profit": 70.2,
+        "losses": 5,
+        "net_profit": -347.8,
+        "profit_factor": 0.1679,
+        "win_rate": 0.1667,
+        "wins": 1
+      },
+      "STALE_LEVEL_TOUCH": {
+        "avg_fill_latency_seconds": 2.6545,
+        "avg_mae": -0.5422,
+        "avg_mfe": 0.1422,
+        "expectancy": -33.75,
+        "fills": 10,
+        "gross_loss": -430.0,
+        "gross_profit": 92.5,
+        "losses": 7,
+        "net_profit": -337.5,
+        "profit_factor": 0.2151,
+        "win_rate": 0.3,
+        "wins": 3
+      },
+      "TIGHT_STOP_TO_SPREAD": {
+        "avg_fill_latency_seconds": 5.9056,
+        "avg_mae": -0.4908,
+        "avg_mfe": 0.1017,
+        "expectancy": -43.3333,
+        "fills": 12,
+        "gross_loss": -558.0,
+        "gross_profit": 38.0,
+        "losses": 10,
+        "net_profit": -520.0,
+        "profit_factor": 0.0681,
+        "win_rate": 0.1667,
+        "wins": 2
+      },
+      "TWO_TOUCH_ONLY": {
+        "avg_fill_latency_seconds": 6.6487,
+        "avg_mae": -0.415,
+        "avg_mfe": 0.23,
+        "expectancy": -25.6333,
+        "fills": 6,
+        "gross_loss": -244.0,
+        "gross_profit": 90.2,
+        "losses": 3,
+        "net_profit": -153.8,
+        "profit_factor": 0.3697,
+        "win_rate": 0.5,
+        "wins": 3
+      },
+      "WEAK_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 4.0201,
+        "avg_mae": -0.5086,
+        "avg_mfe": 0.2229,
+        "expectancy": -28.475,
+        "fills": 8,
+        "gross_loss": -326.0,
+        "gross_profit": 98.2,
+        "losses": 5,
+        "net_profit": -227.8,
+        "profit_factor": 0.3012,
+        "win_rate": 0.375,
+        "wins": 3
+      }
+    },
+    "by_failure_tag": {
+      "ACTIVE_PULSE_OPPOSED": {
+        "avg_fill_latency_seconds": 3.1625,
+        "avg_mae": -0.5533,
+        "avg_mfe": 0.0,
+        "expectancy": -60.4,
+        "fills": 10,
+        "gross_loss": -604.0,
+        "gross_profit": 0.0,
+        "losses": 10,
+        "net_profit": -604.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "EXHAUSTED_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 7.069,
+        "avg_mae": -0.58,
+        "avg_mfe": 0.014,
+        "expectancy": -57.8,
+        "fills": 5,
+        "gross_loss": -289.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -289.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "IMPULSE_BODY_UNMEASURED": {
+        "avg_fill_latency_seconds": 0.0,
+        "avg_mae": null,
+        "avg_mfe": null,
+        "expectancy": -75.1429,
+        "fills": 7,
+        "gross_loss": -526.0,
+        "gross_profit": 0.0,
+        "losses": 7,
+        "net_profit": -526.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 7.075,
+        "avg_mae": -0.714,
+        "avg_mfe": 0.028,
+        "expectancy": -69.4,
+        "fills": 5,
+        "gross_loss": -347.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -347.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "LONG_PRESSURE_OPPOSED": {
+        "avg_fill_latency_seconds": 3.9196,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -83.6,
+        "fills": 5,
+        "gross_loss": -418.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -418.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "LOW_APPROVAL_SCORE": {
+        "avg_fill_latency_seconds": 3.9196,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -83.6,
+        "fills": 5,
+        "gross_loss": -418.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -418.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "LOW_FAVORABLE_EXCURSION": {
+        "avg_fill_latency_seconds": 8.2955,
+        "avg_mae": -0.6533,
+        "avg_mfe": 0.11,
+        "expectancy": -61.6667,
+        "fills": 3,
+        "gross_loss": -185.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -185.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "STALE_LEVEL_TOUCH": {
+        "avg_fill_latency_seconds": 2.4936,
+        "avg_mae": -0.6143,
+        "avg_mfe": 0.0329,
+        "expectancy": -61.4286,
+        "fills": 7,
+        "gross_loss": -430.0,
+        "gross_profit": 0.0,
+        "losses": 7,
+        "net_profit": -430.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "TIGHT_STOP_TO_SPREAD": {
+        "avg_fill_latency_seconds": 4.3593,
+        "avg_mae": -0.559,
+        "avg_mfe": 0.007,
+        "expectancy": -55.8,
+        "fills": 10,
+        "gross_loss": -558.0,
+        "gross_profit": 0.0,
+        "losses": 10,
+        "net_profit": -558.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "TWO_TOUCH_ONLY": {
+        "avg_fill_latency_seconds": 4.679,
+        "avg_mae": -0.71,
+        "avg_mfe": 0.0,
+        "expectancy": -81.3333,
+        "fills": 3,
+        "gross_loss": -244.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -244.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "UNCLASSIFIED_RULE_EXECUTION_FAILURE": {
+        "avg_fill_latency_seconds": 0.4058,
+        "avg_mae": null,
+        "avg_mfe": null,
+        "expectancy": -74.3333,
+        "fills": 3,
+        "gross_loss": -223.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -223.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "VERY_LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 15.3076,
+        "avg_mae": -0.6475,
+        "avg_mfe": 0.0175,
+        "expectancy": -68.8,
+        "fills": 5,
+        "gross_loss": -344.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -344.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "WEAK_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 5.0943,
+        "avg_mae": -0.625,
+        "avg_mfe": 0.0,
+        "expectancy": -65.2,
+        "fills": 5,
+        "gross_loss": -326.0,
+        "gross_profit": 0.0,
+        "losses": 5,
+        "net_profit": -326.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "ZERO_MFE_REVERSAL": {
+        "avg_fill_latency_seconds": 5.1429,
+        "avg_mae": -0.6456,
+        "avg_mfe": 0.0,
+        "expectancy": -64.3333,
+        "fills": 18,
+        "gross_loss": -1158.0,
+        "gross_profit": 0.0,
+        "losses": 18,
+        "net_profit": -1158.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      }
+    },
+    "by_feature_tag": {
+      "ACTIVE_PULSE_OPPOSED": {
+        "avg_fill_latency_seconds": 2.8244,
+        "avg_mae": -0.475,
+        "avg_mfe": 0.1975,
+        "expectancy": -28.1857,
+        "fills": 14,
+        "gross_loss": -604.0,
+        "gross_profit": 209.4,
+        "losses": 10,
+        "net_profit": -394.6,
+        "profit_factor": 0.3467,
+        "win_rate": 0.2857,
+        "wins": 4
+      },
+      "EXHAUSTED_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 5.613,
+        "avg_mae": -0.5133,
+        "avg_mfe": 0.1267,
+        "expectancy": -29.3571,
+        "fills": 7,
+        "gross_loss": -289.0,
+        "gross_profit": 83.5,
+        "losses": 5,
+        "net_profit": -205.5,
+        "profit_factor": 0.2889,
+        "win_rate": 0.2857,
+        "wins": 2
+      },
+      "IMPULSE_BODY_UNMEASURED": {
+        "avg_fill_latency_seconds": 0.0,
+        "avg_mae": null,
+        "avg_mfe": null,
+        "expectancy": -27.8364,
+        "fills": 11,
+        "gross_loss": -526.0,
+        "gross_profit": 219.8,
+        "losses": 7,
+        "net_profit": -306.2,
+        "profit_factor": 0.4179,
+        "win_rate": 0.3636,
+        "wins": 4
+      },
+      "LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 6.9192,
+        "avg_mae": -0.5843,
+        "avg_mfe": 0.1771,
+        "expectancy": -39.6857,
+        "fills": 7,
+        "gross_loss": -347.0,
+        "gross_profit": 69.2,
+        "losses": 5,
+        "net_profit": -277.8,
+        "profit_factor": 0.1994,
+        "win_rate": 0.2857,
+        "wins": 2
+      },
+      "LONG_PRESSURE_OPPOSED": {
+        "avg_fill_latency_seconds": 3.2663,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -52.1667,
+        "fills": 6,
+        "gross_loss": -418.0,
+        "gross_profit": 105.0,
+        "losses": 5,
+        "net_profit": -313.0,
+        "profit_factor": 0.2512,
+        "win_rate": 0.1667,
+        "wins": 1
+      },
+      "LOW_APPROVAL_SCORE": {
+        "avg_fill_latency_seconds": 3.2663,
+        "avg_mae": -0.79,
+        "avg_mfe": 0.0,
+        "expectancy": -57.9667,
+        "fills": 6,
+        "gross_loss": -418.0,
+        "gross_profit": 70.2,
+        "losses": 5,
+        "net_profit": -347.8,
+        "profit_factor": 0.1679,
+        "win_rate": 0.1667,
+        "wins": 1
+      },
+      "LOW_FAVORABLE_EXCURSION": {
+        "avg_fill_latency_seconds": 8.2955,
+        "avg_mae": -0.6533,
+        "avg_mfe": 0.11,
+        "expectancy": -61.6667,
+        "fills": 3,
+        "gross_loss": -185.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -185.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "STALE_LEVEL_TOUCH": {
+        "avg_fill_latency_seconds": 2.6545,
+        "avg_mae": -0.5422,
+        "avg_mfe": 0.1422,
+        "expectancy": -33.75,
+        "fills": 10,
+        "gross_loss": -430.0,
+        "gross_profit": 92.5,
+        "losses": 7,
+        "net_profit": -337.5,
+        "profit_factor": 0.2151,
+        "win_rate": 0.3,
+        "wins": 3
+      },
+      "TIGHT_STOP_TO_SPREAD": {
+        "avg_fill_latency_seconds": 5.9056,
+        "avg_mae": -0.4908,
+        "avg_mfe": 0.1017,
+        "expectancy": -43.3333,
+        "fills": 12,
+        "gross_loss": -558.0,
+        "gross_profit": 38.0,
+        "losses": 10,
+        "net_profit": -520.0,
+        "profit_factor": 0.0681,
+        "win_rate": 0.1667,
+        "wins": 2
+      },
+      "TWO_TOUCH_ONLY": {
+        "avg_fill_latency_seconds": 6.6487,
+        "avg_mae": -0.415,
+        "avg_mfe": 0.23,
+        "expectancy": -25.6333,
+        "fills": 6,
+        "gross_loss": -244.0,
+        "gross_profit": 90.2,
+        "losses": 3,
+        "net_profit": -153.8,
+        "profit_factor": 0.3697,
+        "win_rate": 0.5,
+        "wins": 3
+      },
+      "VERY_LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 17.1309,
+        "avg_mae": -0.4767,
+        "avg_mfe": 0.2217,
+        "expectancy": -38.7143,
+        "fills": 7,
+        "gross_loss": -344.0,
+        "gross_profit": 73.0,
+        "losses": 5,
+        "net_profit": -271.0,
+        "profit_factor": 0.2122,
+        "win_rate": 0.2857,
+        "wins": 2
+      },
+      "WEAK_IMPULSE_BODY": {
+        "avg_fill_latency_seconds": 4.0201,
+        "avg_mae": -0.5086,
+        "avg_mfe": 0.2229,
+        "expectancy": -28.475,
+        "fills": 8,
+        "gross_loss": -326.0,
+        "gross_profit": 98.2,
+        "losses": 5,
+        "net_profit": -227.8,
+        "profit_factor": 0.3012,
+        "win_rate": 0.375,
+        "wins": 3
+      },
+      "ZERO_MFE_REVERSAL": {
+        "avg_fill_latency_seconds": 5.1429,
+        "avg_mae": -0.6456,
+        "avg_mfe": 0.0,
+        "expectancy": -64.3333,
+        "fills": 18,
+        "gross_loss": -1158.0,
+        "gross_profit": 0.0,
+        "losses": 18,
+        "net_profit": -1158.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      }
+    },
+    "by_lifecycle_diagnostic_tag": {
+      "LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 6.9192,
+        "avg_mae": -0.5843,
+        "avg_mfe": 0.1771,
+        "expectancy": -39.6857,
+        "fills": 7,
+        "gross_loss": -347.0,
+        "gross_profit": 69.2,
+        "losses": 5,
+        "net_profit": -277.8,
+        "profit_factor": 0.1994,
+        "win_rate": 0.2857,
+        "wins": 2
+      },
+      "VERY_LATE_FILL_AFTER_SIGNAL": {
+        "avg_fill_latency_seconds": 17.1309,
+        "avg_mae": -0.4767,
+        "avg_mfe": 0.2217,
+        "expectancy": -38.7143,
+        "fills": 7,
+        "gross_loss": -344.0,
+        "gross_profit": 73.0,
+        "losses": 5,
+        "net_profit": -271.0,
+        "profit_factor": 0.2122,
+        "win_rate": 0.2857,
+        "wins": 2
+      }
+    },
+    "by_outcome_diagnostic_tag": {
+      "LOW_FAVORABLE_EXCURSION": {
+        "avg_fill_latency_seconds": 8.2955,
+        "avg_mae": -0.6533,
+        "avg_mfe": 0.11,
+        "expectancy": -61.6667,
+        "fills": 3,
+        "gross_loss": -185.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -185.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "ZERO_MFE_REVERSAL": {
+        "avg_fill_latency_seconds": 5.1429,
+        "avg_mae": -0.6456,
+        "avg_mfe": 0.0,
+        "expectancy": -64.3333,
+        "fills": 18,
+        "gross_loss": -1158.0,
+        "gross_profit": 0.0,
+        "losses": 18,
+        "net_profit": -1158.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      }
+    },
+    "by_trigger": {
+      "CLEAN_HIGH_IMPULSE_BUY": {
+        "avg_fill_latency_seconds": 2.7035,
+        "avg_mae": -0.4671,
+        "avg_mfe": 0.1643,
+        "expectancy": -33.7917,
+        "fills": 12,
+        "gross_loss": -509.0,
+        "gross_profit": 103.5,
+        "losses": 8,
+        "net_profit": -405.5,
+        "profit_factor": 0.2033,
+        "win_rate": 0.3333,
+        "wins": 4
+      },
+      "CLEAN_LOW_IMPULSE_SELL": {
+        "avg_fill_latency_seconds": 4.32,
+        "avg_mae": -0.5542,
+        "avg_mfe": 0.1358,
+        "expectancy": -32.1,
+        "fills": 20,
+        "gross_loss": -948.0,
+        "gross_profit": 306.0,
+        "losses": 14,
+        "net_profit": -642.0,
+        "profit_factor": 0.3228,
+        "win_rate": 0.3,
+        "wins": 6
+      },
+      "FAILED_HIGH_BREAK_SELL": {
+        "avg_fill_latency_seconds": 2.0289,
+        "avg_mae": -0.81,
+        "avg_mfe": 0.115,
+        "expectancy": -79.6667,
+        "fills": 3,
+        "gross_loss": -239.0,
+        "gross_profit": 0.0,
+        "losses": 3,
+        "net_profit": -239.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "FAILED_LOW_BREAK_BUY": {
+        "avg_fill_latency_seconds": 2.6091,
+        "avg_mae": -0.67,
+        "avg_mfe": 0.13,
+        "expectancy": -68.0,
+        "fills": 4,
+        "gross_loss": -272.0,
+        "gross_profit": 0.0,
+        "losses": 4,
+        "net_profit": -272.0,
+        "profit_factor": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      "HIGH_RESPECT_SELL": {
+        "avg_fill_latency_seconds": 4.9842,
+        "avg_mae": -0.5267,
+        "avg_mfe": 0.2567,
+        "expectancy": -26.7167,
+        "fills": 12,
+        "gross_loss": -604.0,
+        "gross_profit": 283.4,
+        "losses": 8,
+        "net_profit": -320.6,
+        "profit_factor": 0.4692,
+        "win_rate": 0.3333,
+        "wins": 4
+      },
+      "LOW_RESPECT_BUY": {
+        "avg_fill_latency_seconds": 0.0,
+        "avg_mae": null,
+        "avg_mfe": null,
+        "expectancy": -28.0,
+        "fills": 3,
+        "gross_loss": -140.0,
+        "gross_profit": 56.0,
+        "losses": 2,
+        "net_profit": -84.0,
+        "profit_factor": 0.4,
+        "win_rate": 0.3333,
+        "wins": 1
+      }
+    },
+    "candidate_rule_hypotheses": [
+      {
+        "candidate_rule": "CLEAN_LOW_IMPULSE_SELL:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:CLEAN_LOW_IMPULSE_SELL:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.1993,
+            "avg_mae": -0.5524,
+            "avg_mfe": 0.1871,
+            "expectancy": -38.8559,
+            "fills": 34,
+            "gross_loss": -1764.0,
+            "gross_profit": 442.9,
+            "losses": 25,
+            "net_profit": -1321.1,
+            "profit_factor": 0.2511,
+            "win_rate": 0.2647,
+            "wins": 9
+          },
+          "net_improvement": 642.0,
+          "removed": {
+            "avg_fill_latency_seconds": 4.32,
+            "avg_mae": -0.5542,
+            "avg_mfe": 0.1358,
+            "expectancy": -32.1,
+            "fills": 20,
+            "gross_loss": -948.0,
+            "gross_profit": 306.0,
+            "losses": 14,
+            "net_profit": -642.0,
+            "profit_factor": 0.3228,
+            "win_rate": 0.3,
+            "wins": 6
+          }
+        }
+      },
+      {
+        "candidate_filter": "TIGHT_STOP_TO_SPREAD",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:TIGHT_STOP_TO_SPREAD",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 2.9597,
+            "avg_mae": -0.5971,
+            "avg_mfe": 0.2112,
+            "expectancy": -34.3595,
+            "fills": 42,
+            "gross_loss": -2154.0,
+            "gross_profit": 710.9,
+            "losses": 29,
+            "net_profit": -1443.1,
+            "profit_factor": 0.33,
+            "win_rate": 0.3095,
+            "wins": 13
+          },
+          "net_improvement": 520.0,
+          "removed": {
+            "avg_fill_latency_seconds": 5.9056,
+            "avg_mae": -0.4908,
+            "avg_mfe": 0.1017,
+            "expectancy": -43.3333,
+            "fills": 12,
+            "gross_loss": -558.0,
+            "gross_profit": 38.0,
+            "losses": 10,
+            "net_profit": -520.0,
+            "profit_factor": 0.0681,
+            "win_rate": 0.1667,
+            "wins": 2
+          }
+        }
+      },
+      {
+        "candidate_rule": "CLEAN_HIGH_IMPULSE_BUY:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:CLEAN_HIGH_IMPULSE_BUY:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.8746,
+            "avg_mae": -0.5805,
+            "avg_mfe": 0.1664,
+            "expectancy": -37.0857,
+            "fills": 42,
+            "gross_loss": -2203.0,
+            "gross_profit": 645.4,
+            "losses": 31,
+            "net_profit": -1557.6,
+            "profit_factor": 0.293,
+            "win_rate": 0.2619,
+            "wins": 11
+          },
+          "net_improvement": 405.5,
+          "removed": {
+            "avg_fill_latency_seconds": 2.7035,
+            "avg_mae": -0.4671,
+            "avg_mfe": 0.1643,
+            "expectancy": -33.7917,
+            "fills": 12,
+            "gross_loss": -509.0,
+            "gross_profit": 103.5,
+            "losses": 8,
+            "net_profit": -405.5,
+            "profit_factor": 0.2033,
+            "win_rate": 0.3333,
+            "wins": 4
+          }
+        }
+      },
+      {
+        "candidate_filter": "ACTIVE_PULSE_OPPOSED",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:ACTIVE_PULSE_OPPOSED",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.8908,
+            "avg_mae": -0.5829,
+            "avg_mfe": 0.1538,
+            "expectancy": -39.2125,
+            "fills": 40,
+            "gross_loss": -2108.0,
+            "gross_profit": 539.5,
+            "losses": 29,
+            "net_profit": -1568.5,
+            "profit_factor": 0.2559,
+            "win_rate": 0.275,
+            "wins": 11
+          },
+          "net_improvement": 394.6,
+          "removed": {
+            "avg_fill_latency_seconds": 2.8244,
+            "avg_mae": -0.475,
+            "avg_mfe": 0.1975,
+            "expectancy": -28.1857,
+            "fills": 14,
+            "gross_loss": -604.0,
+            "gross_profit": 209.4,
+            "losses": 10,
+            "net_profit": -394.6,
+            "profit_factor": 0.3467,
+            "win_rate": 0.2857,
+            "wins": 4
+          }
+        }
+      },
+      {
+        "candidate_filter": "LOW_APPROVAL_SCORE",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:LOW_APPROVAL_SCORE",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.6579,
+            "avg_mae": -0.5446,
+            "avg_mfe": 0.1718,
+            "expectancy": -33.6521,
+            "fills": 48,
+            "gross_loss": -2294.0,
+            "gross_profit": 678.7,
+            "losses": 34,
+            "net_profit": -1615.3,
+            "profit_factor": 0.2959,
+            "win_rate": 0.2917,
+            "wins": 14
+          },
+          "net_improvement": 347.8,
+          "removed": {
+            "avg_fill_latency_seconds": 3.2663,
+            "avg_mae": -0.79,
+            "avg_mfe": 0.0,
+            "expectancy": -57.9667,
+            "fills": 6,
+            "gross_loss": -418.0,
+            "gross_profit": 70.2,
+            "losses": 5,
+            "net_profit": -347.8,
+            "profit_factor": 0.1679,
+            "win_rate": 0.1667,
+            "wins": 1
+          }
+        }
+      },
+      {
+        "candidate_filter": "STALE_LEVEL_TOUCH",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:STALE_LEVEL_TOUCH",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.8325,
+            "avg_mae": -0.558,
+            "avg_mfe": 0.1765,
+            "expectancy": -36.9455,
+            "fills": 44,
+            "gross_loss": -2282.0,
+            "gross_profit": 656.4,
+            "losses": 32,
+            "net_profit": -1625.6,
+            "profit_factor": 0.2876,
+            "win_rate": 0.2727,
+            "wins": 12
+          },
+          "net_improvement": 337.5,
+          "removed": {
+            "avg_fill_latency_seconds": 2.6545,
+            "avg_mae": -0.5422,
+            "avg_mfe": 0.1422,
+            "expectancy": -33.75,
+            "fills": 10,
+            "gross_loss": -430.0,
+            "gross_profit": 92.5,
+            "losses": 7,
+            "net_profit": -337.5,
+            "profit_factor": 0.2151,
+            "win_rate": 0.3,
+            "wins": 3
+          }
+        }
+      },
+      {
+        "candidate_rule": "HIGH_RESPECT_SELL:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:HIGH_RESPECT_SELL:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.223,
+            "avg_mae": -0.56,
+            "avg_mfe": 0.1422,
+            "expectancy": -39.1071,
+            "fills": 42,
+            "gross_loss": -2108.0,
+            "gross_profit": 465.5,
+            "losses": 31,
+            "net_profit": -1642.5,
+            "profit_factor": 0.2208,
+            "win_rate": 0.2619,
+            "wins": 11
+          },
+          "net_improvement": 320.6,
+          "removed": {
+            "avg_fill_latency_seconds": 4.9842,
+            "avg_mae": -0.5267,
+            "avg_mfe": 0.2567,
+            "expectancy": -26.7167,
+            "fills": 12,
+            "gross_loss": -604.0,
+            "gross_profit": 283.4,
+            "losses": 8,
+            "net_profit": -320.6,
+            "profit_factor": 0.4692,
+            "win_rate": 0.3333,
+            "wins": 4
+          }
+        }
+      },
+      {
+        "candidate_filter": "LONG_PRESSURE_OPPOSED",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:LONG_PRESSURE_OPPOSED",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.6579,
+            "avg_mae": -0.5446,
+            "avg_mfe": 0.1718,
+            "expectancy": -34.3771,
+            "fills": 48,
+            "gross_loss": -2294.0,
+            "gross_profit": 643.9,
+            "losses": 34,
+            "net_profit": -1650.1,
+            "profit_factor": 0.2807,
+            "win_rate": 0.2917,
+            "wins": 14
+          },
+          "net_improvement": 313.0,
+          "removed": {
+            "avg_fill_latency_seconds": 3.2663,
+            "avg_mae": -0.79,
+            "avg_mfe": 0.0,
+            "expectancy": -52.1667,
+            "fills": 6,
+            "gross_loss": -418.0,
+            "gross_profit": 105.0,
+            "losses": 5,
+            "net_profit": -313.0,
+            "profit_factor": 0.2512,
+            "win_rate": 0.1667,
+            "wins": 1
+          }
+        }
+      },
+      {
+        "candidate_filter": "IMPULSE_BODY_UNMEASURED",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:IMPULSE_BODY_UNMEASURED",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 4.5389,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -38.5326,
+            "fills": 43,
+            "gross_loss": -2186.0,
+            "gross_profit": 529.1,
+            "losses": 32,
+            "net_profit": -1656.9,
+            "profit_factor": 0.242,
+            "win_rate": 0.2558,
+            "wins": 11
+          },
+          "net_improvement": 306.2,
+          "removed": {
+            "avg_fill_latency_seconds": 0.0,
+            "avg_mae": null,
+            "avg_mfe": null,
+            "expectancy": -27.8364,
+            "fills": 11,
+            "gross_loss": -526.0,
+            "gross_profit": 219.8,
+            "losses": 7,
+            "net_profit": -306.2,
+            "profit_factor": 0.4179,
+            "win_rate": 0.3636,
+            "wins": 4
+          }
+        }
+      },
+      {
+        "candidate_rule": "FAILED_LOW_BREAK_BUY:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:FAILED_LOW_BREAK_BUY:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.6948,
+            "avg_mae": -0.5444,
+            "avg_mfe": 0.1685,
+            "expectancy": -33.822,
+            "fills": 50,
+            "gross_loss": -2440.0,
+            "gross_profit": 748.9,
+            "losses": 35,
+            "net_profit": -1691.1,
+            "profit_factor": 0.3069,
+            "win_rate": 0.3,
+            "wins": 15
+          },
+          "net_improvement": 272.0,
+          "removed": {
+            "avg_fill_latency_seconds": 2.6091,
+            "avg_mae": -0.67,
+            "avg_mfe": 0.13,
+            "expectancy": -68.0,
+            "fills": 4,
+            "gross_loss": -272.0,
+            "gross_profit": 0.0,
+            "losses": 4,
+            "net_profit": -272.0,
+            "profit_factor": 0.0,
+            "win_rate": 0.0,
+            "wins": 0
+          }
+        }
+      },
+      {
+        "candidate_rule": "FAILED_HIGH_BREAK_SELL:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:FAILED_HIGH_BREAK_SELL:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.7076,
+            "avg_mae": -0.5341,
+            "avg_mfe": 0.1696,
+            "expectancy": -33.8059,
+            "fills": 51,
+            "gross_loss": -2473.0,
+            "gross_profit": 748.9,
+            "losses": 36,
+            "net_profit": -1724.1,
+            "profit_factor": 0.3028,
+            "win_rate": 0.2941,
+            "wins": 15
+          },
+          "net_improvement": 239.0,
+          "removed": {
+            "avg_fill_latency_seconds": 2.0289,
+            "avg_mae": -0.81,
+            "avg_mfe": 0.115,
+            "expectancy": -79.6667,
+            "fills": 3,
+            "gross_loss": -239.0,
+            "gross_profit": 0.0,
+            "losses": 3,
+            "net_profit": -239.0,
+            "profit_factor": 0.0,
+            "win_rate": 0.0,
+            "wins": 0
+          }
+        }
+      },
+      {
+        "candidate_filter": "WEAK_IMPULSE_BODY",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:WEAK_IMPULSE_BODY",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.5438,
+            "avg_mae": -0.5673,
+            "avg_mfe": 0.1477,
+            "expectancy": -37.7239,
+            "fills": 46,
+            "gross_loss": -2386.0,
+            "gross_profit": 650.7,
+            "losses": 34,
+            "net_profit": -1735.3,
+            "profit_factor": 0.2727,
+            "win_rate": 0.2609,
+            "wins": 12
+          },
+          "net_improvement": 227.8,
+          "removed": {
+            "avg_fill_latency_seconds": 4.0201,
+            "avg_mae": -0.5086,
+            "avg_mfe": 0.2229,
+            "expectancy": -28.475,
+            "fills": 8,
+            "gross_loss": -326.0,
+            "gross_profit": 98.2,
+            "losses": 5,
+            "net_profit": -227.8,
+            "profit_factor": 0.3012,
+            "win_rate": 0.375,
+            "wins": 3
+          }
+        }
+      },
+      {
+        "candidate_filter": "EXHAUSTED_IMPULSE_BODY",
+        "causal_claim_allowed": false,
+        "key": "FILTER_FEATURE:EXHAUSTED_IMPULSE_BODY",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This feature appears on a losing cluster. Convert it to an entry rule only after replay or prospective shadow confirms that retention and profit factor hold.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "rule_threshold_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.3167,
+            "avg_mae": -0.5635,
+            "avg_mfe": 0.1761,
+            "expectancy": -37.3957,
+            "fills": 47,
+            "gross_loss": -2423.0,
+            "gross_profit": 665.4,
+            "losses": 34,
+            "net_profit": -1757.6,
+            "profit_factor": 0.2746,
+            "win_rate": 0.2766,
+            "wins": 13
+          },
+          "net_improvement": 205.5,
+          "removed": {
+            "avg_fill_latency_seconds": 5.613,
+            "avg_mae": -0.5133,
+            "avg_mfe": 0.1267,
+            "expectancy": -29.3571,
+            "fills": 7,
+            "gross_loss": -289.0,
+            "gross_profit": 83.5,
+            "losses": 5,
+            "net_profit": -205.5,
+            "profit_factor": 0.2889,
+            "win_rate": 0.2857,
+            "wins": 2
+          }
+        }
+      },
+      {
+        "candidate_rule": "LOW_RESPECT_BUY:*",
+        "causal_claim_allowed": false,
+        "key": "BLOCK_TRIGGER:LOW_RESPECT_BUY:*",
+        "knowledge_time": "DECISION_TIME",
+        "promotion_gate": {
+          "passed": false,
+          "reasons": [
+            "REQUIRES_REPLAY_OR_SHADOW_VALIDATION"
+          ]
+        },
+        "reason": "This trigger family has negative net outcome in the observed evidence and should be blocked only after replay or prospective shadow confirms the improvement.",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "SHADOW_ONLY_NOT_AUTOPROMOTED",
+        "type": "blocked_strategy_rule_candidate",
+        "what_if": {
+          "current": {
+            "avg_fill_latency_seconds": 3.6143,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.3537,
+            "fills": 54,
+            "gross_loss": -2712.0,
+            "gross_profit": 748.9,
+            "losses": 39,
+            "net_profit": -1963.1,
+            "profit_factor": 0.2761,
+            "win_rate": 0.2778,
+            "wins": 15
+          },
+          "kept_if_removed": {
+            "avg_fill_latency_seconds": 3.827,
+            "avg_mae": -0.5531,
+            "avg_mfe": 0.1659,
+            "expectancy": -36.8451,
+            "fills": 51,
+            "gross_loss": -2572.0,
+            "gross_profit": 692.9,
+            "losses": 37,
+            "net_profit": -1879.1,
+            "profit_factor": 0.2694,
+            "win_rate": 0.2745,
+            "wins": 14
+          },
+          "net_improvement": 84.0,
+          "removed": {
+            "avg_fill_latency_seconds": 0.0,
+            "avg_mae": null,
+            "avg_mfe": null,
+            "expectancy": -28.0,
+            "fills": 3,
+            "gross_loss": -140.0,
+            "gross_profit": 56.0,
+            "losses": 2,
+            "net_profit": -84.0,
+            "profit_factor": 0.4,
+            "win_rate": 0.3333,
+            "wins": 1
+          }
+        }
+      }
+    ],
+    "data_quality": {
+      "filled_trades": 54,
+      "filled_trades_with_mae": 29,
+      "filled_trades_with_mfe": 29,
+      "losses": 39,
+      "losses_with_mae": 22,
+      "losses_with_mfe": 22,
+      "mfe_is_sampled_not_tick_complete": true
+    },
+    "failure_taxonomy_counts": {
+      "ACTIVE_PULSE_OPPOSED": 10,
+      "EXHAUSTED_IMPULSE_BODY": 5,
+      "IMPULSE_BODY_UNMEASURED": 7,
+      "LATE_FILL_AFTER_SIGNAL": 5,
+      "LONG_PRESSURE_OPPOSED": 5,
+      "LOW_APPROVAL_SCORE": 5,
+      "LOW_FAVORABLE_EXCURSION": 3,
+      "STALE_LEVEL_TOUCH": 7,
+      "TIGHT_STOP_TO_SPREAD": 10,
+      "TWO_TOUCH_ONLY": 3,
+      "UNCLASSIFIED_RULE_EXECUTION_FAILURE": 3,
+      "VERY_LATE_FILL_AFTER_SIGNAL": 5,
+      "WEAK_IMPULSE_BODY": 5,
+      "ZERO_MFE_REVERSAL": 18
+    },
+    "guardrails": [
+      "report is read-only and broker-free",
+      "do not mutate live rules during an active session",
+      "promote candidates only through replay or prospective shadow gates",
+      "never convert post-fill or outcome data into an entry-time feature",
+      "hypothesis-generation sources cannot also serve as held-out evidence",
+      "no martingale, recovery sizing, or LLM live decisions"
+    ],
+    "leakage_controls": {
+      "candidate_rules_use_decision_time_features_only": true,
+      "descriptive_exclusion_is_not_causal_evidence": true,
+      "fill_latency_is_diagnostic_only": true,
+      "mfe_and_mae_are_outcome_diagnostics_only": true
+    },
+    "learning_mode": "offline_failure_report_only",
+    "loss_examples": [
+      {
+        "decision_index": 22,
+        "direction": "BUY",
+        "failure_tags": [
+          "LOW_APPROVAL_SCORE",
+          "LONG_PRESSURE_OPPOSED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-02T02:00:06+00:00",
+        "profit": -98.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "opposed",
+          "pulse_relation": "neutral",
+          "score": 7.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "LOW_RESPECT_BUY"
+      },
+      {
+        "decision_index": 20,
+        "direction": "SELL",
+        "failure_tags": [
+          "IMPULSE_BODY_UNMEASURED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-02T01:33:02+00:00",
+        "profit": -96.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 13.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "CLEAN_LOW_IMPULSE_SELL"
+      },
+      {
+        "decision_index": 18,
+        "direction": "SELL",
+        "failure_tags": [
+          "TWO_TOUCH_ONLY",
+          "IMPULSE_BODY_UNMEASURED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-02T01:28:03+00:00",
+        "profit": -87.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "aligned",
+          "score": 12.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 2
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "CLEAN_LOW_IMPULSE_SELL"
+      },
+      {
+        "decision_index": 3,
+        "direction": "SELL",
+        "failure_tags": [
+          "VERY_LATE_FILL_AFTER_SIGNAL",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 14.8854,
+        "mae": -0.86,
+        "mfe": 0.0,
+        "placed_at": "2026-07-02T09:53:01.114621+00:00",
+        "profit": -86.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": 0.6785,
+          "entry_distance": 0.7033,
+          "opposing_wick_ratio": 0.1583,
+          "pressure_relation": "aligned",
+          "pulse_relation": "neutral",
+          "score": 14.0,
+          "stop_to_spread_ratio": 2.7639,
+          "touch_age": 2,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "trigger": "CLEAN_LOW_IMPULSE_SELL"
+      },
+      {
+        "decision_index": 15,
+        "direction": "SELL",
+        "failure_tags": [
+          "LOW_APPROVAL_SCORE",
+          "TWO_TOUCH_ONLY",
+          "LONG_PRESSURE_OPPOSED",
+          "VERY_LATE_FILL_AFTER_SIGNAL"
+        ],
+        "fill_latency_seconds": 14.037,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-15T12:10:01.002011+00:00",
+        "profit": -86.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": 0.4717,
+          "entry_distance": 0.9275,
+          "opposing_wick_ratio": 0.0515,
+          "pressure_relation": "opposed",
+          "pulse_relation": "neutral",
+          "score": 7.0,
+          "stop_to_spread_ratio": 3.2614,
+          "touch_age": 0,
+          "touch_count": 2
+        },
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 21,
+        "direction": "BUY",
+        "failure_tags": [
+          "IMPULSE_BODY_UNMEASURED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-02T01:44:05+00:00",
+        "profit": -85.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 13.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 8
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "CLEAN_HIGH_IMPULSE_BUY"
+      },
+      {
+        "decision_index": 2,
+        "direction": "SELL",
+        "failure_tags": [
+          "STALE_LEVEL_TOUCH",
+          "LATE_FILL_AFTER_SIGNAL",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 9.2292,
+        "mae": -0.84,
+        "mfe": 0.0,
+        "placed_at": "2026-07-15T09:46:05.461788+00:00",
+        "profit": -84.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": 0.8137,
+          "entry_distance": 0.8875,
+          "opposing_wick_ratio": 0.1042,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 10.0,
+          "stop_to_spread_ratio": 3.0281,
+          "touch_age": 5,
+          "touch_count": 4
+        },
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 0,
+        "direction": "SELL",
+        "failure_tags": [
+          "LATE_FILL_AFTER_SIGNAL",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 6.0811,
+        "mae": -0.84,
+        "mfe": 0.0,
+        "placed_at": "2026-07-15T16:00:05.131889+00:00",
+        "profit": -84.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": 0.6625,
+          "entry_distance": 0.812,
+          "opposing_wick_ratio": 0.0853,
+          "pressure_relation": "neutral",
+          "pulse_relation": "aligned",
+          "score": 11.0,
+          "stop_to_spread_ratio": 2.6184,
+          "touch_age": 1,
+          "touch_count": 5
+        },
+        "session_id": "2026-07-15-112146-one-minute-scalper-evidence",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 8,
+        "direction": "SELL",
+        "failure_tags": [
+          "UNCLASSIFIED_RULE_EXECUTION_FAILURE"
+        ],
+        "fill_latency_seconds": 1.2175,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-15T10:35:03.788542+00:00",
+        "profit": -83.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": 0.2435,
+          "entry_distance": 0.945,
+          "opposing_wick_ratio": 0.1485,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 8.0,
+          "stop_to_spread_ratio": 3.1933,
+          "touch_age": 0,
+          "touch_count": 5
+        },
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 11,
+        "direction": "SELL",
+        "failure_tags": [
+          "STALE_LEVEL_TOUCH"
+        ],
+        "fill_latency_seconds": 0.526,
+        "mae": -0.83,
+        "mfe": 0.23,
+        "placed_at": "2026-07-15T11:16:03.940957+00:00",
+        "profit": -83.0,
+        "reaction_type": "fakeout",
+        "rule_inputs": {
+          "body_ratio": 0.7629,
+          "entry_distance": 0.1833,
+          "opposing_wick_ratio": 0.1361,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 10.0,
+          "stop_to_spread_ratio": 2.8225,
+          "touch_age": 7,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "trigger": "FAILED_HIGH_BREAK_SELL"
+      },
+      {
+        "decision_index": 15,
+        "direction": "BUY",
+        "failure_tags": [
+          "LOW_APPROVAL_SCORE",
+          "LONG_PRESSURE_OPPOSED",
+          "ACTIVE_PULSE_OPPOSED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-01T23:45:02+00:00",
+        "profit": -82.0,
+        "reaction_type": "fakeout",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "opposed",
+          "pulse_relation": "opposed",
+          "score": 7.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 5
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "FAILED_LOW_BREAK_BUY"
+      },
+      {
+        "decision_index": 20,
+        "direction": "BUY",
+        "failure_tags": [
+          "LOW_FAVORABLE_EXCURSION"
+        ],
+        "fill_latency_seconds": 2.8764,
+        "mae": -0.79,
+        "mfe": 0.12,
+        "placed_at": "2026-07-02T11:55:02.123581+00:00",
+        "profit": -79.0,
+        "reaction_type": "fakeout",
+        "rule_inputs": {
+          "body_ratio": 0.0972,
+          "entry_distance": 0.7645,
+          "opposing_wick_ratio": 0.1974,
+          "pressure_relation": "aligned",
+          "pulse_relation": "aligned",
+          "score": 10.0,
+          "stop_to_spread_ratio": 3.0288,
+          "touch_age": 1,
+          "touch_count": 5
+        },
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "trigger": "FAILED_LOW_BREAK_BUY"
+      },
+      {
+        "decision_index": 22,
+        "direction": "SELL",
+        "failure_tags": [
+          "WEAK_IMPULSE_BODY"
+        ],
+        "fill_latency_seconds": 0.0054,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-02T11:57:02.994555+00:00",
+        "profit": -79.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": 0.4211,
+          "entry_distance": 0.695,
+          "opposing_wick_ratio": 0.1,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 13.0,
+          "stop_to_spread_ratio": 2.981,
+          "touch_age": 1,
+          "touch_count": 4
+        },
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "trigger": "CLEAN_LOW_IMPULSE_SELL"
+      },
+      {
+        "decision_index": 14,
+        "direction": "SELL",
+        "failure_tags": [
+          "LOW_APPROVAL_SCORE",
+          "LONG_PRESSURE_OPPOSED",
+          "LATE_FILL_AFTER_SIGNAL",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 5.5608,
+        "mae": -0.79,
+        "mfe": 0.0,
+        "placed_at": "2026-07-15T11:58:01.306163+00:00",
+        "profit": -79.0,
+        "reaction_type": "fakeout",
+        "rule_inputs": {
+          "body_ratio": 0.3435,
+          "entry_distance": 0.5367,
+          "opposing_wick_ratio": 0.25,
+          "pressure_relation": "opposed",
+          "pulse_relation": "neutral",
+          "score": 7.0,
+          "stop_to_spread_ratio": 2.4791,
+          "touch_age": 1,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "trigger": "FAILED_HIGH_BREAK_SELL"
+      },
+      {
+        "decision_index": 0,
+        "direction": "SELL",
+        "failure_tags": [
+          "ACTIVE_PULSE_OPPOSED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-01T22:30:09+00:00",
+        "profit": -77.0,
+        "reaction_type": "fakeout",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "opposed",
+          "score": 8.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 8
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "FAILED_HIGH_BREAK_SELL"
+      },
+      {
+        "decision_index": 5,
+        "direction": "SELL",
+        "failure_tags": [
+          "WEAK_IMPULSE_BODY",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 4.6116,
+        "mae": -0.78,
+        "mfe": 0.0,
+        "placed_at": "2026-07-02T10:14:03.388416+00:00",
+        "profit": -75.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": 0.6207,
+          "entry_distance": 0.75,
+          "opposing_wick_ratio": 0.0,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 13.0,
+          "stop_to_spread_ratio": 3.025,
+          "touch_age": 1,
+          "touch_count": 5
+        },
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "trigger": "CLEAN_LOW_IMPULSE_SELL"
+      },
+      {
+        "decision_index": 13,
+        "direction": "SELL",
+        "failure_tags": [
+          "UNCLASSIFIED_RULE_EXECUTION_FAILURE"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-01T23:36:14+00:00",
+        "profit": -74.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "neutral",
+          "score": 10.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 4
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 4,
+        "direction": "SELL",
+        "failure_tags": [
+          "LOW_APPROVAL_SCORE",
+          "LONG_PRESSURE_OPPOSED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-01T23:03:18+00:00",
+        "profit": -73.0,
+        "reaction_type": "respect",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "opposed",
+          "pulse_relation": "neutral",
+          "score": 7.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 8
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "HIGH_RESPECT_SELL"
+      },
+      {
+        "decision_index": 8,
+        "direction": "BUY",
+        "failure_tags": [
+          "ACTIVE_PULSE_OPPOSED",
+          "IMPULSE_BODY_UNMEASURED"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": null,
+        "mfe": null,
+        "placed_at": "2026-07-01T23:16:05+00:00",
+        "profit": -71.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": null,
+          "entry_distance": null,
+          "opposing_wick_ratio": null,
+          "pressure_relation": "neutral",
+          "pulse_relation": "opposed",
+          "score": 13.0,
+          "stop_to_spread_ratio": null,
+          "touch_age": null,
+          "touch_count": 3
+        },
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "trigger": "CLEAN_HIGH_IMPULSE_BUY"
+      },
+      {
+        "decision_index": 19,
+        "direction": "BUY",
+        "failure_tags": [
+          "TIGHT_STOP_TO_SPREAD",
+          "TWO_TOUCH_ONLY",
+          "WEAK_IMPULSE_BODY",
+          "ZERO_MFE_REVERSAL"
+        ],
+        "fill_latency_seconds": 0.0,
+        "mae": -0.71,
+        "mfe": 0.0,
+        "placed_at": "2026-07-02T11:53:03.233896+00:00",
+        "profit": -71.0,
+        "reaction_type": "impulse_break",
+        "rule_inputs": {
+          "body_ratio": 0.3979,
+          "entry_distance": 0.9175,
+          "opposing_wick_ratio": 0.0,
+          "pressure_relation": "neutral",
+          "pulse_relation": "aligned",
+          "score": 12.0,
+          "stop_to_spread_ratio": 2.1515,
+          "touch_age": 1,
+          "touch_count": 2
+        },
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "trigger": "CLEAN_HIGH_IMPULSE_BUY"
+      }
+    ],
+    "schema_version": 1,
+    "source_sessions": [
+      "2026-07-01-182530-one-minute-signal-reliability",
+      "2026-07-02-054425-one-minute-scalper-evidence",
+      "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+      "2026-07-15-112146-one-minute-scalper-evidence"
+    ],
+    "strategy_scope": "one_minute_scalper",
+    "summary": {
+      "avg_fill_latency_seconds": 3.6143,
+      "avg_mae": -0.5531,
+      "avg_mfe": 0.1659,
+      "expectancy": -36.3537,
+      "fills": 54,
+      "gross_loss": -2712.0,
+      "gross_profit": 748.9,
+      "losses": 39,
+      "net_profit": -1963.1,
+      "profit_factor": 0.2761,
+      "win_rate": 0.2778,
+      "wins": 15
+    }
+  },
+  "learning_mode": "OFFLINE_HYPOTHESIS_GENERATION_ONLY",
+  "live_rule_mutation_enabled": false,
+  "operational_permissions": {
+    "authorize_demo_start": false,
+    "authorize_real_start": false,
+    "change_strategy_configuration": false,
+    "create_promotion_record": false,
+    "place_or_modify_orders": false,
+    "read_completed_artifacts": true,
+    "write_research_ledger": true
+  },
+  "schema_version": 1,
+  "source_registry": {
+    "hypothesis_source_hashes": [
+      "00c8f741aac30cad29295562540aaf845e878c72987ed6409b58388b1b350a02",
+      "0e504c84fb14579c34d40a72b87c00f9a6a321337e09a529ec068b3ec3b4a3de",
+      "203499b950ce2cb6b2b839f4c738b3f161659e74c7e486582b895b488fac1a24",
+      "20cb8ce563b58afe900bf3f154064bb917844114a6778a32836874852d12ff90",
+      "480ffca7f7f3732344b4619d219a86c058bf6659d95015d6b1debb4597cea159",
+      "4e557ff17e4278013c75deadaeca60f4eaf10166af4dab0e1e00c37a7dc225ec",
+      "53487dc952de8aeb07cd0c008f11ea239158c0368a024b1bff2b4b653c55a566",
+      "76b42cb69e8148a3a4878ace314b4863012b951ea657a1bab4b522c70be7000f",
+      "867c66a90b33f9e68bec2e499c205bd24f561678fea2ea61383245da94b98772",
+      "8983fa9444e97f521e63d7aa86b7ff795a67f8742be0322df0c12c6a866161a4",
+      "89b5887119ec7a00e7b3c5fe8342eb5bbfdbc9298bee12425857cd4f423a84e4",
+      "adfbbdddb1dc48f70ba6851e299c4a9f468e190fad07f7535da9b30bf5bd210e",
+      "c48f1fb7f3442b88917db3b9f639b26f0eb322ecc8d828fae28ffc18ff07b48d",
+      "c9aa6725e235ef00c9da53a440f3c658c2e31677f306f2c583c6b235880f3dca",
+      "cac11eb537e27eb3aab13e17ee70b9201a9ce7c7fe3ed79aebc7943d77124090"
+    ],
+    "manifest": {
+      "path": "docs/analysis/2026-07-15-one-minute-learning-sources.json",
+      "sha256": "d5bdd91f6a4097d5f26dc772d66c2823ca55c1c8480dafb25156b5d87631be23"
+    },
+    "retired_candidates": [
+      {
+        "candidate": "ONE_MINUTE_QUOTE_PRESSURE_V8",
+        "discovery": {
+          "arms_detected": 10936,
+          "fills": 0,
+          "placements": 0,
+          "source_candles": 20571,
+          "source_quotes": 12708961,
+          "top_skip_rejection_counts": {
+            "ARM_EXPIRED": 5865,
+            "BUY_STORY_INVALIDATED": 219,
+            "DIRECTIONAL_DISPLACEMENT_BELOW_MINIMUM": 87,
+            "DIRECTIONAL_PRESSURE_BELOW_MINIMUM": 390,
+            "ONE_ACTIVE_LIFECYCLE_BLOCK": 706,
+            "PRESSURE_SAMPLE_TIMEOUT": 878,
+            "PRESSURE_STOP_DISTANCE_ABOVE_MAXIMUM": 2393,
+            "SELL_STORY_INVALIDATED": 393
+          },
+          "valid_triggers": 0
+        },
+        "observed_through_utc": "2026-07-15T19:16:26.577000Z",
+        "order_capability": false,
+        "path": "reports/2026-07-15-one-minute-scalper-diagnostic/v8-implementation-status.json",
+        "policy": {
+          "demo_start_allowed": false,
+          "held_out_must_remain_unopened": true,
+          "tuning_on_failed_window_allowed": false
+        },
+        "referenced_hashes": [
+          "20cb8ce563b58afe900bf3f154064bb917844114a6778a32836874852d12ff90",
+          "89b5887119ec7a00e7b3c5fe8342eb5bbfdbc9298bee12425857cd4f423a84e4",
+          "c9aa6725e235ef00c9da53a440f3c658c2e31677f306f2c583c6b235880f3dca"
+        ],
+        "report_sha256": "20cb8ce563b58afe900bf3f154064bb917844114a6778a32836874852d12ff90",
+        "retired": true,
+        "source_role": "HYPOTHESIS_GENERATION_ONLY",
+        "status": "RETIRED_READ_ONLY"
+      }
+    ],
+    "sessions": [
+      {
+        "artifact_hashes": {
+          "cycles.jsonl": "867c66a90b33f9e68bec2e499c205bd24f561678fea2ea61383245da94b98772",
+          "summary.json": "adfbbdddb1dc48f70ba6851e299c4a9f468e190fad07f7535da9b30bf5bd210e"
+        },
+        "combined_sha256": "76b42cb69e8148a3a4878ace314b4863012b951ea657a1bab4b522c70be7000f",
+        "filled_trades": 21,
+        "observed_through_utc": "2026-07-02T02:00:07Z",
+        "path": "results/2026-07-01-182530-one-minute-signal-reliability",
+        "session_id": "2026-07-01-182530-one-minute-signal-reliability",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY"
+      },
+      {
+        "artifact_hashes": {
+          "cycles.jsonl": "cac11eb537e27eb3aab13e17ee70b9201a9ce7c7fe3ed79aebc7943d77124090",
+          "summary.json": "480ffca7f7f3732344b4619d219a86c058bf6659d95015d6b1debb4597cea159"
+        },
+        "combined_sha256": "c48f1fb7f3442b88917db3b9f639b26f0eb322ecc8d828fae28ffc18ff07b48d",
+        "filled_trades": 18,
+        "observed_through_utc": "2026-07-02T11:57:08Z",
+        "path": "results/2026-07-02-054425-one-minute-scalper-evidence",
+        "session_id": "2026-07-02-054425-one-minute-scalper-evidence",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY"
+      },
+      {
+        "artifact_hashes": {
+          "cycles.jsonl": "203499b950ce2cb6b2b839f4c738b3f161659e74c7e486582b895b488fac1a24",
+          "summary.json": "8983fa9444e97f521e63d7aa86b7ff795a67f8742be0322df0c12c6a866161a4"
+        },
+        "combined_sha256": "0e504c84fb14579c34d40a72b87c00f9a6a321337e09a529ec068b3ec3b4a3de",
+        "filled_trades": 11,
+        "observed_through_utc": "2026-07-15T12:10:18.374000Z",
+        "path": "results/2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "session_id": "2026-07-15-052920-one-minute-scalper-evidence-vol1",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY"
+      },
+      {
+        "artifact_hashes": {
+          "cycles.jsonl": "53487dc952de8aeb07cd0c008f11ea239158c0368a024b1bff2b4b653c55a566",
+          "summary.json": "00c8f741aac30cad29295562540aaf845e878c72987ed6409b58388b1b350a02"
+        },
+        "combined_sha256": "4e557ff17e4278013c75deadaeca60f4eaf10166af4dab0e1e00c37a7dc225ec",
+        "filled_trades": 4,
+        "observed_through_utc": "2026-07-15T17:38:32.480000Z",
+        "path": "results/2026-07-15-112146-one-minute-scalper-evidence",
+        "session_id": "2026-07-15-112146-one-minute-scalper-evidence",
+        "source_role": "HYPOTHESIS_GENERATION_ONLY"
+      }
+    ]
+  },
+  "strategy_scope": "one_minute_scalper",
+  "verified_patterns": [
+    {
+      "certainty": "VERIFIED_DESCRIPTIVE",
+      "fills": 54,
+      "interpretation": "Outcome diagnostics indicate an entry-admission problem; MFE itself is not an entry-time feature.",
+      "key": "LEGACY_IMMEDIATE_ADVERSE_SELECTION",
+      "losses": 39,
+      "losses_with_mfe": 22,
+      "mfe_sampling_caveat": "MFE coverage is incomplete and uses sampled observations, not a tick-complete excursion path.",
+      "zero_mfe_losses": 18,
+      "zero_mfe_share_of_all_losses": 0.4615,
+      "zero_mfe_share_of_losses_with_mfe": 0.8182
+    },
+    {
+      "all_observed_groups_negative": true,
+      "certainty": "VERIFIED_DESCRIPTIVE",
+      "interpretation": "The included run population does not support restarting the unchanged classifier or claiming that one shallow filter fixes it.",
+      "key": "LEGACY_TRIGGER_GROUPS_NEGATIVE",
+      "negative_group_count": 6,
+      "negative_trigger_groups": [
+        "CLEAN_HIGH_IMPULSE_BUY",
+        "CLEAN_LOW_IMPULSE_SELL",
+        "FAILED_HIGH_BREAK_SELL",
+        "FAILED_LOW_BREAK_BUY",
+        "HIGH_RESPECT_SELL",
+        "LOW_RESPECT_BUY"
+      ],
+      "observed_group_count": 6
+    },
+    {
+      "arms_detected": 10936,
+      "certainty": "FROZEN_GATE_RESULT",
+      "fills": 0,
+      "interpretation": "The retired candidate failed before economic evaluation; its failed window may generate a new hypothesis but cannot validate or tune the retired candidate.",
+      "key": "ONE_MINUTE_QUOTE_PRESSURE_V8_TRIGGER_FEASIBILITY_FAILURE",
+      "placements": 0,
+      "top_skip_rejection_counts": {
+        "ARM_EXPIRED": 5865,
+        "BUY_STORY_INVALIDATED": 219,
+        "DIRECTIONAL_DISPLACEMENT_BELOW_MINIMUM": 87,
+        "DIRECTIONAL_PRESSURE_BELOW_MINIMUM": 390,
+        "ONE_ACTIVE_LIFECYCLE_BLOCK": 706,
+        "PRESSURE_SAMPLE_TIMEOUT": 878,
+        "PRESSURE_STOP_DISTANCE_ABOVE_MAXIMUM": 2393,
+        "SELL_STORY_INVALIDATED": 393
+      },
+      "valid_triggers": 0
+    }
+  ]
+}

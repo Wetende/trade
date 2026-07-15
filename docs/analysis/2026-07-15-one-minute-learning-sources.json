@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "strategy_scope": "one_minute_scalper",
+  "source_role": "HYPOTHESIS_GENERATION_ONLY",
+  "min_samples": 3,
+  "sessions": [
+    "results/2026-07-01-182530-one-minute-signal-reliability",
+    "results/2026-07-02-054425-one-minute-scalper-evidence",
+    "results/2026-07-15-052920-one-minute-scalper-evidence-vol1",
+    "results/2026-07-15-112146-one-minute-scalper-evidence"
+  ],
+  "retired_candidate_reports": [
+    "reports/2026-07-15-one-minute-scalper-diagnostic/v8-implementation-status.json"
+  ],
+  "guardrails": {
+    "broker_mutation_enabled": false,
+    "live_rule_mutation_enabled": false,
+    "automatic_promotion_enabled": false,
+    "source_hashes_may_not_be_reused_for_evaluation": true,
+    "new_candidate_name_required": true,
+    "m15_m30_out_of_scope": true
+  }
+}
