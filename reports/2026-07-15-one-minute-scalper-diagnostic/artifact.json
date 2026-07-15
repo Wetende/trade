@@ -1,0 +1,527 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "One Minute Scalper: Safe Execution, No Proven Edge",
+    "description": "Technical diagnosis of the July 15 volume-1 DEMO run, prior comparable evidence, and a supervised manual no-trade experiment.",
+    "generatedAt": "2026-07-15T14:04:00Z",
+    "sources": [
+      {
+        "id": "vol1_run",
+        "label": "July 15 volume-1 DEMO runner artifacts",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Reconciled the runner summary, cycle decisions, and MT5 execution journal by entry order ticket, then grouped filled trades by setup and direction.",
+          "sql": "CREATE OR REPLACE TEMP TABLE closed_trades AS SELECT UNNEST(trade_history.closed_trades) AS trade FROM read_json_auto('results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/summary.json'); CREATE OR REPLACE TEMP TABLE placed_cycles AS SELECT execution.order AS entry_order, analysis.telemetry.selected_candidate.trigger AS setup, analysis.telemetry.selected_candidate.reaction_type AS family, analysis.telemetry.selected_candidate.direction AS side FROM read_json_auto('results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/cycles.jsonl') WHERE status = 'ORDER_PLACED'; SELECT p.setup, ANY_VALUE(p.family) AS family, ANY_VALUE(p.side) AS side, COUNT(*) AS trades, COUNT(*) FILTER (WHERE t.trade.profit > 0) AS wins, COUNT(*) FILTER (WHERE t.trade.profit < 0) AS losses, COUNT(*) FILTER (WHERE t.trade.profit > 0)::DOUBLE / COUNT(*) AS win_rate, SUM(t.trade.profit) AS net_profit, AVG(t.trade.profit) AS average_profit, COUNT(*) FILTER (WHERE t.trade.profit < 0 AND COALESCE(t.trade.mfe_points, 0) = 0) AS zero_mfe_losses FROM placed_cycles p JOIN closed_trades t ON p.entry_order = t.trade.entry_order GROUP BY p.setup ORDER BY net_profit ASC;",
+          "query": "$summary = Get-Content summary.json | ConvertFrom-Json; $cycles = Get-Content cycles.jsonl | % ConvertFrom-Json; join ORDER_PLACED cycles to closed_trades on execution.order = entry_order; aggregate profit, MFE, MAE, outcomes, holding time, and safety decisions",
+          "executed_at": "2026-07-15T13:50:00Z",
+          "tables_used": [
+            "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/summary.json",
+            "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/cycles.jsonl",
+            "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/XAUUSD.vx/execution_journal/mt5_events.jsonl"
+          ],
+          "filters": [
+            "DEMO account only",
+            "XAUUSD.vx only",
+            "volume 1.0",
+            "session start 2026-07-15T09:29:20Z",
+            "closed trades reconciled through 2026-07-15T12:10:24Z"
+          ],
+          "metric_definitions": [
+            "Net P/L = sum of reconciled closed-trade profit.",
+            "Profit factor = gross profit divided by absolute gross loss.",
+            "Expectancy = net P/L divided by closed-trade count.",
+            "Zero-MFE loss = a losing trade with sampled maximum favorable excursion equal to zero; one-second samples plus exit are lower-bound observations."
+          ]
+        }
+      },
+      {
+        "id": "prior_evidence",
+        "label": "Prior One Minute Scalper forensic and evidence reviews",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Reconciled the two comparable volume-1 forensic sessions and the frozen V1-V7 evidence-sufficiency audit.",
+          "sql": "WITH sessions(session, trades, wins, losses, net_profit, profit_factor, expectancy) AS (VALUES ('July 1 forensic', 21, 7, 14, -604.0, 0.4181, -28.76), ('July 2 evidence', 18, 5, 13, -630.8, 0.2345, -35.0444444444), ('July 15 volume-1', 11, 1, 10, -651.5, 0.0758865248, -59.2272727273)) SELECT * FROM sessions UNION ALL SELECT 'Combined descriptive total', SUM(trades), SUM(wins), SUM(losses), SUM(net_profit), 680.7 / 2567.0, SUM(net_profit) / SUM(trades) FROM sessions;",
+          "query": "Read the saved session metrics, excursion findings, family totals, and frozen candidate decisions exactly as reported; pool only the three comparable order-capable volume-1 sessions for the descriptive combined total.",
+          "executed_at": "2026-07-15T13:50:00Z",
+          "tables_used": [
+            "docs/analysis/2026-07-02-one-minute-scalper-forensic-review.md",
+            "docs/analysis/2026-07-02-one-minute-scalper-impulse-loss-review.md",
+            "docs/analysis/2026-07-15-one-minute-scalper-evidence-sufficiency-audit.md"
+          ],
+          "filters": [
+            "DEMO volume-1 sessions for pooled live-style execution totals",
+            "frozen V1-V7 discovery results retained as separate research evidence"
+          ],
+          "metric_definitions": [
+            "Combined volume-1 totals = July 1 session + July 2 evidence session + July 15 volume-1 session.",
+            "Frozen candidate Net R, profit factor, and expectancy R are copied from their preregistered discovery reviews and are not pooled with account-currency P/L."
+          ]
+        }
+      },
+      {
+        "id": "manual_checks",
+        "label": "Supervised manual DEMO engine checks",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Ran the canonical engine read-only against fresh MT5 M1 snapshots and recorded the proposal and primary rejection without placing an order unless every playbook gate passed.",
+          "sql": "WITH decisions(closed_candle, candidate, decision, primary_rejection) AS (VALUES ('9:44 a.m. EDT', 'CLEAN_LOW_IMPULSE_SELL', 'NO_TRADE', '1.40-point stop exceeded 1.00 maximum; weak impulse body; stale break'), ('9:45 a.m. EDT', 'HIGH_RESPECT_SELL', 'NO_TRADE', 'Live entry moved away; conflicted local M1 zone'), ('9:47 a.m. EDT', 'FAILED_LOW_BREAK_BUY', 'NO_TRADE', 'Live entry moved away'), ('9:48 a.m. EDT', 'FAILED_HIGH_BREAK_SELL', 'NO_TRADE', 'Confirmed-reaction repricing was invalid'), ('9:49 a.m. EDT', 'FAILED_LOW_BREAK_BUY', 'NO_TRADE', 'Invalid repricing, stale re-entry, mixed confirmation, low score'), ('9:51 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE', 'Live entry moved away; active pulse opposed a tight respect entry'), ('9:52 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE', 'Moved-away entry, conflicted local zone, and opposing active pulse'), ('10:00 a.m. EDT', 'FAILED_HIGH_BREAK_SELL', 'NO_TRADE', 'Invalid repricing, conflicted local zone, and opposing active pulse'), ('10:01 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE', 'Confirmed-reaction repricing was invalid'), ('10:02 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE', 'Moved-away entry, conflicted local zone, and fragile confirmation')) SELECT * FROM decisions ORDER BY closed_candle;",
+          "query": "_mt5_runner_engine_analysis_func(MT5ConnectionConfig.from_env())() with require_demo=true, allow_real_orders=false, fast_only, 60 fully closed M1 candles, volume=1.0",
+          "executed_at": "2026-07-15T14:03:00Z",
+          "tables_used": [
+            "results/2026-07-15-094500-manual-ai-demo-experiment-v1/XAUUSD.vx/engine_telemetry",
+            "results/2026-07-15-094500-manual-ai-demo-experiment-v1/XAUUSD.vx/order_proposals"
+          ],
+          "filters": [
+            "DEMO account only",
+            "fully closed M1 candles only",
+            "no manual override of a rejected setup"
+          ],
+          "metric_definitions": [
+            "Manual decision = accept the deterministic engine's playbook gate and independently refuse any stale, moved-away, conflicted, weak, or invalid-risk proposal."
+          ]
+        }
+      }
+    ],
+    "cards": [
+      {
+        "id": "net_card",
+        "description": "Realized profit across 11 reconciled volume-1 DEMO trades.",
+        "dataset": "current_metrics",
+        "sourceId": "vol1_run",
+        "metrics": [
+          { "label": "Net P/L", "field": "net_profit", "format": "currency", "signed": true }
+        ]
+      },
+      {
+        "id": "pf_card",
+        "description": "Gross profit divided by absolute gross loss; 1.0 is break-even before additional cost.",
+        "dataset": "current_metrics",
+        "sourceId": "vol1_run",
+        "metrics": [
+          { "label": "Profit factor", "field": "profit_factor", "format": "number" }
+        ]
+      },
+      {
+        "id": "expectancy_card",
+        "description": "Average realized profit per closed trade.",
+        "dataset": "current_metrics",
+        "sourceId": "vol1_run",
+        "metrics": [
+          { "label": "Expectancy / trade", "field": "expectancy", "format": "currency", "signed": true }
+        ]
+      },
+      {
+        "id": "zero_mfe_card",
+        "description": "Losses that never showed sampled favorable movement after fill.",
+        "dataset": "current_metrics",
+        "sourceId": "vol1_run",
+        "metrics": [
+          { "label": "Zero-MFE losses", "field": "zero_mfe_losses", "format": "number" },
+          { "label": "Total losses", "field": "losses", "format": "number" }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "setup_net_chart",
+        "title": "Net P/L by filled setup",
+        "subtitle": "July 15 volume-1 DEMO session; 11 closed trades, values in account currency",
+        "intent": "comparison",
+        "question": "Which deterministic setup families contributed the realized loss?",
+        "rationale": "A horizontal bar chart makes the four exact negative setup contributions comparable while preserving long trigger labels.",
+        "type": "horizontalBar",
+        "dataset": "setup_performance",
+        "sourceId": "vol1_run",
+        "encodings": {
+          "x": { "field": "setup", "type": "nominal", "label": "Setup" },
+          "y": { "field": "net_profit", "type": "quantitative", "format": "currency", "label": "Net P/L" },
+          "tooltip": [
+            { "field": "trades", "type": "quantitative", "label": "Trades" },
+            { "field": "wins", "type": "quantitative", "label": "Wins" },
+            { "field": "losses", "type": "quantitative", "label": "Losses" },
+            { "field": "zero_mfe_losses", "type": "quantitative", "label": "Zero-MFE losses" }
+          ]
+        },
+        "valueFormat": "currency",
+        "unit": "account currency",
+        "layout": "full",
+        "maxRows": 4,
+        "referenceLines": [
+          { "value": 0, "axis": "y", "label": "Break-even", "color": "neutral", "lineStyle": "solid" }
+        ]
+      }
+    ],
+    "tables": [
+      {
+        "id": "setup_detail_table",
+        "title": "Filled setup outcomes",
+        "subtitle": "Deterministic trigger groups for all 11 reconciled volume-1 DEMO fills",
+        "dataset": "setup_performance",
+        "sourceId": "vol1_run",
+        "defaultSort": { "field": "net_profit", "direction": "asc" },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          { "field": "setup", "label": "Setup", "type": "text" },
+          { "field": "trades", "label": "Trades", "format": "number" },
+          { "field": "wins", "label": "Wins", "format": "number" },
+          { "field": "losses", "label": "Losses", "format": "number" },
+          { "field": "win_rate", "label": "Win rate", "format": "percent" },
+          { "field": "net_profit", "label": "Net P/L", "format": "currency", "movement": true },
+          { "field": "zero_mfe_losses", "label": "Zero-MFE losses", "format": "number" }
+        ]
+      },
+      {
+        "id": "manual_checks_table",
+        "title": "Supervised manual decisions",
+        "subtitle": "Fresh closed-M1 checks from 9:44 through 10:02 a.m. EDT; no rejected setup was overridden",
+        "dataset": "manual_decisions",
+        "sourceId": "manual_checks",
+        "defaultSort": { "field": "closed_candle", "direction": "asc" },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          { "field": "closed_candle", "label": "Closed M1 candle", "type": "text" },
+          { "field": "candidate", "label": "Best candidate", "type": "text" },
+          { "field": "decision", "label": "Decision", "type": "text" },
+          { "field": "primary_rejection", "label": "Why it was refused", "type": "text" }
+        ]
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "layout": "full",
+        "body": "# One Minute Scalper: Safe Execution, No Proven Edge"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Technical summary\n\n**The engine is operationally reliable but economically unready.** It stayed on DEMO, kept a single lifecycle, used fresh closed-M1 data, reconciled broker history, managed exits quickly, enforced the repaired loss-streak cooldown, stopped at the session-loss limit, and finished flat. The dominant failure is admission quality: losing entries usually moved against the position immediately. A manual operator using the same rules should therefore add judgment only by refusing marginal setups—not by inventing direction, widening stops, or overriding a deterministic rejection."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "layout": "full",
+        "cardIds": ["net_card", "pf_card", "expectancy_card", "zero_mfe_card"]
+      },
+      {
+        "id": "latest_run_finding",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "vol1_run",
+        "body": "## Ten of eleven trades lost, and eight losses never moved favorably\n\nThe session closed **11 trades: 1 winner and 10 losses**, for **-651.50 net**, **0.0759 profit factor**, and **-59.23 expectancy per trade**. Eight of the ten losses had zero sampled MFE; the other two showed only 0.14 and 0.23 points before failing. Median holding time was 5.64 seconds. This is much stronger evidence of poor entry timing or classification than of slow exit management."
+      },
+      {
+        "id": "setup_chart_block",
+        "type": "chart",
+        "layout": "full",
+        "chartId": "setup_net_chart",
+        "sourceId": "vol1_run"
+      },
+      {
+        "id": "setup_interpretation",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "vol1_run",
+        "body": "## HIGH_RESPECT_SELL was the largest current loss driver\n\nAll five HIGH_RESPECT_SELL fills lost, contributing **-373**. SELL trades were 0-for-7 and contributed **-535**. CLEAN_HIGH_IMPULSE_BUY produced the only winner but still lost **-71.50** across three fills. Because every represented trigger group was negative and samples are small, this does not justify permanently deleting one family; it does justify keeping the engine out of autonomous profit-seeking use."
+      },
+      {
+        "id": "setup_table_block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "setup_detail_table",
+        "sourceId": "vol1_run"
+      },
+      {
+        "id": "historical_finding",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "prior_evidence",
+        "body": "## The result repeats, rather than overturns, prior evidence\n\nAcross the three comparable order-capable volume-1 DEMO sessions, the engine now totals **50 trades, 13 wins, 37 losses, -1,886.30 net, 0.265 profit factor, and -37.73 expectancy per trade**. Earlier reviews already found that most losing fills had zero favorable excursion and that emergency exits reduced, rather than caused, loss. Separately, every frozen V1-V7 post-close candidate failed its preregistered discovery gates. The repeated direction of failure makes an unchanged restart a poor learning experiment."
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Scope and metric definitions\n\nThis diagnosis covers XAUUSD.vx, the fast-only deterministic One Minute Scalper, the latest 60 fully closed M1 candles, one active trade, and volume 1.0 on a Valetax DEMO account. Profit factor is gross profit divided by absolute gross loss. Expectancy is average realized account-currency profit per closed trade. MFE and MAE are one-second sampled lower bounds plus exit observations, so zero MFE means no favorable movement was observed—not that every broker tick was captured."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Methodology\n\nClosed trades were reconciled from broker deal history. Each entry order was joined to the engine cycle that placed it, recovering trigger, side, score, entry, stop, target, outcome, MFE/MAE, and holding time. The latest session was then compared with the two prior volume-1 forensic sessions and the frozen V1-V7 evidence audit. Claims are descriptive; no causal model or statistical significance test is asserted."
+      },
+      {
+        "id": "manual_experiment",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "manual_checks",
+        "body": "## Manual supervision added value by staying flat\n\nTen fresh closed-M1 checks produced ten **NO_TRADE** decisions. Candidates were refused for invalid stop geometry, weak impulse size, stale or conflicted local structure, a live entry that had already moved away, counter-pulse risk, fragile confirmation, or invalid repricing. No order was sent. This is the clean lesson from manual supervision: the first job is to reject a setup that is no longer exactly the setup the rules describe."
+      },
+      {
+        "id": "manual_table_block",
+        "type": "table",
+        "layout": "full",
+        "tableId": "manual_checks_table",
+        "sourceId": "manual_checks"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Limitations and robustness\n\nThe latest sample has only 11 fills and one winning trade, so family-level ranking is unstable. The three pooled volume-1 sessions were run after different correctness improvements and are comparable for direction of economics, not as one frozen experiment. MFE/MAE sampling can miss sub-second extremes. The session-loss threshold was checked after broker reconciliation, so the final loss carried net P/L past the configured -600 limit to -651.50; that is expected from post-close enforcement but should remain visible in risk planning."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Recommended next steps\n\n1. Keep all REAL trading disabled.\n2. Do not restart the unchanged volume-1 engine as a profit test.\n3. Treat manual review as a supervised DEMO experiment with at most one playbook-approved order, explicit SL/TP, and continuous management; a rejected setup stays rejected.\n4. Resume strategy research only with a preregistered, independently motivated hypothesis and fresh chronological evidence.\n5. Preserve the fast adverse exit, reconciliation, cooldown, account-mode gate, and flat-state verification because they behaved as safety controls should."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Further questions\n\nThe next useful investigation is not another threshold tweak on the same outcomes. It is whether a new, causal pre-entry premise can predict immediate favorable excursion on untouched data while retaining BUY/SELL symmetry and enough fills. A second question is whether post-close execution latency and moved-away rejections should become an explicit frozen feature in that future design rather than an informal manual veto."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-15T14:04:00Z",
+    "status": "ready",
+    "datasets": {
+      "current_metrics": [
+        {
+          "trades": 11,
+          "wins": 1,
+          "losses": 10,
+          "win_rate": 0.0909090909,
+          "net_profit": -651.5,
+          "gross_profit": 53.5,
+          "gross_loss": -705.0,
+          "profit_factor": 0.0758865248,
+          "expectancy": -59.2272727273,
+          "average_win": 53.5,
+          "average_loss": -70.5,
+          "payoff_ratio": 0.7588652482,
+          "breakeven_win_rate": 0.5685483871,
+          "zero_mfe_losses": 8,
+          "median_hold_seconds": 5.643,
+          "mean_hold_seconds": 18.2196363636,
+          "orders_placed": 16,
+          "unfilled_orders": 5,
+          "fill_rate": 0.6875,
+          "cooldown_cycles": 575,
+          "account_mode": "DEMO",
+          "open_orders": 0,
+          "open_positions": 0
+        }
+      ],
+      "setup_performance": [
+        {
+          "setup": "HIGH_RESPECT_SELL",
+          "family": "respect",
+          "side": "SELL",
+          "trades": 5,
+          "wins": 0,
+          "losses": 5,
+          "win_rate": 0.0,
+          "net_profit": -373.0,
+          "average_profit": -74.6,
+          "zero_mfe_losses": 5
+        },
+        {
+          "setup": "FAILED_HIGH_BREAK_SELL",
+          "family": "fakeout",
+          "side": "SELL",
+          "trades": 2,
+          "wins": 0,
+          "losses": 2,
+          "win_rate": 0.0,
+          "net_profit": -162.0,
+          "average_profit": -81.0,
+          "zero_mfe_losses": 1
+        },
+        {
+          "setup": "CLEAN_HIGH_IMPULSE_BUY",
+          "family": "impulse_break",
+          "side": "BUY",
+          "trades": 3,
+          "wins": 1,
+          "losses": 2,
+          "win_rate": 0.3333333333,
+          "net_profit": -71.5,
+          "average_profit": -23.8333333333,
+          "zero_mfe_losses": 2
+        },
+        {
+          "setup": "FAILED_LOW_BREAK_BUY",
+          "family": "fakeout",
+          "side": "BUY",
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "net_profit": -45.0,
+          "average_profit": -45.0,
+          "zero_mfe_losses": 0
+        }
+      ],
+      "manual_decisions": [
+        {
+          "closed_candle": "9:44 a.m. EDT",
+          "candidate": "CLEAN_LOW_IMPULSE_SELL",
+          "decision": "NO_TRADE",
+          "primary_rejection": "1.40-point stop exceeded 1.00 maximum; weak impulse body; stale break"
+        },
+        {
+          "closed_candle": "9:45 a.m. EDT",
+          "candidate": "HIGH_RESPECT_SELL",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Live entry moved away; conflicted local M1 zone"
+        },
+        {
+          "closed_candle": "9:47 a.m. EDT",
+          "candidate": "FAILED_LOW_BREAK_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Live entry moved away"
+        },
+        {
+          "closed_candle": "9:48 a.m. EDT",
+          "candidate": "FAILED_HIGH_BREAK_SELL",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Confirmed-reaction repricing was invalid"
+        },
+        {
+          "closed_candle": "9:49 a.m. EDT",
+          "candidate": "FAILED_LOW_BREAK_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Invalid repricing, stale re-entry, mixed confirmation, low score"
+        },
+        {
+          "closed_candle": "9:51 a.m. EDT",
+          "candidate": "LOW_RESPECT_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Live entry moved away; active pulse opposed a tight respect entry"
+        },
+        {
+          "closed_candle": "9:52 a.m. EDT",
+          "candidate": "LOW_RESPECT_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Moved-away entry, conflicted local zone, and opposing active pulse"
+        },
+        {
+          "closed_candle": "10:00 a.m. EDT",
+          "candidate": "FAILED_HIGH_BREAK_SELL",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Invalid repricing, conflicted local zone, and opposing active pulse"
+        },
+        {
+          "closed_candle": "10:01 a.m. EDT",
+          "candidate": "LOW_RESPECT_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Confirmed-reaction repricing was invalid"
+        },
+        {
+          "closed_candle": "10:02 a.m. EDT",
+          "candidate": "LOW_RESPECT_BUY",
+          "decision": "NO_TRADE",
+          "primary_rejection": "Moved-away entry, conflicted local zone, and fragile confirmation"
+        }
+      ],
+      "historical_sessions": [
+        {
+          "session": "July 1 forensic",
+          "trades": 21,
+          "wins": 7,
+          "losses": 14,
+          "net_profit": -604.0,
+          "profit_factor": 0.4181,
+          "expectancy": -28.76
+        },
+        {
+          "session": "July 2 evidence",
+          "trades": 18,
+          "wins": 5,
+          "losses": 13,
+          "net_profit": -630.8,
+          "profit_factor": 0.2345,
+          "expectancy": -35.0444444444
+        },
+        {
+          "session": "July 15 volume-1",
+          "trades": 11,
+          "wins": 1,
+          "losses": 10,
+          "net_profit": -651.5,
+          "profit_factor": 0.0758865248,
+          "expectancy": -59.2272727273
+        },
+        {
+          "session": "Combined descriptive total",
+          "trades": 50,
+          "wins": 13,
+          "losses": 37,
+          "net_profit": -1886.3,
+          "profit_factor": 0.2651733541,
+          "expectancy": -37.726
+        }
+      ]
+    },
+    "accessIssues": []
+  },
+  "sources": [
+    {
+      "id": "vol1_run",
+      "label": "July 15 volume-1 DEMO runner artifacts",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Reconciled summary, cycles, and execution journal by entry order ticket.",
+        "sql": "CREATE OR REPLACE TEMP TABLE closed_trades AS SELECT UNNEST(trade_history.closed_trades) AS trade FROM read_json_auto('results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/summary.json'); CREATE OR REPLACE TEMP TABLE placed_cycles AS SELECT execution.order AS entry_order, analysis.telemetry.selected_candidate.trigger AS setup, analysis.telemetry.selected_candidate.reaction_type AS family, analysis.telemetry.selected_candidate.direction AS side FROM read_json_auto('results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/cycles.jsonl') WHERE status = 'ORDER_PLACED'; SELECT p.setup, COUNT(*) AS trades, SUM(t.trade.profit) AS net_profit FROM placed_cycles p JOIN closed_trades t ON p.entry_order = t.trade.entry_order GROUP BY p.setup ORDER BY net_profit ASC;",
+        "tables_used": [
+          "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/summary.json",
+          "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/mt5_runner/cycles.jsonl",
+          "results/2026-07-15-052920-one-minute-scalper-evidence-vol1/XAUUSD.vx/execution_journal/mt5_events.jsonl"
+        ]
+      }
+    },
+    {
+      "id": "prior_evidence",
+      "label": "Prior One Minute Scalper forensic and evidence reviews",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Saved forensic metrics and frozen V1-V7 decisions.",
+        "sql": "WITH sessions(session, trades, wins, losses, net_profit, profit_factor, expectancy) AS (VALUES ('July 1 forensic', 21, 7, 14, -604.0, 0.4181, -28.76), ('July 2 evidence', 18, 5, 13, -630.8, 0.2345, -35.0444444444), ('July 15 volume-1', 11, 1, 10, -651.5, 0.0758865248, -59.2272727273)) SELECT * FROM sessions;",
+        "tables_used": [
+          "docs/analysis/2026-07-02-one-minute-scalper-forensic-review.md",
+          "docs/analysis/2026-07-02-one-minute-scalper-impulse-loss-review.md",
+          "docs/analysis/2026-07-15-one-minute-scalper-evidence-sufficiency-audit.md"
+        ]
+      }
+    },
+    {
+      "id": "manual_checks",
+      "label": "Supervised manual DEMO engine checks",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Read-only engine proposals from fresh closed-M1 snapshots.",
+        "sql": "WITH decisions(closed_candle, candidate, decision) AS (VALUES ('9:44 a.m. EDT', 'CLEAN_LOW_IMPULSE_SELL', 'NO_TRADE'), ('9:45 a.m. EDT', 'HIGH_RESPECT_SELL', 'NO_TRADE'), ('9:47 a.m. EDT', 'FAILED_LOW_BREAK_BUY', 'NO_TRADE'), ('9:48 a.m. EDT', 'FAILED_HIGH_BREAK_SELL', 'NO_TRADE'), ('9:49 a.m. EDT', 'FAILED_LOW_BREAK_BUY', 'NO_TRADE'), ('9:51 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE'), ('9:52 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE'), ('10:00 a.m. EDT', 'FAILED_HIGH_BREAK_SELL', 'NO_TRADE'), ('10:01 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE'), ('10:02 a.m. EDT', 'LOW_RESPECT_BUY', 'NO_TRADE')) SELECT * FROM decisions;",
+        "tables_used": [
+          "results/2026-07-15-094500-manual-ai-demo-experiment-v1/XAUUSD.vx/engine_telemetry",
+          "results/2026-07-15-094500-manual-ai-demo-experiment-v1/XAUUSD.vx/order_proposals"
+        ]
+      }
+    }
+  ]
+}

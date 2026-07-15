@@ -8,6 +8,7 @@ Scalper. It uses closed M1 candles and engine decisions only; no LLM chooses
 BUY, SELL, HOLD, size, or exits. Start with:
 
 - [Current One Minute Scalper handoff (2026-07-13)](docs/one-minute-scalper-current-handoff-2026-07-13.md)
+- [One Minute Quote Pressure V8 runbook](docs/one-minute-quote-pressure-v8-runbook.md)
 - [Current BUY-continuation research](docs/analysis/2026-07-08-opening-state-buy-continuation-research.md)
 - [Realistic shadow review that retired the old target-grid candidate](docs/analysis/2026-07-08-opening-state-realistic-shadow-review.md)
 - [One Minute Scalper handoff](docs/one-minute-scalper-handoff-2026-07-01.md)

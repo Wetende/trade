@@ -914,6 +914,10 @@ class FakeBroker:
             "digits": 2,
             "point": 0.01,
             "trade_tick_size": 0.01,
+            "supports_order_time_gtc": True,
+            "supports_order_time_specified": True,
+            "supports_stop_orders": True,
+            "pending_filling_mode": "ORDER_FILLING_RETURN",
         }
         self.pending_orders = []
         self.positions = []
@@ -1397,6 +1401,7 @@ def test_executor_journals_connection_request_and_order_result(tmp_path):
     ]
     assert event_types == [
         "CONNECTED",
+        "ORDER_CAPABILITIES_READ",
         "ORDER_REQUEST_BUILT",
         "ORDER_CHECKED",
         "ORDER_EXECUTION_TIMELINE",

@@ -36,6 +36,10 @@ class FakeMT5:
     ORDER_FILLING_FOK = 0
     ORDER_FILLING_IOC = 1
     ORDER_FILLING_RETURN = 2
+    SYMBOL_EXPIRATION_GTC = 1
+    SYMBOL_EXPIRATION_SPECIFIED = 4
+    SYMBOL_ORDER_LIMIT = 2
+    SYMBOL_ORDER_STOP = 4
     TIMEFRAME_M1 = 1
     TIMEFRAME_M3 = 3
     TIMEFRAME_M15 = 15
@@ -168,6 +172,11 @@ class FakeMT5:
             volume_max=100.0,
             volume_step=0.01,
             filling_mode=self.ORDER_FILLING_IOC,
+            expiration_mode=(
+                self.SYMBOL_EXPIRATION_GTC | self.SYMBOL_EXPIRATION_SPECIFIED
+            ),
+            order_mode=self.SYMBOL_ORDER_LIMIT | self.SYMBOL_ORDER_STOP,
+            trade_exemode=0,
         )
 
     def symbol_info_tick(self, symbol):
@@ -210,6 +219,14 @@ class FakeMT5:
             comment="check ok",
             request=SimpleNamespace(**request),
         )
+
+    def order_calc_profit(self, order_type, symbol, volume, price_open, price_close):
+        movement = (
+            price_close - price_open
+            if order_type == self.ORDER_TYPE_BUY
+            else price_open - price_close
+        )
+        return movement * 100.0 * volume
 
     def shutdown(self):
         self.shutdown_called = True
@@ -497,6 +514,85 @@ def test_mt5_request_builder_can_opt_into_server_expiration():
     assert request["expiration"] == 1779969660
 
 
+def test_mt5_request_builder_uses_gtc_when_symbol_rejects_specified_expiration():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+        use_server_expiration=True,
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="BUY_STOP",
+        entry_price=2451.0,
+        stop_loss=2449.0,
+        take_profit=2454.0,
+        valid_until="2026-05-28T12:00:00Z",
+        cancel_if_not_triggered_after="2026-05-28T12:01:00Z",
+        timeframe="1m",
+        status=OrderStatus.PROPOSED,
+        reason="V8",
+    )
+
+    request = MT5OrderRequestBuilder(config).build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "supports_stop_orders": True,
+            "supports_order_time_specified": False,
+            "bid": 2450.20,
+            "ask": 2450.40,
+        },
+    )
+
+    assert request["type_time"] == "ORDER_TIME_GTC"
+    assert request["type_filling"] == "ORDER_FILLING_RETURN"
+    assert "expiration" not in request
+
+
+def test_mt5_request_builder_rejects_order_type_disabled_by_symbol():
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    proposal = OrderProposal(
+        symbol="XAUUSD",
+        broker_symbol="XAUUSD",
+        side=TradeAction.BUY,
+        order_type="BUY_STOP",
+        entry_price=2451.0,
+        stop_loss=2449.0,
+        take_profit=2454.0,
+        valid_until="2026-05-28T12:00:00Z",
+        timeframe="1m",
+        status=OrderStatus.PROPOSED,
+        reason="V8",
+    )
+
+    with pytest.raises(ValueError, match="does not permit pending stop orders"):
+        MT5OrderRequestBuilder(config).build_pending_order_request(
+            proposal,
+            {
+                "name": "XAUUSD",
+                "digits": 2,
+                "point": 0.01,
+                "trade_tick_size": 0.01,
+                "supports_stop_orders": False,
+                "bid": 2450.20,
+                "ask": 2450.40,
+            },
+        )
+
+
 def test_mt5_broker_materializes_specified_pending_order_expiration():
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(
@@ -727,6 +823,35 @@ def test_mt5_broker_connects_and_reads_symbol_specs():
     assert result["symbol"]["trade_stops_level"] == 50
     assert result["symbol"]["trade_freeze_level"] == 20
     assert result["symbol"]["volume_min"] == 0.01
+    assert result["symbol"]["supports_order_time_gtc"] is True
+    assert result["symbol"]["supports_order_time_specified"] is True
+    assert result["symbol"]["supports_stop_orders"] is True
+    assert result["symbol"]["supports_limit_orders"] is True
+    assert result["symbol"]["pending_filling_mode"] == "ORDER_FILLING_RETURN"
+    assert result["symbol"]["trade_stops_distance_price"] == 0.5
+    assert result["symbol"]["trade_freeze_distance_price"] == 0.2
+
+
+@pytest.mark.parametrize(
+    ("side", "entry", "stop"),
+    [("BUY", 4507.0, 4506.5), ("SELL", 4507.0, 4507.5)],
+)
+def test_mt5_broker_estimates_stop_risk_in_account_currency(side, entry, stop):
+    fake_mt5 = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake_mt5,
+    )
+    broker.connect()
+
+    risk = broker.estimate_stop_loss_account_currency(side, 1.0, entry, stop)
+
+    assert risk == pytest.approx(50.0)
 
 
 def test_mt5_broker_reports_detected_real_trade_mode():

@@ -1,0 +1,153 @@
+{
+  "artifact_hashes": {
+    "cli/main.py": "d8da4cdc647713d04b600cb90258e249003711d3625fd06896427b99d779f6c0",
+    "docs/one-minute-quote-pressure-v8-runbook.md": "306309dc5868cc1c73572742aa9c978c4a87c67cb1058c680acb9ddfc9933d22",
+    "docs/superpowers/specs/2026-07-15-one-minute-quote-pressure-v8-design.md": "2ee213d2b1d2c464287aa662f4a6bd8e896c38f96c42527037230188da5bb2c7",
+    "scripts/freeze-one-minute-v8.py": "17177748095571116b0d7ffbdec7358a3f5d9363000f50db738affdd0df6ab66",
+    "scripts/start-one-minute-demo.ps1": "b5a2f172f1382db9f9de9e1fa2c7ba994aec88a423339ce9d1195400d6256c60",
+    "tests/test_cli_mt5_execution.py": "ab26761bcc690f3b9f46308843424bf0802256c598951157736e6b309db11a00",
+    "tests/test_mt5_broker.py": "5d608f2ce7f0770d3584002284adbf7ceb236ede17ca20addeaeb27edf2e8a8a",
+    "tests/test_mt5_execution.py": "6cfdcbfd397332c1df1dc702e2e3be5faf9160b52ec397a6e19b47921e639305",
+    "tests/test_mt5_one_minute_v8_risk.py": "37e47b4faa48adc79d94e8c3442ce5f6fbfe0d0d4ebce7e9dea870a5651bd331",
+    "tests/test_mt5_one_minute_v8_runner.py": "4224f127042b2ee6a4d829bc452c189026e069d028414ff5a38be92c937ed9f5",
+    "tests/test_one_minute_opening_state.py": "b4b43f9774d736f7c872b8bd983a9e71c65fb2a6e5136b8019924c1cc1477e21",
+    "tests/test_one_minute_quote_pressure_v8.py": "a6f0526c2b5dffba887c8bfcf696acedf10cbf1050c9a1d7ec146673da71c7a5",
+    "tests/test_one_minute_quote_pressure_v8_demo_audit.py": "3af1cb4b2b8c2c9dba9d2f5a208d788fc98d593121f10bea3d36998b06ea4e4d",
+    "tests/test_one_minute_quote_pressure_v8_evidence.py": "aad565b18e2bd0334a224fe6cb57190b3e12175f3f085231b59dd6d997fa75a1",
+    "tests/test_one_minute_quote_pressure_v8_promotion.py": "08236aee6d1770bd8832ca0873ef73cfc14092892a9ac66a88503ed2dcad1ebc",
+    "tests/test_one_minute_quote_pressure_v8_replay.py": "5b48bec55ac829137a23cd783234a5ad8b1b61ea66baf15c28093646791649bc",
+    "tests/test_one_minute_quote_pressure_v8_screening.py": "3afe7d4a4917dc67f7615f6e1f30e3788a66cf0ce1a4029092cee6f4769ca47f",
+    "tests/test_portability_artifacts.py": "e19fc5733dae211e51b97bc4f9043b157d88779603e646606696d9cc605d5f48",
+    "tradingagents/agents/price_action/models.py": "c2a4e28d49eb37bd1fe2b72a98661886e97b86a815e0b34731f761e5e5935c43",
+    "tradingagents/agents/price_action/one_minute_entry_model.py": "a8499925eed69d34cb8c33f5f93804a3010b207f036c46fad8c4d546a8ab86e4",
+    "tradingagents/agents/price_action/one_minute_post_close_replay.py": "48aac67026205d997bb98d49ebd96f44edff70babb36f34e2727d3b2025581eb",
+    "tradingagents/agents/price_action/one_minute_post_close_state.py": "f354aab47b44f85e6dff9686d12206d1c392790fd426e1bfe29ebd818c04f1ed",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8.py": "022a13bca097a7e1d3ee3c449986039402ffd0529de68446b6ec200309e643ed",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8_demo_audit.py": "1defefc2cb32ff5576bb4c63d918e9cb10a94b8bc243f2721e882d4f25ffda49",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8_evidence.py": "5c951a9ff9596ba77f7c29d8cb7b624547bc65eff716446b84b9d8de0626c164",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8_promotion.py": "19cc83bb0b73767b7dedc1e09db57dafbd97dd04c65b0152ef5d17dfc41f35e6",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8_replay.py": "5d03056befc167623a71d17e14c84bc412d19b88d43e661cb31329859c516130",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_v8_screening.py": "6fa3a6fec77f0900c3549edecb2c7e68a186e27dbb389cb7f2a1ac8a35382a41",
+    "tradingagents/agents/price_action/opening_state.py": "9f5cadd77d96b0fc95c2b395aa4164dc6f8b24dc24037478594640b8da1e2f9e",
+    "tradingagents/agents/schemas.py": "895ac38637f2c4980486e48fb2db8e8d41a79cd0bf8246863986bd855eac12c6",
+    "tradingagents/brokers/mode_gate.py": "e553cecae40929ca5922e9ae4e90f394664752cd82146ac3b2d37cacd885888c",
+    "tradingagents/brokers/mt5.py": "016f0e660d3facf4ba46546725d77a877b37670d1239e2ea2e135448dc0d4a81",
+    "tradingagents/brokers/mt5_execution.py": "da420808f960071007a4ed3effe05c19d5d5811982fc4cdd9c7d4d6e8a5d62e2",
+    "tradingagents/brokers/mt5_one_minute_v8_risk.py": "26c45d06e1588e46e3e1db94b111db9f405ce26c8982354b2afc4308130a5b10",
+    "tradingagents/brokers/mt5_one_minute_v8_runner.py": "d0d44edefaf1eb8367efcef21a4a54806f60c6e3e52ed27f18ca53cc76965b3a"
+  },
+  "broker_mutation_enabled": false,
+  "candidate": "ONE_MINUTE_QUOTE_PRESSURE_V8",
+  "discovery_folds": [
+    [
+      "2026-06-22T00:00:00+00:00",
+      "2026-06-29T00:00:00+00:00"
+    ],
+    [
+      "2026-06-29T00:00:00+00:00",
+      "2026-07-06T00:00:00+00:00"
+    ],
+    [
+      "2026-07-06T00:00:00+00:00",
+      "2026-07-13T00:00:00+00:00"
+    ]
+  ],
+  "failed_gate_action": "RETIRE_WITHOUT_TUNING_OR_PROMOTION",
+  "flat_verification_count": 3,
+  "frozen_at_utc": "2026-07-15T19:10:20.9085564Z",
+  "gates": {
+    "demo_0_01_to_1_0": {
+      "complete_reconciliation": true,
+      "compliant_entry_drift": true,
+      "maximum_drawdown_r": 3.0,
+      "maximum_safety_failure_count": 0,
+      "minimum_closed_trades": 30,
+      "minimum_profit_factor": 1.1,
+      "minimum_sessions": 5,
+      "positive_expectancy": true,
+      "positive_net": true
+    },
+    "discovery": {
+      "buy_and_sell_positive": true,
+      "maximum_crossed_rate": 0.15,
+      "maximum_geometry_rejection_rate": 0.05,
+      "maximum_loss_streak": 6,
+      "maximum_portfolio_drawdown_r": 8.0,
+      "maximum_session_drawdown_r": 3.0,
+      "minimum_expectancy_r": 0.05,
+      "minimum_fills": 30,
+      "minimum_positive_mirrored_categories": 2,
+      "minimum_profit_factor": 1.15,
+      "minimum_profitable_folds": 2,
+      "minimum_profitable_session_rate": 0.5,
+      "minimum_sessions": 10,
+      "minimum_trigger_rate": 0.15,
+      "minimum_valid_trigger_placement_fill_rate": 0.85,
+      "positive_net": true
+    },
+    "held_out": {
+      "minimum_expectancy_r": 0.1,
+      "minimum_fills": 15,
+      "minimum_profit_factor": 1.25,
+      "minimum_sessions": 5,
+      "positive_net": true,
+      "positive_with_extra_cost_r_per_fill": 0.05,
+      "positive_without_best_session": true
+    },
+    "prospective": {
+      "maximum_safety_failure_count": 0,
+      "minimum_expectancy_r": 0.08,
+      "minimum_fills": 60,
+      "minimum_profit_factor": 1.2,
+      "minimum_profitable_session_rate": 0.6,
+      "minimum_sessions": 10,
+      "positive_net": true
+    }
+  },
+  "held_out_window": [
+    "2026-07-13T00:00:00+00:00",
+    "2026-07-20T00:00:00+00:00"
+  ],
+  "interpretation": {
+    "depth_available": false,
+    "not_true_order_flow_imbalance": true,
+    "reliable_traded_volume_available": false,
+    "signal": "BEST_QUOTE_PRESSURE_PROXY"
+  },
+  "max_session_r": 2.0,
+  "modeled_round_trip_cost_r": 0.05,
+  "schema_version": 1,
+  "shutdown_grace_seconds": 120,
+  "status": "FROZEN",
+  "strategy": {
+    "closed_candle_can_enter": false,
+    "families": [
+      "HIGH_BREAK_BUY",
+      "LOW_BREAK_SELL",
+      "HIGH_RESPECT_SELL",
+      "LOW_RESPECT_BUY",
+      "FAILED_HIGH_BREAK_SELL",
+      "FAILED_LOW_BREAK_BUY"
+    ],
+    "history_candles": 60,
+    "maximum_adverse_r": 0.15,
+    "maximum_live_entry_drift_spread_multiple": 1.0,
+    "maximum_spread_multiple": 1.1,
+    "maximum_stop_distance": 1.0,
+    "minimum_directional_pressure": 0.6,
+    "minimum_displacement_r": 0.1,
+    "minimum_nonzero_moves": 10,
+    "minimum_stop_distance": 0.35,
+    "minimum_stop_spread_multiple": 1.2,
+    "one_active_lifecycle": true,
+    "order_kind": "DIRECTION_SAFE_STOP",
+    "pending_expiry_seconds": 20,
+    "placement_delay_seconds": 5.0,
+    "pressure_change_count": 20,
+    "pressure_window_seconds": 3.0,
+    "risk_reward": 1.5,
+    "tick_size": 0.01
+  },
+  "two_loss_pause_minutes": 15,
+  "volume_boost_enabled": false
+}

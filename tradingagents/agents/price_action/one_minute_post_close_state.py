@@ -329,6 +329,7 @@ def detect_post_close_arms(
         closed,
         lookback=history_candles,
         clean_levels=clean_levels,
+        latest_signal_only=True,
     ):
         if parse_utc(opportunity.signal_time) != latest_time:
             continue

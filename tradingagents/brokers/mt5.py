@@ -55,6 +55,18 @@ def safe_mt5_connection_status(
             "ask",
             "spread",
             "spread_price",
+            "expiration_mode",
+            "order_mode",
+            "filling_mode",
+            "trade_exemode",
+            "supports_order_time_gtc",
+            "supports_order_time_specified",
+            "supports_stop_orders",
+            "supports_limit_orders",
+            "trade_stops_level",
+            "trade_freeze_level",
+            "trade_stops_distance_price",
+            "trade_freeze_distance_price",
         )
         if source_symbol.get(key) is not None
     }
@@ -475,6 +487,15 @@ class MT5OrderRequestBuilder:
                 self.config.min_stop_spread_multiple
             )
             minimum = max(minimum, spread_distance)
+        try:
+            point = float(symbol_info.get("point") or 0.0)
+            broker_distance = max(
+                float(symbol_info.get("trade_stops_level") or 0.0),
+                float(symbol_info.get("trade_freeze_level") or 0.0),
+            ) * point
+        except (TypeError, ValueError):
+            broker_distance = 0.0
+        minimum = max(minimum, broker_distance)
         stop_distance = abs(entry - stop)
         if stop_distance < minimum:
             raise ValueError(
@@ -513,6 +534,14 @@ class MT5OrderRequestBuilder:
         stop = self._round_price(proposal.stop_loss, symbol_info)
         target = self._round_price(proposal.take_profit, symbol_info)
         request_type = self._resolve_order_type(proposal, entry, symbol_info)
+        if request_type in {"BUY_STOP", "SELL_STOP"} and symbol_info.get(
+            "supports_stop_orders"
+        ) is False:
+            raise ValueError("MT5 symbol does not permit pending stop orders")
+        if request_type in {"BUY_LIMIT", "SELL_LIMIT"} and symbol_info.get(
+            "supports_limit_orders"
+        ) is False:
+            raise ValueError("MT5 symbol does not permit pending limit orders")
         if str(getattr(proposal, "order_type", "")).strip().upper() == "AUTO":
             entry = self._reprice_entry_outside_stop_level(
                 request_type,
@@ -544,6 +573,7 @@ class MT5OrderRequestBuilder:
         if (
             self.config.use_server_expiration
             and str(proposal.timeframe).strip().lower() in {"1m", "m1"}
+            and symbol_info.get("supports_order_time_specified") is not False
         ):
             expiration = _parse_pending_expiration_epoch(
                 proposal.cancel_if_not_triggered_after or proposal.valid_until
@@ -705,6 +735,7 @@ class MT5Broker:
                 shutdown()
             raise
 
+        capabilities = self._symbol_capabilities(symbol_info)
         return {
             "connected": True,
             "account": {
@@ -730,6 +761,7 @@ class MT5Broker:
                 "trade_tick_value": symbol_info.get("trade_tick_value"),
                 "trade_stops_level": symbol_info.get("trade_stops_level"),
                 "trade_freeze_level": symbol_info.get("trade_freeze_level"),
+                **capabilities,
                 "volume_min": symbol_info.get("volume_min"),
                 "volume_max": symbol_info.get("volume_max"),
                 "volume_step": symbol_info.get("volume_step"),
@@ -762,9 +794,15 @@ class MT5Broker:
         if callable(terminal_info_func):
             terminal_info = _asdict(terminal_info_func())
         server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        raw_tick_time_msc = tick.get("time_msc")
         raw_tick_time = tick.get("time")
         tick_time_utc = None
-        if raw_tick_time not in (None, ""):
+        if raw_tick_time_msc not in (None, ""):
+            tick_time_utc = datetime.fromtimestamp(
+                (float(raw_tick_time_msc) / 1000.0) - server_time_offset_seconds,
+                tz=timezone.utc,
+            ).isoformat()
+        elif raw_tick_time not in (None, ""):
             tick_time_utc = datetime.fromtimestamp(
                 int(raw_tick_time) - server_time_offset_seconds,
                 tz=timezone.utc,
@@ -774,6 +812,7 @@ class MT5Broker:
         spread_price = None
         if bid not in (None, "") and ask not in (None, ""):
             spread_price = float(ask) - float(bid)
+        capabilities = self._symbol_capabilities(symbol_info)
         return {
             "symbol": {
                 "name": self.config.symbol,
@@ -787,6 +826,7 @@ class MT5Broker:
                 "trade_tick_value": symbol_info.get("trade_tick_value"),
                 "trade_stops_level": symbol_info.get("trade_stops_level"),
                 "trade_freeze_level": symbol_info.get("trade_freeze_level"),
+                **capabilities,
                 "bid": bid,
                 "ask": ask,
             },
@@ -795,6 +835,47 @@ class MT5Broker:
                 "time_utc": tick_time_utc,
             },
             "terminal": terminal_info,
+        }
+
+    def _symbol_capabilities(self, symbol_info: dict[str, Any]) -> dict[str, Any]:
+        """Normalize capability flags needed before constructing an order."""
+        mt5 = self._module()
+        expiration_mode = symbol_info.get("expiration_mode")
+        order_mode = symbol_info.get("order_mode")
+        filling_mode = symbol_info.get("filling_mode")
+        trade_exemode = symbol_info.get("trade_exemode")
+
+        def supports(raw: Any, constant_name: str, fallback: int) -> bool | None:
+            if raw in (None, ""):
+                return None
+            try:
+                flag = int(getattr(mt5, constant_name, fallback))
+                return bool(int(raw) & flag)
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            point = float(symbol_info.get("point") or 0.0)
+            stops_price = float(symbol_info.get("trade_stops_level") or 0.0) * point
+            freeze_price = float(symbol_info.get("trade_freeze_level") or 0.0) * point
+        except (TypeError, ValueError):
+            stops_price = freeze_price = 0.0
+        return {
+            "expiration_mode": expiration_mode,
+            "order_mode": order_mode,
+            "filling_mode": filling_mode,
+            "trade_exemode": trade_exemode,
+            "supports_order_time_gtc": supports(
+                expiration_mode, "SYMBOL_EXPIRATION_GTC", 1
+            ),
+            "supports_order_time_specified": supports(
+                expiration_mode, "SYMBOL_EXPIRATION_SPECIFIED", 4
+            ),
+            "supports_stop_orders": supports(order_mode, "SYMBOL_ORDER_STOP", 4),
+            "supports_limit_orders": supports(order_mode, "SYMBOL_ORDER_LIMIT", 2),
+            "pending_filling_mode": "ORDER_FILLING_RETURN",
+            "trade_stops_distance_price": round(max(0.0, stops_price), 10),
+            "trade_freeze_distance_price": round(max(0.0, freeze_price), 10),
         }
 
     def _assert_expected_account(self, account: dict[str, Any]) -> None:
@@ -989,6 +1070,45 @@ class MT5Broker:
         if not ok:
             response["last_error"] = mt5.last_error()
         return response
+
+    def estimate_stop_loss_account_currency(
+        self,
+        side: str,
+        volume: float,
+        entry_price: float,
+        stop_loss: float,
+    ) -> float:
+        """Return absolute stop risk in the connected account currency."""
+        self._assert_active_session()
+        normalized_side = str(side).strip().upper()
+        if normalized_side not in {"BUY", "SELL"}:
+            raise MT5BrokerError("side must be BUY or SELL")
+        size = self._positive_float(volume, "volume")
+        entry = self._positive_float(entry_price, "entry_price")
+        stop = self._positive_float(stop_loss, "stop_loss")
+        if normalized_side == "BUY" and stop >= entry:
+            raise MT5BrokerError("BUY stop_loss must be below entry_price")
+        if normalized_side == "SELL" and stop <= entry:
+            raise MT5BrokerError("SELL stop_loss must be above entry_price")
+        mt5 = self._module()
+        calculate = getattr(mt5, "order_calc_profit", None)
+        if not callable(calculate):
+            raise MT5BrokerError("MT5 order_calc_profit is unavailable")
+        order_type = self._constant(
+            "ORDER_TYPE_BUY" if normalized_side == "BUY" else "ORDER_TYPE_SELL"
+        )
+        value = calculate(order_type, self.config.symbol, size, entry, stop)
+        if value is None:
+            raise MT5BrokerError(
+                f"MT5 order_calc_profit failed: {mt5.last_error()}"
+            )
+        try:
+            risk = abs(float(value))
+        except (TypeError, ValueError) as exc:
+            raise MT5BrokerError("MT5 order_calc_profit returned invalid risk") from exc
+        if not math.isfinite(risk) or risk <= 0:
+            raise MT5BrokerError("MT5 order_calc_profit returned non-positive risk")
+        return risk
 
     def _validate_pending_order_request(
         self, request: dict[str, Any]
@@ -1244,7 +1364,51 @@ class MT5Broker:
         self._assert_active_session()
         mt5 = self._module()
         orders = mt5.orders_get(symbol=symbol) or []
-        return [_asdict(order) for order in orders]
+        buy_types = {
+            getattr(mt5, name, object())
+            for name in (
+                "ORDER_TYPE_BUY_LIMIT",
+                "ORDER_TYPE_BUY_STOP",
+                "ORDER_TYPE_BUY_STOP_LIMIT",
+            )
+        }
+        sell_types = {
+            getattr(mt5, name, object())
+            for name in (
+                "ORDER_TYPE_SELL_LIMIT",
+                "ORDER_TYPE_SELL_STOP",
+                "ORDER_TYPE_SELL_STOP_LIMIT",
+            )
+        }
+        type_names = {
+            getattr(mt5, name): name.removeprefix("ORDER_TYPE_")
+            for name in (
+                "ORDER_TYPE_BUY_LIMIT",
+                "ORDER_TYPE_SELL_LIMIT",
+                "ORDER_TYPE_BUY_STOP",
+                "ORDER_TYPE_SELL_STOP",
+                "ORDER_TYPE_BUY_STOP_LIMIT",
+                "ORDER_TYPE_SELL_STOP_LIMIT",
+            )
+            if hasattr(mt5, name)
+        }
+        normalized = []
+        for order in orders:
+            item = _asdict(order)
+            order_type = item.get("type")
+            if order_type in buy_types:
+                side = "BUY"
+            elif order_type in sell_types:
+                side = "SELL"
+            else:
+                side = str(item.get("side") or "").upper()
+            item["side"] = side
+            item["order_type"] = type_names.get(
+                order_type,
+                str(item.get("order_type") or order_type),
+            )
+            normalized.append(item)
+        return normalized
 
     def open_positions(self, symbol: str) -> list[dict[str, Any]]:
         self._assert_active_session()

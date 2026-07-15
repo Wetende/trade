@@ -427,6 +427,39 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
+        expiration_capability = (connection.get("symbol") or {}).get(
+            "supports_order_time_specified"
+        )
+        if expiration_capability is False:
+            self._server_expiration_supported = False
+        elif (
+            expiration_capability is True
+            and self._server_expiration_supported is None
+        ):
+            self._server_expiration_supported = True
+        elif not isinstance(expiration_capability, bool):
+            self._server_expiration_supported = False
+        self.journal.append(
+            "ORDER_CAPABILITIES_READ",
+            {
+                key: (connection.get("symbol") or {}).get(key)
+                for key in (
+                    "expiration_mode",
+                    "order_mode",
+                    "filling_mode",
+                    "trade_exemode",
+                    "supports_order_time_gtc",
+                    "supports_order_time_specified",
+                    "supports_stop_orders",
+                    "trade_stops_level",
+                    "trade_freeze_level",
+                    "trade_stops_distance_price",
+                    "trade_freeze_distance_price",
+                    "pending_filling_mode",
+                )
+            },
+        )
+
         if self._active_trade_exists():
             result = {
                 "status": "SKIPPED_ACTIVE_TRADE",
@@ -506,7 +539,7 @@ class MT5Executor:
             cancel_after = _parse_utc_datetime(pending_policy["cancel_after_utc"])
             if (
                 cancel_after is not None
-                and self._server_expiration_supported is not False
+                and self._server_expiration_supported is True
             ):
                 request["type_time"] = "ORDER_TIME_SPECIFIED"
                 request["expiration"] = int(cancel_after.timestamp())

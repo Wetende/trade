@@ -1,0 +1,51 @@
+{
+  "account_mode": "DEMO",
+  "artifacts": {
+    "cycles.jsonl": "53487dc952de8aeb07cd0c008f11ea239158c0368a024b1bff2b4b653c55a566",
+    "heartbeat.json": "7a050c47ba7e81d7385c28f1669cec4c89b81ae5a3d5c59fdb64a9672a13ada0",
+    "runner.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runner.stdout.log": "b184b73ceda29541905febf159465f4f2229adc2d7bcbbfd940a29ffa80de03c9",
+    "summary.json": "00c8f741aac30cad29295562540aaf845e878c72987ed6409b58388b1b350a02"
+  },
+  "broker_rejections": {
+    "count": 1,
+    "reasons": {
+      "INVALID_PRICE_10015": 1
+    }
+  },
+  "break_even": 0,
+  "closed_trades": 4,
+  "ended_at_utc": "2026-07-15T17:59:41+00:00",
+  "expectancy_account_currency": -19.2,
+  "filled_trades": 4,
+  "final_flat_probe": {
+    "checked_at_utc": "2026-07-15T18:03:44.232000+00:00",
+    "open_order_count": 0,
+    "open_position_count": 0,
+    "trade_mode": "DEMO"
+  },
+  "gross_loss_account_currency": 145.0,
+  "gross_profit_account_currency": 68.2,
+  "hold_skip_counts": {
+    "other": 154
+  },
+  "losses": 2,
+  "net_profit_account_currency": -76.8,
+  "orders_placed": 4,
+  "orders_rejected": 1,
+  "orders_skipped": 0,
+  "planned_deadline_utc": "2026-07-15T18:21:46+00:00",
+  "profit_factor": 0.4703448276,
+  "safety_failures": [
+    {
+      "action": "RUNNER_STOPPED",
+      "reason": "MT5 initialize failed: (-6, 'Terminal: Authorization failed')",
+      "terminal_flat_state_later_verified": true
+    }
+  ],
+  "session": "C:/Users/Administrator/Desktop/trade/results/2026-07-15-112146-one-minute-scalper-evidence",
+  "started_at_utc": "2026-07-15T15:21:49.994716+00:00",
+  "status": "STOPPED_EARLY_AUTHORIZATION_FAILURE_FLAT_VERIFIED",
+  "total_checks": 170,
+  "wins": 2
+}

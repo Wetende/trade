@@ -18,6 +18,8 @@ def _isolate_runtime_env(monkeypatch):
     monkeypatch.delenv("TRADINGAGENTS_CACHE_DIR", raising=False)
     monkeypatch.delenv("TRADINGAGENTS_TRADING_MODE", raising=False)
     monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "trading_mode", "ENTRY_ONLY")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "normal_only")
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "normal_only")
 
 
 def test_mt5_execute_command_help_mentions_proposal():
@@ -126,6 +128,105 @@ def test_mt5_run_command_exists():
     assert "Run unattended MT5 automation" in result.output
     assert "Seconds between runner cycles." in result.output
     assert "--decision-mode" in result.output
+    assert "--one-minute-candidat" in result.output
+    assert "--promotion-record" in result.output
+    assert "--max-session-r" in result.output
+    assert "--shutdown-grace-seco" in result.output
+
+
+def test_mt5_run_blocks_legacy_m1_order_capability_before_connect(monkeypatch, tmp_path):
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "fast_only")
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "fast_only")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setattr(
+        MT5ConnectionConfig,
+        "from_env",
+        staticmethod(lambda: (_ for _ in ()).throw(AssertionError("must not connect"))),
+    )
+
+    result = runner.invoke(app, ["mt5-run", "--once"])
+
+    assert result.exit_code != 0
+    assert "legacy one_minute_entry_model is read-only" in result.output
+
+
+def test_mt5_run_routes_promoted_fast_only_m1_to_v8_runner(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from tradingagents.brokers import mt5_execution, mt5_one_minute_v8_runner
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+
+    calls = {}
+    config = SimpleNamespace(symbol="XAUUSD", volume=0.01)
+
+    class Executor:
+        def __init__(
+            self,
+            received_config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
+            calls["executor"] = received_config
+            calls["exit_management"] = exit_management
+            calls["one_minute_lifecycle"] = one_minute_lifecycle
+
+    class V8Runner:
+        def __init__(self, runner_config, *, executor):
+            calls["runner_config"] = runner_config
+            calls["runner_executor"] = executor
+
+        def run_once(self):
+            return {"status": "V8_READY"}
+
+        def run_forever(self):
+            raise AssertionError("--once must call run_once")
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "fast_only")
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "fast_only")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
+    monkeypatch.setattr(mt5_one_minute_v8_runner, "MT5OneMinuteV8Runner", V8Runner)
+    manifest = tmp_path / "manifest.json"
+    promotion = tmp_path / "promotion.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "mt5-run",
+            "--once",
+            "--duration-hours",
+            "3",
+            "--one-minute-candidate-manifest",
+            str(manifest),
+            "--promotion-record",
+            str(promotion),
+            "--max-session-r",
+            "2",
+            "--shutdown-grace-seconds",
+            "120",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"status": "V8_READY"}
+    assert calls["executor"] is config
+    assert calls["exit_management"].enabled is False
+    assert calls["one_minute_lifecycle"].reaction_pending_seconds == 20.0
+    assert calls["one_minute_lifecycle"].impulse_pending_seconds == 20.0
+    assert calls["runner_config"].volume == 0.01
+    assert calls["runner_config"].max_runtime_seconds == 3 * 3600
+    assert calls["runner_config"].max_session_r == 2.0
+    assert calls["runner_config"].shutdown_grace_seconds == 120
 
 
 def test_mt5_straddle_run_command_exists():

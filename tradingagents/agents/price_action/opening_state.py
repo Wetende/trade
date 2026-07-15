@@ -154,6 +154,7 @@ def detect_opening_opportunities(
     *,
     lookback: int = 60,
     clean_levels: bool = False,
+    latest_signal_only: bool = False,
 ) -> tuple[OpeningOpportunity, ...]:
     """Detect pre-registered closed-M1 opening templates without future leakage."""
     closed = list(candles)
@@ -161,7 +162,11 @@ def detect_opening_opportunities(
         return ()
 
     opportunities: list[OpeningOpportunity] = []
-    for first_index in range(2, len(closed)):
+    # A template spans at most three candles.  Callers that discard every
+    # non-latest signal can therefore skip origins earlier than len - 3
+    # without changing the returned latest-candle opportunities.
+    first_start = max(2, len(closed) - 3) if latest_signal_only else 2
+    for first_index in range(first_start, len(closed)):
         start = max(0, first_index - lookback)
         prior = closed[start:first_index]
         tolerance = _recent_tolerance(prior)

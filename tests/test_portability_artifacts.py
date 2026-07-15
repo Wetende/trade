@@ -76,28 +76,25 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
         assert re.search(pattern, text)
 
     required_parameterized_defaults = {
-        "Volume": "1.0",
-        "MaxSessionLoss": "600.0",
-        "ReactionPendingSeconds": "20.0",
-        "ImpulsePendingSeconds": "45.0",
+        "Volume": "0.01",
+        "DurationHours": "3.0",
+        "MaxSessionR": "2.0",
     }
     for name, value in required_parameterized_defaults.items():
         pattern = rf"\[double\]\${name}\s*=\s*{re.escape(value)}"
         assert re.search(pattern, text)
 
     assert "$env:TRADINGAGENTS_MT5_VOLUME = $Volume.ToString" in text
-    assert (
-        "$env:TRADINGAGENTS_RUNNER_MAX_SESSION_LOSS = "
-        "$MaxSessionLoss.ToString"
-    ) in text
-    assert (
-        "$env:TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS = "
-        "$ReactionPendingSeconds.ToString"
-    ) in text
-    assert (
-        "$env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = "
-        "$ImpulsePendingSeconds.ToString"
-    ) in text
+    assert "[string]$CandidateManifest" in text
+    assert "[string]$PromotionRecord" in text
+    assert '$env:TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS = "20"' in text
+    assert '$env:TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS = "20"' in text
+    assert '$env:TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_COUNT = "2"' in text
+    assert '$env:TRADINGAGENTS_RUNNER_LOSS_STREAK_COOLDOWN_SECONDS = "900"' in text
+    assert '"--one-minute-candidate-manifest",$CandidateManifest' in text
+    assert '"--promotion-record",$PromotionRecord' in text
+    assert '"--max-session-r",$MaxSessionR.ToString' in text
+    assert '"--shutdown-grace-seconds",$ShutdownGraceSeconds.ToString' in text
     assert "broker-probe" in text
     assert "--json-only" in text
     assert "account_safety.passed" in text
@@ -106,6 +103,7 @@ def test_runner_script_enforces_canonical_demo_profile_and_hidden_worker():
     assert "open_position_count -ne 0" in text
     assert "trade_allowed" in text
     assert "tradeapi_disabled" in text
+    assert "supports_stop_orders" in text
     assert "TotalSeconds" in text
     assert "Get-CimInstance Win32_Process" in text
     assert "-WindowStyle Hidden" in text

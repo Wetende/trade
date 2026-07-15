@@ -699,6 +699,106 @@ def one_minute_post_close_screen(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-v8-screen")
+def one_minute_v8_screen(
+    fixture: list[Path] = typer.Option(..., "--fixture"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    output: Path = typer.Option(..., "--output"),
+    stage: str = typer.Option("DISCOVERY", "--stage"),
+    as_of_utc: str | None = typer.Option(None, "--as-of-utc"),
+    discovery_report: Path | None = typer.Option(None, "--discovery-report"),
+    prospective_registration: Path | None = typer.Option(
+        None,
+        "--prospective-registration",
+    ),
+):
+    """Run the hash-locked broker-free V8 evidence gate."""
+    from tradingagents.agents.price_action.one_minute_quote_pressure_v8_screening import (
+        screen_v8_fixture_paths,
+    )
+
+    try:
+        report = screen_v8_fixture_paths(
+            fixture,
+            manifest_path=manifest,
+            stage=stage,
+            as_of_utc=as_of_utc,
+            discovery_report_path=discovery_report,
+            prospective_registration_path=prospective_registration,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-v8-register-prospective")
+def one_minute_v8_register_prospective(
+    manifest: Path = typer.Option(..., "--manifest"),
+    held_out_report: Path = typer.Option(..., "--held-out-report"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Start V8's prospective clock after the held-out gate passes."""
+    from tradingagents.agents.price_action.one_minute_quote_pressure_v8_screening import (
+        register_v8_prospective,
+    )
+
+    try:
+        record = register_v8_prospective(
+            manifest_path=manifest,
+            held_out_report_path=held_out_report,
+            output_path=output,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(json.dumps(record, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-v8-audit-demo")
+def one_minute_v8_audit_demo(
+    session: list[Path] = typer.Option(..., "--session"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Audit completed 0.01 DEMO sessions for volume-one promotion."""
+    from tradingagents.agents.price_action.one_minute_quote_pressure_v8_demo_audit import (
+        audit_v8_demo_sessions,
+    )
+
+    try:
+        report = audit_v8_demo_sessions(session, manifest_path=manifest)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-v8-promote")
+def one_minute_v8_promote(
+    manifest: Path = typer.Option(..., "--manifest"),
+    evidence_report: list[Path] = typer.Option(..., "--evidence-report"),
+    output: Path = typer.Option(..., "--output"),
+    approved_volume_cap: float = typer.Option(..., "--approved-volume-cap"),
+):
+    """Generate a DEMO-only record from passing hash-locked V8 reports."""
+    from tradingagents.agents.price_action.one_minute_quote_pressure_v8_promotion import (
+        V8PromotionError,
+        generate_v8_promotion_record,
+    )
+
+    try:
+        record = generate_v8_promotion_record(
+            manifest,
+            evidence_report,
+            output,
+            approved_volume_cap=approved_volume_cap,
+            repo_root=Path.cwd(),
+        )
+    except V8PromotionError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(json.dumps(record, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-post-close-collect")
 def one_minute_post_close_collect(
     start: str = typer.Option(..., "--start"),
@@ -1249,6 +1349,19 @@ def _mt5_runner_current_as_of_func():
     return current_as_of
 
 
+def _one_minute_order_profile_requested() -> bool:
+    """Return whether the legacy runner could submit an M1 proposal."""
+    profile_mode = str(
+        DEFAULT_CONFIG.get("entry_profile_mode", "auto")
+    ).strip().lower()
+    return (
+        bool(DEFAULT_CONFIG.get("fast_entries_enabled"))
+        and str(DEFAULT_CONFIG.get("fast_timeframe", "1m")).strip().lower()
+        in {"1m", "m1"}
+        and profile_mode in {"auto", "normal_and_fast", "fast_only"}
+    )
+
+
 @app.command("mt5-execute")
 def mt5_execute(
     proposal_path: Path = typer.Option(
@@ -1308,6 +1421,28 @@ def mt5_run(
         "--decision-mode",
         help="Decision path for runner execution: engine or graph.",
     ),
+    one_minute_candidate_manifest: Path | None = typer.Option(
+        None,
+        "--one-minute-candidate-manifest",
+        help="Frozen ONE_MINUTE_QUOTE_PRESSURE_V8 candidate manifest.",
+    ),
+    promotion_record: Path | None = typer.Option(
+        None,
+        "--promotion-record",
+        help="Hash-matched DEMO-only V8 promotion record.",
+    ),
+    max_session_r: float = typer.Option(
+        2.0,
+        "--max-session-r",
+        min=0.01,
+        help="Maximum V8 session budget in R.",
+    ),
+    shutdown_grace_seconds: int = typer.Option(
+        120,
+        "--shutdown-grace-seconds",
+        min=1,
+        help="V8 DRAINING grace before remaining DEMO exposure is closed.",
+    ),
 ):
     """Run unattended MT5 automation.
 
@@ -1318,8 +1453,13 @@ def mt5_run(
     from tradingagents.brokers.mt5_autogate import MT5AutoGateConfig, MT5AutoGateRunner
     from tradingagents.brokers.mt5 import MT5BrokerError, MT5ConnectionConfig
     from tradingagents.brokers.mt5_execution import (
+        MT5ExitManagementConfig,
         MT5Executor,
         MT5OneMinuteLifecycleConfig,
+    )
+    from tradingagents.brokers.mt5_one_minute_v8_runner import (
+        MT5OneMinuteV8Runner,
+        MT5OneMinuteV8RunnerConfig,
     )
     from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
     from tradingagents.brokers.mt5_straddle import MT5StraddleExecutor
@@ -1344,20 +1484,75 @@ def mt5_run(
             raise ValueError(
                 "graph decision mode is not allowed for MT5 execution"
             )
+        m1_requested = _one_minute_order_profile_requested()
+        v8_requested = (
+            one_minute_candidate_manifest is not None
+            or promotion_record is not None
+        )
+        if m1_requested and not v8_requested:
+            raise ValueError(
+                "The legacy one_minute_entry_model is read-only. Order-capable "
+                "M1 startup requires --one-minute-candidate-manifest and "
+                "--promotion-record for ONE_MINUTE_QUOTE_PRESSURE_V8."
+            )
+        if v8_requested and (
+            one_minute_candidate_manifest is None or promotion_record is None
+        ):
+            raise ValueError(
+                "V8 startup requires both --one-minute-candidate-manifest and "
+                "--promotion-record"
+            )
+        if v8_requested and not m1_requested:
+            raise ValueError("V8 startup flags are valid only for an M1 fast profile")
+        if v8_requested and str(
+            DEFAULT_CONFIG.get("entry_profile_mode", "auto")
+        ).strip().lower() != "fast_only":
+            raise ValueError(
+                "Promoted V8 startup requires TRADINGAGENTS_ENTRY_PROFILE_MODE=fast_only"
+            )
+        if v8_requested and trading_mode != TradingMode.ENTRY_ONLY:
+            raise ValueError("Promoted V8 startup requires ENTRY_ONLY trading mode")
         config = MT5ConnectionConfig.from_env()
         executor = MT5Executor(
             config,
             DEFAULT_CONFIG["results_dir"],
-            exit_management=_mt5_exit_management_config(),
+            exit_management=(
+                MT5ExitManagementConfig(enabled=False)
+                if v8_requested
+                else _mt5_exit_management_config()
+            ),
             one_minute_lifecycle=MT5OneMinuteLifecycleConfig(
-                reaction_pending_seconds=float(
-                    DEFAULT_CONFIG["fast_reaction_pending_seconds"]
+                reaction_pending_seconds=(
+                    20.0
+                    if v8_requested
+                    else float(DEFAULT_CONFIG["fast_reaction_pending_seconds"])
                 ),
-                impulse_pending_seconds=float(
-                    DEFAULT_CONFIG["fast_impulse_pending_seconds"]
+                impulse_pending_seconds=(
+                    20.0
+                    if v8_requested
+                    else float(DEFAULT_CONFIG["fast_impulse_pending_seconds"])
                 ),
             ),
         )
+        if v8_requested:
+            v8_runner = MT5OneMinuteV8Runner(
+                MT5OneMinuteV8RunnerConfig(
+                    results_dir=DEFAULT_CONFIG["results_dir"],
+                    candidate_manifest=one_minute_candidate_manifest,
+                    promotion_record=promotion_record,
+                    repo_root=Path.cwd(),
+                    volume=config.volume,
+                    max_runtime_seconds=(
+                        math.ceil(duration_hours * 3600) if duration_hours else 0
+                    ),
+                    max_session_r=max_session_r,
+                    shutdown_grace_seconds=shutdown_grace_seconds,
+                ),
+                executor=executor,
+            )
+            result = v8_runner.run_once() if once else v8_runner.run_forever()
+            console.print(json.dumps(result, indent=2, sort_keys=True))
+            return
         analysis_func = _mt5_runner_engine_analysis_func(config)
         runner_config_kwargs = {
             "results_dir": DEFAULT_CONFIG["results_dir"],

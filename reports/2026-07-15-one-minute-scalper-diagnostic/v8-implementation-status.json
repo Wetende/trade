@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "candidate": "ONE_MINUTE_QUOTE_PRESSURE_V8",
+  "implementation_status": "COMPLETE",
+  "candidate_status": "RETIRED_READ_ONLY",
+  "order_capability": false,
+  "promotion_record_generated": false,
+  "reason": "FROZEN_DISCOVERY_GATE_FAILED",
+  "manifest": {
+    "path": "docs/analysis/2026-07-15-one-minute-quote-pressure-v8-manifest.json",
+    "sha256": "89b5887119ec7a00e7b3c5fe8342eb5bbfdbc9298bee12425857cd4f423a84e4",
+    "verified": true,
+    "frozen_at_utc": "2026-07-15T19:10:20.9085564Z"
+  },
+  "verification": {
+    "focused_m1_mt5_tests_passed": 746,
+    "repository_tests_passed": 1158,
+    "repository_tests_skipped_for_environment": 4,
+    "repository_subtests_passed": 75,
+    "powershell_launcher_parse_passed": true,
+    "m15_m30_implementation_files_changed": false
+  },
+  "discovery": {
+    "report_path": "reports/2026-07-15-one-minute-scalper-diagnostic/v8-discovery.json",
+    "report_sha256": "c9aa6725e235ef00c9da53a440f3c658c2e31677f306f2c583c6b235880f3dca",
+    "status": "FAIL",
+    "retired": true,
+    "source_candles": 20571,
+    "source_quotes": 12708961,
+    "arms_detected": 10936,
+    "valid_triggers": 0,
+    "placements": 0,
+    "fills": 0,
+    "geometry_rejections": 2393,
+    "derived_geometry_rejection_rate_per_arm": 0.2188185808,
+    "top_skip_rejection_counts": {
+      "ARM_EXPIRED": 5865,
+      "PRESSURE_STOP_DISTANCE_ABOVE_MAXIMUM": 2393,
+      "PRESSURE_SAMPLE_TIMEOUT": 878,
+      "ONE_ACTIVE_LIFECYCLE_BLOCK": 706,
+      "SELL_STORY_INVALIDATED": 393,
+      "DIRECTIONAL_PRESSURE_BELOW_MINIMUM": 390,
+      "BUY_STORY_INVALIDATED": 219,
+      "DIRECTIONAL_DISPLACEMENT_BELOW_MINIMUM": 87
+    },
+    "safety_failures": 0,
+    "lifecycle_failures": 0,
+    "restart_failures": 0,
+    "telemetry_failures": 0,
+    "lookahead_failures": 0,
+    "mutation_failures": 0
+  },
+  "broker_final_proof": {
+    "checked_at_utc": "2026-07-15T19:16:26.577000+00:00",
+    "account_mode": "DEMO",
+    "open_orders": 0,
+    "open_positions": 0,
+    "active_runners": 0,
+    "supports_stop_orders": true
+  },
+  "policy_result": {
+    "held_out_must_remain_unopened": true,
+    "prospective_registration_allowed": false,
+    "demo_start_allowed": false,
+    "volume_one_start_allowed": false,
+    "tuning_on_failed_window_allowed": false,
+    "legacy_m1_order_start_allowed": false
+  }
+}
