@@ -1,8 +1,8 @@
 # One Minute Scalper Evidence Sufficiency Audit
 
-**Date:** 2026-07-15  
-**Repository state reviewed:** `79f8950`  
-**Decision:** `NO_VALID_V8_ON_REUSED_DISCOVERY`  
+**Date:** 2026-07-15
+**Repository state reviewed:** `79f8950`
+**Decision:** `NO_VALID_V8_ON_REUSED_DISCOVERY`
 **Confidence:** high for the stop decision; no confidence claim is made that a
 future candidate will be profitable.
 
