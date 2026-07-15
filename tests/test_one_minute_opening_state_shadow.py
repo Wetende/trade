@@ -16,9 +16,11 @@ from tradingagents.agents.price_action.opening_state_shadow import (
     FROZEN_BUY_CONTINUATION_CANDIDATE,
     FROZEN_TARGET_GRID_CANDIDATE,
     SHADOW_DEFAULT_CANDLE_COUNT,
+    SHADOW_CONTEXT_CANDLE_COUNT,
     build_shadow_report,
     build_shadow_report_from_broker,
     buy_continuation_opportunities,
+    cumulative_shadow_candle_count,
     evaluate_shadow_gate,
     load_frozen_manifest,
 )
@@ -387,9 +389,10 @@ def test_buy_continuation_opportunities_keep_buy_break_templates(monkeypatch):
 
 
 class _Broker:
-    def __init__(self, *, orders=(), positions=()):
+    def __init__(self, *, orders=(), positions=(), tick_time=None):
         self.orders = list(orders)
         self.positions = list(positions)
+        self.tick_time = tick_time
         self.connected = False
         self.fetched_ticks = False
         self.fetch_closed_rates_calls = []
@@ -403,7 +406,8 @@ class _Broker:
         }
 
     def current_symbol_snapshot(self):
-        return {"symbol": {"name": "XAUUSD"}, "tick": {}, "terminal": {}}
+        tick = {"time_utc": self.tick_time} if self.tick_time else {}
+        return {"symbol": {"name": "XAUUSD"}, "tick": tick, "terminal": {}}
 
     def open_orders(self, _symbol):
         return self.orders
@@ -459,8 +463,20 @@ def test_shadow_broker_refuses_open_orders_or_positions():
     assert broker.fetched_ticks is False
 
 
-def test_shadow_broker_default_candle_count_can_span_three_daily_sessions():
-    broker = _Broker()
+def test_cumulative_shadow_candle_count_preserves_start_plus_context():
+    evidence_end = START + timedelta(days=5)
+
+    count = cumulative_shadow_candle_count(
+        START.isoformat(),
+        evidence_end,
+        SHADOW_DEFAULT_CANDLE_COUNT,
+    )
+
+    assert count == 5 * 24 * 60 + SHADOW_CONTEXT_CANDLE_COUNT
+
+
+def test_shadow_broker_expands_default_candle_count_for_elapsed_window():
+    broker = _Broker(tick_time=(START + timedelta(days=5)).isoformat())
 
     build_shadow_report_from_broker(
         broker,
@@ -474,4 +490,6 @@ def test_shadow_broker_default_candle_count_can_span_three_daily_sessions():
     )
 
     assert SHADOW_DEFAULT_CANDLE_COUNT >= 3 * 24 * 60
-    assert broker.fetch_closed_rates_calls == [("1m", SHADOW_DEFAULT_CANDLE_COUNT)]
+    assert broker.fetch_closed_rates_calls == [
+        ("1m", 5 * 24 * 60 + SHADOW_CONTEXT_CANDLE_COUNT)
+    ]

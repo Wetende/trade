@@ -1,0 +1,17 @@
+{
+  "broker_mutation_enabled": false,
+  "candidate": "ONE_MINUTE_POST_CLOSE_RETEST_V2",
+  "candle_close_delay_seconds": 60.0,
+  "confirmation_to_trigger_delay_seconds": 5.0,
+  "entry_policy": "POST_TRIGGER_ZONE_EDGE_RETEST_LIMIT",
+  "history_candles": 60,
+  "maximum_stop_distance": 1.0,
+  "minimum_stop_spread_multiple": 1.2,
+  "modeled_round_trip_cost_r": 0.05,
+  "pending_expiry_seconds": 20,
+  "placement_delay_seconds": 5.0,
+  "post_close_policy_version": 2,
+  "risk_reward": 1.5,
+  "version": 2,
+  "volume_policy": "CONSTANT_RESEARCH_VOLUME"
+}

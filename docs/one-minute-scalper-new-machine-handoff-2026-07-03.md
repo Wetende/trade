@@ -2,6 +2,11 @@
 
 Date: 2026-07-03
 
+> Historical handoff: the target-grid candidate described below was later
+> invalidated by realistic post-close replay. Use
+> [the current 2026-07-13 handoff](one-minute-scalper-current-handoff-2026-07-13.md)
+> and do not start DEMO execution from this document.
+
 This handoff is for moving the current deterministic One Minute Scalper work to
 a different Windows machine. It is intentionally sanitized: do not add account
 logins, passwords, API keys, broker server credentials, terminal credential

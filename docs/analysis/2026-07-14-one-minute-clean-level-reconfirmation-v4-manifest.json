@@ -1,0 +1,23 @@
+{
+  "broker_mutation_enabled": false,
+  "candidate": "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
+  "clean_level_policy": {
+    "interim_excursion_tolerance_multiple": 2.0,
+    "minimum_bar_separation": 3,
+    "minimum_reaction_tolerance_multiple": 1.5,
+    "minimum_touches": 2,
+    "version": 1
+  },
+  "entry_policy": "POST_RETEST_RECONFIRMATION_STOP",
+  "history_candles": 60,
+  "maximum_stop_distance": 1.0,
+  "minimum_stop_spread_multiple": 1.2,
+  "modeled_round_trip_cost_r": 0.05,
+  "placement_delay_after_retest_seconds": 5.0,
+  "post_close_policy_version": 4,
+  "reconfirmation_stop_expiry_seconds": 15,
+  "risk_reward": 1.5,
+  "state_cap_seconds_after_confirmation_close": 90,
+  "version": 4,
+  "volume_policy": "CONSTANT_RESEARCH_VOLUME"
+}

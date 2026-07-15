@@ -2,6 +2,7 @@ param(
     [string]$ProspectiveStart = "2026-07-03T11:25:00+00:00",
     [string]$SessionName = "2026-07-03-112500-target-grid-shadow",
     [string]$ManifestPath = "",
+    [int]$CandleCount = 4320,
     [int]$PollSeconds = 3600,
     [int]$MaxCycles = 72,
     [switch]$Foreground
@@ -40,6 +41,9 @@ try {
 if ($PollSeconds -lt 60) {
     throw "PollSeconds must be at least 60 for read-only shadow watching."
 }
+if ($CandleCount -lt 100) {
+    throw "CandleCount must be at least 100."
+}
 if ($MaxCycles -lt 1) {
     throw "MaxCycles must be positive."
 }
@@ -59,6 +63,7 @@ Set-Location -LiteralPath "$Root"
 `$WatchLog = "$WatchLog"
 `$StopFile = "$StopFile"
 `$ProspectiveStart = "$ProspectiveStart"
+`$CandleCount = $CandleCount
 `$PollSeconds = $PollSeconds
 `$MaxCycles = $MaxCycles
 New-Item -ItemType Directory -Force -Path `$OutputDir | Out-Null
@@ -69,7 +74,7 @@ for (`$Cycle = 1; `$Cycle -le `$MaxCycles; `$Cycle++) {
     }
     `$Started = [DateTimeOffset]::UtcNow.ToString("o")
     Add-Content -LiteralPath `$WatchLog -Value (`$Started + " START cycle=" + `$Cycle)
-    & `$Python -m cli.main one-minute-opening-target-grid-shadow-step --manifest `$Manifest --prospective-start `$ProspectiveStart --output `$Report 1> `$Stdout 2> `$Stderr
+    & `$Python -m cli.main one-minute-opening-target-grid-shadow-step --manifest `$Manifest --prospective-start `$ProspectiveStart --candle-count `$CandleCount --output `$Report 1> `$Stdout 2> `$Stderr
     `$Code = `$LASTEXITCODE
     `$Ended = [DateTimeOffset]::UtcNow.ToString("o")
     `$Summary = `$Ended + " END cycle=" + `$Cycle + " exit=" + `$Code
@@ -112,6 +117,7 @@ $Worker = Start-Process `
     session_name = $SessionName
     candidate = $Candidate
     prospective_start = $ProspectiveStart
+    candle_count = $CandleCount
     poll_seconds = $PollSeconds
     max_cycles = $MaxCycles
     output_dir = $OutputDir

@@ -51,6 +51,7 @@ class FakeMT5:
         self.sent_requests = []
         self.rates = []
         self.copy_rates_calls = []
+        self.copy_rates_range_calls = []
         self.ticks = []
         self.copy_ticks_calls = []
         self.order_retcode = self.TRADE_RETCODE_DONE
@@ -229,6 +230,10 @@ class FakeMT5:
 
     def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
         self.copy_rates_calls.append((symbol, timeframe, start_pos, count))
+        return self.rates
+
+    def copy_rates_range(self, symbol, timeframe, date_from, date_to):
+        self.copy_rates_range_calls.append((symbol, timeframe, date_from, date_to))
         return self.rates
 
     def copy_ticks_range(self, symbol, date_from, date_to, flags):
@@ -987,6 +992,75 @@ def test_mt5_broker_fetch_closed_rates_skips_current_bar():
     assert len(candles) == 2
     assert candles[0]["spread"] == 3.0
     assert candles[0]["real_volume"] == 0.0
+
+
+def test_mt5_broker_fetch_closed_rates_range_is_read_only_and_end_exclusive():
+    fake = FakeMT5()
+    fake.rates = [
+        {
+            "time": 1779613200,
+            "open": 4500.10,
+            "high": 4501.20,
+            "low": 4499.50,
+            "close": 4500.80,
+            "tick_volume": 123,
+        },
+        {
+            "time": 1779613260,
+            "open": 4500.80,
+            "high": 4502.00,
+            "low": 4500.40,
+            "close": 4501.60,
+            "tick_volume": 140,
+        },
+    ]
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123,
+            password="x",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+
+    candles = broker.fetch_closed_rates_range(
+        "1m",
+        datetime(2026, 5, 24, 9, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 24, 9, 1, tzinfo=timezone.utc),
+    )
+
+    assert len(fake.copy_rates_range_calls) == 1
+    assert fake.copy_rates_range_calls[0][0:2] == ("XAUUSD", fake.TIMEFRAME_M1)
+    assert [row["timestamp"] for row in candles] == [
+        "2026-05-24T09:00:00+00:00"
+    ]
+    assert fake.sent_requests == []
+
+
+def test_mt5_broker_fetch_closed_rates_range_adjusts_server_offset():
+    fake = FakeMT5()
+    fake.rates = []
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123,
+            password="x",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    broker.connect()
+    broker._server_time_offset_seconds = lambda mt5: 3 * 3600
+    start = datetime(2026, 5, 24, 9, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 5, 24, 9, 1, tzinfo=timezone.utc)
+
+    broker.fetch_closed_rates_range("1m", start, end)
+
+    _, _, queried_start, queried_end = fake.copy_rates_range_calls[0]
+    assert queried_start == datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc)
+    assert queried_end == datetime(2026, 5, 24, 12, 1, tzinfo=timezone.utc)
 
 
 def test_mt5_broker_fetch_rates_supports_one_and_three_minute_timeframes():

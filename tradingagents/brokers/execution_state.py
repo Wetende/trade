@@ -101,9 +101,190 @@ class ExecutionStateStore:
             for key in (
                 "consumed_openings",
                 "completed_position_telemetry",
+                "post_close_lifecycle",
+                "post_close_loss_control",
+                "post_close_consumed_zones",
             )
             if key in state
         }
+
+    def record_post_close_lifecycle(
+        self,
+        lifecycle: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one broker-free armed/triggered lifecycle."""
+        state = self.load()
+        if state.get("active_order_ticket") is not None:
+            raise ValueError("cannot arm post-close lifecycle with an active order")
+        if state.get("active_position_ticket") is not None:
+            raise ValueError("cannot arm post-close lifecycle with an active position")
+        phase = str(lifecycle.get("phase") or "").upper()
+        if phase not in {"ARMED", "TRIGGERED"}:
+            raise ValueError("post-close lifecycle must be ARMED or TRIGGERED")
+        arm = lifecycle.get("arm")
+        if not isinstance(arm, dict) or not arm.get("arm_id"):
+            raise ValueError("post-close lifecycle requires an arm identity")
+        state["post_close_lifecycle"] = dict(lifecycle)
+        return self.save(state)
+
+    def clear_post_close_lifecycle(self) -> dict[str, Any]:
+        state = self.load()
+        state.pop("post_close_lifecycle", None)
+        return self.save(state)
+
+    def recover_post_close_lifecycle(
+        self,
+        *,
+        now_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Recover without extending expiry or competing with broker state."""
+        state = self.load()
+        lifecycle = state.get("post_close_lifecycle")
+        if not isinstance(lifecycle, dict):
+            return {"status": "NONE", "lifecycle": None}
+        if (
+            state.get("active_order_ticket") is not None
+            or state.get("active_position_ticket") is not None
+        ):
+            state.pop("post_close_lifecycle", None)
+            self.save(state)
+            return {
+                "status": "ORPHANED_BY_ACTIVE_BROKER_STATE",
+                "lifecycle": lifecycle,
+            }
+        arm = lifecycle.get("arm") or {}
+        expires_at = self._parse_utc(arm.get("expires_at"))
+        now = now_utc or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(timezone.utc)
+        if expires_at is None:
+            state.pop("post_close_lifecycle", None)
+            self.save(state)
+            return {"status": "INVALID_EXPIRY", "lifecycle": lifecycle}
+        if now >= expires_at:
+            state.pop("post_close_lifecycle", None)
+            self.save(state)
+            return {"status": "EXPIRED", "lifecycle": lifecycle}
+        return {"status": "ACTIVE", "lifecycle": lifecycle}
+
+    @staticmethod
+    def _parse_utc(value: Any) -> datetime | None:
+        if value in (None, ""):
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def record_post_close_consumed_zone(
+        self,
+        arm: dict[str, Any],
+        *,
+        consumed_at_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        state = self.load()
+        records = list(state.get("post_close_consumed_zones") or [])
+        records.insert(
+            0,
+            {
+                "arm": dict(arm),
+                "consumed_at_utc": self._utc_iso(consumed_at_utc),
+                "moved_away": False,
+                "reset_complete": False,
+            },
+        )
+        state["post_close_consumed_zones"] = records[: self.max_consumed_openings]
+        return self.save(state)
+
+    def record_post_close_trade_outcome(
+        self,
+        profit_r: float,
+        *,
+        closed_at_utc: datetime | None = None,
+        pause_minutes: int = 15,
+    ) -> dict[str, Any]:
+        """Persist the two-loss pause independently of process lifetime."""
+        state = self.load()
+        control = dict(state.get("post_close_loss_control") or {})
+        streak = int(control.get("loss_streak", 0))
+        streak = streak + 1 if float(profit_r) < 0 else 0
+        closed_at = closed_at_utc or datetime.now(timezone.utc)
+        if closed_at.tzinfo is None:
+            closed_at = closed_at.replace(tzinfo=timezone.utc)
+        closed_at = closed_at.astimezone(timezone.utc)
+        control = {
+            "loss_streak": streak,
+            "last_closed_at_utc": closed_at.isoformat(),
+            "structural_reset_complete": False,
+            "pause_until_utc": (
+                (closed_at + timedelta(minutes=max(0, int(pause_minutes)))).isoformat()
+                if streak >= 2
+                else None
+            ),
+        }
+        state["post_close_loss_control"] = control
+        return self.save(state)
+
+    def mark_post_close_structural_reset(self) -> dict[str, Any]:
+        state = self.load()
+        control = dict(state.get("post_close_loss_control") or {})
+        control["structural_reset_complete"] = True
+        state["post_close_loss_control"] = control
+        return self.save(state)
+
+    def post_close_entry_gate(
+        self,
+        *,
+        now_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        state = self.load()
+        if state.get("active_order_ticket") is not None:
+            return {"allowed": False, "reason": "ACTIVE_ORDER"}
+        if state.get("active_position_ticket") is not None:
+            return {"allowed": False, "reason": "ACTIVE_POSITION"}
+        if isinstance(state.get("post_close_lifecycle"), dict):
+            return {"allowed": False, "reason": "ACTIVE_POST_CLOSE_LIFECYCLE"}
+        control = dict(state.get("post_close_loss_control") or {})
+        if int(control.get("loss_streak", 0)) < 2:
+            return {"allowed": True, "reason": None}
+        now = now_utc or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(timezone.utc)
+        pause_until = self._parse_utc(control.get("pause_until_utc"))
+        if pause_until is None or now < pause_until:
+            return {
+                "allowed": False,
+                "reason": "TWO_LOSS_TIME_PAUSE",
+                "pause_until_utc": control.get("pause_until_utc"),
+            }
+        if not bool(control.get("structural_reset_complete")):
+            return {"allowed": False, "reason": "TWO_LOSS_RESET_REQUIRED"}
+        return {"allowed": True, "reason": None}
+
+    def complete_post_close_pause(
+        self,
+        *,
+        now_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        gate = self.post_close_entry_gate(now_utc=now_utc)
+        if not gate["allowed"]:
+            raise ValueError(str(gate["reason"]))
+        state = self.load()
+        control = dict(state.get("post_close_loss_control") or {})
+        if int(control.get("loss_streak", 0)) >= 2:
+            state["post_close_loss_control"] = {
+                "loss_streak": 0,
+                "last_closed_at_utc": control.get("last_closed_at_utc"),
+                "structural_reset_complete": False,
+                "pause_until_utc": None,
+            }
+            self.save(state)
+        return state
 
     def record_consumed_opening(
         self,

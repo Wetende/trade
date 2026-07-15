@@ -130,11 +130,19 @@ def _candidate_levels(
     candles: list[Candle],
     *,
     tolerance: float,
+    clean_levels: bool = False,
 ):
+    detector = _detect_equal_levels
+    if clean_levels:
+        from tradingagents.agents.price_action.clean_one_minute_levels import (
+            detect_clean_equal_levels,
+        )
+
+        detector = detect_clean_equal_levels
     return _consolidate_candidate_levels(
         [
-            *_detect_equal_levels(candles, tolerance, side="low"),
-            *_detect_equal_levels(candles, tolerance, side="high"),
+            *detector(candles, tolerance, side="low"),
+            *detector(candles, tolerance, side="high"),
         ],
         tolerance=tolerance,
         current_spread_price=0.0,
@@ -145,6 +153,7 @@ def detect_opening_opportunities(
     candles: list[Candle] | tuple[Candle, ...],
     *,
     lookback: int = 60,
+    clean_levels: bool = False,
 ) -> tuple[OpeningOpportunity, ...]:
     """Detect pre-registered closed-M1 opening templates without future leakage."""
     closed = list(candles)
@@ -158,7 +167,11 @@ def detect_opening_opportunities(
         tolerance = _recent_tolerance(prior)
         first = closed[first_index]
         previous = closed[first_index - 1] if first_index else None
-        for level in _candidate_levels(prior, tolerance=tolerance):
+        for level in _candidate_levels(
+            prior,
+            tolerance=tolerance,
+            clean_levels=clean_levels,
+        ):
             side = level.side
             if (
                 _initial_touch(

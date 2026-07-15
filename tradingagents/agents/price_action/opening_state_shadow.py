@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ SHADOW_MIN_SESSIONS = 3
 SHADOW_MIN_PROFIT_FACTOR = 1.10
 SHADOW_MIN_WIN_RATE = 0.60
 SHADOW_DEFAULT_CANDLE_COUNT = SHADOW_MIN_SESSIONS * 24 * 60
+SHADOW_CONTEXT_CANDLE_COUNT = 24 * 60
 SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS = 60.0
 SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS = 5.0
 
@@ -56,6 +58,27 @@ def _parse(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def cumulative_shadow_candle_count(
+    prospective_start: str,
+    evidence_end: str | datetime,
+    requested_count: int = SHADOW_DEFAULT_CANDLE_COUNT,
+) -> int:
+    """Return enough M1 bars to preserve the full prospective window plus context."""
+    start = _parse(prospective_start)
+    end = evidence_end if isinstance(evidence_end, datetime) else _parse(evidence_end)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    end = end.astimezone(timezone.utc)
+    elapsed_minutes = max(
+        0,
+        math.ceil((end - start).total_seconds() / 60.0),
+    )
+    return max(
+        int(requested_count),
+        elapsed_minutes + SHADOW_CONTEXT_CANDLE_COUNT,
+    )
 
 
 def load_frozen_manifest(path: str | Path) -> dict[str, Any]:
@@ -456,7 +479,14 @@ def build_shadow_report_from_broker(
             reasons=tuple(safety_reasons),
         )
 
-    candle_rows = broker.fetch_closed_rates("1m", int(candle_count))
+    tick_time = ((safety.get("symbol") or {}).get("tick_time_utc"))
+    evidence_end = str(tick_time) if tick_time else datetime.now(timezone.utc)
+    effective_candle_count = cumulative_shadow_candle_count(
+        prospective_start,
+        evidence_end,
+        int(candle_count),
+    )
+    candle_rows = broker.fetch_closed_rates("1m", effective_candle_count)
     candles = tuple(_to_candle(row) for row in candle_rows)
     if not candles:
         return _empty_safety_failure(
@@ -464,6 +494,14 @@ def build_shadow_report_from_broker(
             prospective_start=prospective_start,
             safety=safety,
             reasons=("NO_CLOSED_M1_CANDLES",),
+        )
+    earliest_open = min(_parse(str(candle.timestamp)) for candle in candles)
+    prospective_start_utc = _parse(prospective_start)
+    if earliest_open > prospective_start_utc:
+        raise ValueError(
+            "closed M1 history does not cover the prospective start: "
+            f"earliest={earliest_open.isoformat()} "
+            f"prospective_start={prospective_start_utc.isoformat()}"
         )
     replay_config = realistic_replay_config_from_broker(
         config,
@@ -475,7 +513,6 @@ def build_shadow_report_from_broker(
     latest_open = max(_parse(str(candle.timestamp)) for candle in candles)
     latest_closed_boundary = latest_open + timedelta(minutes=1)
     tick_end = latest_closed_boundary
-    tick_time = ((safety.get("symbol") or {}).get("tick_time_utc"))
     if tick_time:
         try:
             tick_end = max(tick_end, _parse(str(tick_time)))
@@ -487,13 +524,23 @@ def build_shadow_report_from_broker(
         candles=candles,
         ticks=tuple(_to_tick(row) for row in tick_rows),
     )
-    return build_shadow_report(
+    report = build_shadow_report(
         fixture,
         manifest=manifest,
         prospective_start=prospective_start,
         safety=safety,
         replay_config=replay_config,
     )
+    report["evidence_window"] = {
+        "prospective_start_utc": prospective_start_utc.isoformat(),
+        "earliest_closed_candle_utc": earliest_open.isoformat(),
+        "latest_closed_candle_utc": latest_open.isoformat(),
+        "requested_candle_count": int(candle_count),
+        "effective_candle_count": effective_candle_count,
+        "returned_candle_count": len(candles),
+        "complete": True,
+    }
+    return report
 
 
 __all__ = [
@@ -505,11 +552,13 @@ __all__ = [
     "SHADOW_MIN_SESSIONS",
     "SHADOW_MIN_WIN_RATE",
     "SHADOW_DEFAULT_CANDLE_COUNT",
+    "SHADOW_CONTEXT_CANDLE_COUNT",
     "SHADOW_DEFAULT_CANDLE_CLOSE_DELAY_SECONDS",
     "SHADOW_DEFAULT_PLACEMENT_DELAY_SECONDS",
     "build_shadow_report",
     "build_shadow_report_from_broker",
     "buy_continuation_opportunities",
+    "cumulative_shadow_candle_count",
     "evaluate_shadow_gate",
     "load_frozen_manifest",
     "realistic_replay_config_from_broker",

@@ -1,0 +1,38 @@
+{
+  "broker_mutation_enabled": false,
+  "candidate": "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1",
+  "candle_close_delay_seconds": 60.0,
+  "confirmation_to_trigger_delay_seconds": 5.0,
+  "family_filters": [
+    "HIGH_RESPECT_SELL",
+    "HIGH_BREAK_BUY",
+    "FAILED_HIGH_BREAK_SELL",
+    "LOW_RESPECT_BUY",
+    "LOW_BREAK_SELL",
+    "FAILED_LOW_BREAK_BUY"
+  ],
+  "history_candles": 60,
+  "max_stop_distance": 1.0,
+  "minimum_stop_spread_multiple": 1.2,
+  "modeled_round_trip_cost_r": 0.05,
+  "placement_delay_seconds": 5.0,
+  "post_close_policy_version": 1,
+  "prospective_gate": {
+    "max_loss_streak": 6,
+    "max_portfolio_drawdown_r": 8.0,
+    "max_session_drawdown_r": 3.0,
+    "min_expectancy_r": 0.08,
+    "min_fills": 60,
+    "min_profit_factor": 1.2,
+    "min_profitable_session_ratio": 0.6,
+    "min_sessions": 10,
+    "require_positive_net": true
+  },
+  "reaction_expiry_seconds": 45,
+  "reset_move_away_tolerance_multiple": 2.0,
+  "risk_reward": 1.5,
+  "signal_policy": "CLOSED_CANDLE_ARM_THEN_NEW_POST_CLOSE_QUOTE_TRIGGER",
+  "two_loss_pause_minutes": 15,
+  "version": 1,
+  "volume_policy": "CONSTANT_RESEARCH_VOLUME"
+}

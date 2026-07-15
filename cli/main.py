@@ -675,6 +675,85 @@ def one_minute_opening_target_grid_screen(
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-post-close-screen")
+def one_minute_post_close_screen(
+    fixture: Path = typer.Option(..., "--fixture"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    output: Path = typer.Option(..., "--output"),
+    stage: str = typer.Option("DISCOVERY", "--stage"),
+):
+    """Run broker-free symmetric post-close V1 screening."""
+    from tradingagents.agents.price_action.one_minute_post_close_evaluation import (
+        screen_post_close_fixture_path,
+    )
+
+    normalized_stage = stage.strip().upper()
+    if normalized_stage not in {"DISCOVERY", "HELD_OUT", "PROSPECTIVE"}:
+        raise typer.BadParameter("stage must be DISCOVERY, HELD_OUT, or PROSPECTIVE")
+    report = screen_post_close_fixture_path(
+        fixture,
+        manifest_path=manifest,
+        stage=normalized_stage,
+    )
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-post-close-collect")
+def one_minute_post_close_collect(
+    start: str = typer.Option(..., "--start"),
+    end: str = typer.Option(..., "--end"),
+    output: Path = typer.Option(..., "--output"),
+    context_candles: int = typer.Option(60, "--context-candles", min=2),
+):
+    """Collect a bounded read-only MT5 fixture for post-close research."""
+    _load_runtime_env()
+    from tradingagents.agents.price_action.post_close_fixture_collection import (
+        collect_post_close_fixture,
+        parse_evidence_timestamp,
+    )
+    from tradingagents.brokers.mt5 import (
+        MT5Broker,
+        MT5BrokerError,
+        MT5ConnectionConfig,
+    )
+
+    try:
+        start_utc = parse_evidence_timestamp(start)
+        end_utc = parse_evidence_timestamp(end)
+        config = MT5ConnectionConfig.from_env()
+        broker = MT5Broker(config)
+        connection = broker.connect()
+        fixture = collect_post_close_fixture(
+            broker,
+            connection=connection,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            context_candles=context_candles,
+        )
+        _write_json_atomic(output, fixture)
+        console.print(
+            json.dumps(
+                {
+                    "output": str(output),
+                    "evidence_start": fixture["evidence_start"],
+                    "evidence_end": fixture["evidence_end"],
+                    "candle_count": len(fixture["candles"]),
+                    "tick_count": len(fixture["ticks"]),
+                    "broker_mutation_enabled": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    except MT5BrokerError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    finally:
+        if "broker" in locals():
+            broker.shutdown()
+
+
 @app.command("one-minute-opening-target-grid-shadow-step")
 def one_minute_opening_target_grid_shadow_step(
     manifest: Path = typer.Option(..., "--manifest"),
@@ -704,7 +783,7 @@ def one_minute_opening_target_grid_shadow_step(
         help="Skip when the live quote has already crossed the intended entry.",
     ),
 ):
-    """Run one read-only opening-state target-grid shadow step."""
+    """Run one read-only frozen opening-state shadow step."""
     from tradingagents.agents.price_action.opening_state_screening import (
         OpeningResearchFixture,
     )

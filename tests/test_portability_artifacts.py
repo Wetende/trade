@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SETUP_SCRIPT = ROOT / "scripts" / "setup-windows.ps1"
 RUNNER_SCRIPT = ROOT / "scripts" / "start-one-minute-demo.ps1"
 SHADOW_WATCH_SCRIPT = ROOT / "scripts" / "start-opening-state-shadow-watch.ps1"
+DEMO_READ_ONLY_MONITOR_SCRIPT = ROOT / "scripts" / "start-demo-read-only-monitor.ps1"
 
 
 def _powershell_parse(path: Path) -> subprocess.CompletedProcess[str]:
@@ -32,7 +33,12 @@ def _powershell_parse(path: Path) -> subprocess.CompletedProcess[str]:
 
 
 def test_windows_scripts_exist_and_parse_as_powershell():
-    for script in (SETUP_SCRIPT, RUNNER_SCRIPT, SHADOW_WATCH_SCRIPT):
+    for script in (
+        SETUP_SCRIPT,
+        RUNNER_SCRIPT,
+        SHADOW_WATCH_SCRIPT,
+        DEMO_READ_ONLY_MONITOR_SCRIPT,
+    ):
         assert script.is_file()
         parsed = _powershell_parse(script)
         assert parsed.returncode == 0, parsed.stderr
@@ -116,6 +122,27 @@ def test_shadow_watch_script_is_read_only_and_stops_on_terminal_decision():
     assert "COLLECTING_PROSPECTIVE_SHADOW" in text
     assert "shadow-heartbeat.json" in text
     assert "shadow-watch.stop" in text
+    assert "$CandleCount" in text
+    assert "--candle-count" in text
+    assert "mt5-run" not in text
+    assert "order-send" not in text.lower()
+    assert "Start-Process" in text
+    assert "-WindowStyle Hidden" in text
+
+
+def test_demo_read_only_monitor_has_no_execution_path():
+    text = DEMO_READ_ONLY_MONITOR_SCRIPT.read_text(encoding="utf-8")
+
+    assert "broker-probe" in text
+    assert "--json-only" in text
+    assert "TRADINGAGENTS_REQUIRE_DEMO_ACCOUNT" in text
+    assert 'TRADINGAGENTS_MT5_ALLOW_REAL_ORDERS = "false"' in text
+    assert "READ_ONLY_DEMO_CONNECTIVITY" in text
+    assert "broker_mutation_enabled = `$false" in text
+    assert "open_order_count -eq 0" in text
+    assert "open_position_count -eq 0" in text
+    assert "heartbeat.json" in text
+    assert "monitor.stop" in text
     assert "mt5-run" not in text
     assert "order-send" not in text.lower()
     assert "Start-Process" in text

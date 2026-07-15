@@ -1348,6 +1348,59 @@ class MT5Broker:
         """
         return self._fetch_rates_from_pos(timeframe, count, start_pos=1)
 
+    def fetch_closed_rates_range(
+        self,
+        timeframe: str,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> list[dict[str, Any]]:
+        """Fetch normalized historical bars in ``[start_utc, end_utc)``.
+
+        This uses MT5's read-only range API and applies an explicit UTC filter
+        after normalization because the terminal API may include the end bar.
+        """
+        self._assert_active_session()
+        if start_utc.tzinfo is None or end_utc.tzinfo is None:
+            raise MT5BrokerError("MT5 rate range timestamps must be timezone-aware")
+        if end_utc <= start_utc:
+            raise MT5BrokerError("MT5 rate range end must be after start")
+
+        mt5 = self._module()
+        timeframe_constants = {
+            "1m": getattr(mt5, "TIMEFRAME_M1", None),
+            "3m": getattr(mt5, "TIMEFRAME_M3", None),
+            "15m": getattr(mt5, "TIMEFRAME_M15", None),
+            "30m": getattr(mt5, "TIMEFRAME_M30", None),
+            "1h": getattr(mt5, "TIMEFRAME_H1", None),
+            "1d": getattr(mt5, "TIMEFRAME_D1", None),
+        }
+        mt5_timeframe = timeframe_constants.get(timeframe)
+        if mt5_timeframe is None:
+            raise MT5BrokerError(f"unsupported MT5 timeframe: {timeframe}")
+        copy_rates_range = getattr(mt5, "copy_rates_range", None)
+        if not callable(copy_rates_range):
+            raise MT5BrokerError("MT5 copy_rates_range is unavailable")
+
+        start = start_utc.astimezone(timezone.utc)
+        end = end_utc.astimezone(timezone.utc)
+        server_time_offset_seconds = self._server_time_offset_seconds(mt5)
+        rates = copy_rates_range(
+            self.config.symbol,
+            mt5_timeframe,
+            _mt5_history_datetime(start, server_time_offset_seconds),
+            _mt5_history_datetime(end, server_time_offset_seconds),
+        )
+        if rates is None:
+            raise MT5BrokerError(f"MT5 copy_rates_range failed: {mt5.last_error()}")
+        normalized = [
+            self._normalize_rate(rate, server_time_offset_seconds) for rate in rates
+        ]
+        return [
+            rate
+            for rate in normalized
+            if start <= datetime.fromisoformat(str(rate["timestamp"])) < end
+        ]
+
     def fetch_ticks_range(
         self,
         start_utc: datetime,

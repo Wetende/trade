@@ -50,3 +50,29 @@ The rule is frozen in:
 Next step is a fresh read-only prospective shadow from a new start timestamp.
 Only if the unchanged manifest passes the same gate on fresh data should it be
 considered for DEMO execution.
+
+## Prospective checkpoint: 2026-07-13
+
+The unchanged candidate remains in read-only prospective shadow. A cumulative
+full-window report from the frozen `2026-07-08T17:22:35.7091920Z` start showed:
+
+| Metric | Value |
+| --- | ---: |
+| Decision | `COLLECTING_PROSPECTIVE_SHADOW` |
+| Sessions | `4` |
+| Fills | `25` |
+| Wins / losses | `10 / 15` |
+| Win rate | `40.00%` |
+| Net | `-3.45` |
+| Profit factor | `0.6522` |
+| Expectancy | `-0.1381` |
+| Max loss streak | `4` |
+
+The gate is not yet evaluable because it requires 30 fills. This is a clear
+failure pattern, but the frozen window must continue unchanged until the gate
+records a terminal decision. Do not retune, weaken the gate, or start DEMO
+execution.
+
+The collector was also corrected to retain the complete prospective candle
+window instead of silently rolling over only the most recent 4,320 M1 bars.
+See [the current handoff](../one-minute-scalper-current-handoff-2026-07-13.md).

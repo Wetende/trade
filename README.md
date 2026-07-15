@@ -7,6 +7,9 @@ The current isolated MT5 forward-test model is the deterministic One Minute
 Scalper. It uses closed M1 candles and engine decisions only; no LLM chooses
 BUY, SELL, HOLD, size, or exits. Start with:
 
+- [Current One Minute Scalper handoff (2026-07-13)](docs/one-minute-scalper-current-handoff-2026-07-13.md)
+- [Current BUY-continuation research](docs/analysis/2026-07-08-opening-state-buy-continuation-research.md)
+- [Realistic shadow review that retired the old target-grid candidate](docs/analysis/2026-07-08-opening-state-realistic-shadow-review.md)
 - [One Minute Scalper handoff](docs/one-minute-scalper-handoff-2026-07-01.md)
 - [One Minute Scalper new-machine handoff](docs/one-minute-scalper-new-machine-handoff-2026-07-03.md)
 - [New-machine migration guide](docs/one-minute-scalper-machine-migration.md)
@@ -15,6 +18,10 @@ BUY, SELL, HOLD, size, or exits. Start with:
 - [Windows setup script](scripts/setup-windows.ps1)
 - [Safe DEMO runner script](scripts/start-one-minute-demo.ps1)
 - [Read-only opening-state shadow watcher](scripts/start-opening-state-shadow-watch.ps1)
+- [Read-only DEMO connectivity monitor](scripts/start-demo-read-only-monitor.ps1)
+
+The July 1 and July 3 handoffs are retained as historical context. Do not start
+DEMO execution from them. The 2026-07-13 handoff is the current authority.
 
 The active pipeline is:
 
