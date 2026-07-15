@@ -543,6 +543,70 @@ def observe_post_close_reclaim_quote(
     return StateTransition("POST_CLOSE_RECLAIM_OBSERVATION", updated, quote)
 
 
+def observe_post_close_inside_pullback_quote(
+    state: PostCloseState,
+    quote: QuoteObservation,
+) -> StateTransition:
+    """Require two ordered quotes inside the pullback's directional half."""
+    if state.phase != PostClosePhase.ARMED:
+        return StateTransition("STATE_NOT_ARMED", state, quote)
+    if not quote.valid:
+        return StateTransition("INVALID_QUOTE_IGNORED", state, quote)
+    now = quote.time_utc
+    if state.last_quote_at and now <= parse_utc(state.last_quote_at):
+        return StateTransition("NON_MONOTONIC_QUOTE_IGNORED", state, quote)
+    if now < parse_utc(state.arm.trigger_eligible_at):
+        return StateTransition("PRE_CAUSAL_QUOTE_IGNORED", state, quote)
+    if now >= parse_utc(state.arm.expires_at):
+        return _terminal(state, PostClosePhase.EXPIRED, "ARM_EXPIRED", quote)
+
+    arm = state.arm
+    if arm.direction == "BUY" and quote.bid < arm.invalidation:
+        return _terminal(
+            state,
+            PostClosePhase.INVALIDATED,
+            "BUY_INSIDE_PULLBACK_INVALIDATED",
+            quote,
+        )
+    if arm.direction == "SELL" and quote.ask > arm.invalidation:
+        return _terminal(
+            state,
+            PostClosePhase.INVALIDATED,
+            "SELL_INSIDE_PULLBACK_INVALIDATED",
+            quote,
+        )
+
+    midpoint = (arm.zone_low + arm.zone_high) / 2.0
+    holds_inside_state = (
+        quote.bid > midpoint and quote.ask < arm.zone_high
+        if arm.direction == "BUY"
+        else quote.ask < midpoint and quote.bid > arm.zone_low
+    )
+    updated = replace(
+        state,
+        zone_observed=state.zone_observed or holds_inside_state,
+        last_quote_at=quote.time,
+        sequence=state.sequence + 1,
+    )
+    if not holds_inside_state:
+        return StateTransition(
+            "INSIDE_PULLBACK_HOLD_RESET",
+            replace(updated, first_hold_at=None),
+            quote,
+        )
+    if state.first_hold_at is None:
+        return StateTransition(
+            "INSIDE_PULLBACK_HOLD_STARTED",
+            replace(updated, first_hold_at=quote.time),
+            quote,
+        )
+    if now - parse_utc(state.first_hold_at) >= timedelta(
+        seconds=BREAK_HOLD_OBSERVATION_SECONDS
+    ):
+        return _trigger(updated, quote, "POST_CLOSE_INSIDE_PULLBACK_HOLD")
+    return StateTransition("POST_CLOSE_INSIDE_PULLBACK_OBSERVATION", updated, quote)
+
+
 def _snap(value: float, tick_size: float) -> float:
     size = max(float(tick_size), 1e-9)
     return round(round(float(value) / size) * size, 10)
@@ -643,6 +707,7 @@ __all__ = [
     "detect_post_close_arms",
     "evaluate_post_close_placement",
     "observe_post_close_quote",
+    "observe_post_close_inside_pullback_quote",
     "observe_post_close_reclaim_quote",
     "parse_utc",
     "select_post_close_arm",

@@ -19,6 +19,7 @@ from tradingagents.agents.price_action.one_minute_post_close_state import (
     QuoteObservation,
     detect_post_close_arms,
     evaluate_post_close_placement,
+    observe_post_close_inside_pullback_quote,
     observe_post_close_quote,
     observe_post_close_reclaim_quote,
     parse_utc,
@@ -43,6 +44,8 @@ class PostCloseReplayConfig:
     maximum_hold_entry_drift_r: float = 0.75
     reclaim_stop_expiry_seconds: int = 20
     maximum_reclaim_entry_drift_r: float = 0.75
+    inside_stop_expiry_seconds: int = 20
+    maximum_inside_entry_drift_r: float = 0.15
     state_cap_seconds_after_confirmation_close: int = 90
     clean_levels: bool = False
     candidate_name: str = "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1"
@@ -206,7 +209,16 @@ def detect_replay_arms(
     arms: list[PostCloseArm] = []
     for index in range(2, len(ordered)):
         window = ordered[max(0, index - 59) : index + 1]
-        if signal_model == "SHOCK_RECLAIM":
+        if signal_model == "IMPULSE_INSIDE_PULLBACK":
+            from tradingagents.agents.price_action.one_minute_impulse_inside_pullback import (
+                detect_impulse_inside_pullback_arms,
+            )
+
+            candidates = detect_impulse_inside_pullback_arms(
+                window,
+                candidate_name=candidate_name,
+            )
+        elif signal_model == "SHOCK_RECLAIM":
             from tradingagents.agents.price_action.one_minute_shock_reclaim import (
                 detect_shock_reclaim_arms,
             )
@@ -652,6 +664,113 @@ def _build_reclaim_stop(
             structural_distance_r=drift_r,
             order_kind="STOP",
             expiry_reason="PENDING_RECLAIM_STOP_EXPIRED",
+            drift_basis="LEVEL",
+        ),
+        "PLACEMENT_ACCEPTED",
+    )
+
+
+def _build_inside_breakout_stop(
+    state: PostCloseState,
+    quote: QuoteObservation,
+    policy: PostCloseReplayConfig,
+) -> tuple[_PendingRetest | None, str]:
+    """Build the frozen V7 future stop beyond the pullback boundary."""
+    arm = state.arm
+    now = quote.time_utc
+    if not quote.valid:
+        return None, "INVALID_PLACEMENT_QUOTE"
+    state_cap = parse_utc(arm.confirmation_closed_at) + timedelta(
+        seconds=max(1, policy.state_cap_seconds_after_confirmation_close)
+    )
+    if now >= state_cap:
+        return None, "STATE_CAP_EXPIRED_BEFORE_PLACEMENT"
+
+    tick_size = max(float(policy.placement.tick_size), 1e-9)
+    if arm.direction == "BUY":
+        if quote.bid < arm.invalidation:
+            return None, "BUY_INSIDE_PULLBACK_INVALIDATED_AT_PLACEMENT"
+        entry = round(
+            ceil((arm.level + tick_size) / tick_size - 1e-9) * tick_size,
+            10,
+        )
+        if quote.ask >= entry:
+            return None, "BUY_INSIDE_BREAKOUT_ALREADY_CROSSED_AT_PLACEMENT"
+    else:
+        if quote.ask > arm.invalidation:
+            return None, "SELL_INSIDE_PULLBACK_INVALIDATED_AT_PLACEMENT"
+        entry = round(
+            floor((arm.level - tick_size) / tick_size + 1e-9) * tick_size,
+            10,
+        )
+        if quote.bid <= entry:
+            return None, "SELL_INSIDE_BREAKOUT_ALREADY_CROSSED_AT_PLACEMENT"
+
+    spread = quote.spread
+    minimum_risk = max(
+        policy.placement.minimum_stop_distance,
+        spread * policy.placement.minimum_stop_spread_multiple,
+    )
+    if arm.direction == "BUY":
+        stop = round(
+            floor(
+                min(arm.invalidation, entry - minimum_risk) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = entry - stop
+    else:
+        stop = round(
+            ceil(
+                max(arm.invalidation, entry + minimum_risk) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = stop - entry
+    if risk <= 0:
+        return None, "INVALID_STOP_GEOMETRY"
+    if risk > policy.placement.maximum_stop_distance:
+        return None, "STOP_DISTANCE_ABOVE_MAXIMUM"
+    drift_r = abs(entry - arm.level) / risk
+    if drift_r > float(policy.maximum_inside_entry_drift_r):
+        return None, "INSIDE_ENTRY_DRIFT_ABOVE_MAXIMUM"
+
+    if arm.direction == "BUY":
+        target = round(
+            floor(
+                (entry + risk * policy.placement.risk_reward) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+    else:
+        target = round(
+            ceil(
+                (entry - risk * policy.placement.risk_reward) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+
+    expires_at = min(
+        now + timedelta(seconds=max(1, policy.inside_stop_expiry_seconds)),
+        state_cap,
+    )
+    return (
+        _PendingRetest(
+            state=replace(state, phase=PostClosePhase.PLACED),
+            placed_at=quote.time,
+            expires_at=expires_at.isoformat(),
+            entry=entry,
+            stop=stop,
+            target=target,
+            intended_risk=risk,
+            spread_r=spread / risk,
+            structural_distance_r=drift_r,
+            order_kind="STOP",
+            expiry_reason="PENDING_INSIDE_BREAKOUT_STOP_EXPIRED",
             drift_basis="LEVEL",
         ),
         "PLACEMENT_ACCEPTED",
@@ -1132,7 +1251,9 @@ def replay_post_close_arms(
         if state is None:
             continue
         if state.phase == PostClosePhase.ARMED:
-            if policy.entry_policy == "SHOCK_RECLAIM_STOP_V6":
+            if policy.entry_policy == "INSIDE_BREAKOUT_STOP_V7":
+                transition = observe_post_close_inside_pullback_quote(state, quote)
+            elif policy.entry_policy == "SHOCK_RECLAIM_STOP_V6":
                 transition = observe_post_close_reclaim_quote(state, quote)
             else:
                 transition = observe_post_close_quote(
@@ -1160,6 +1281,42 @@ def replay_post_close_arms(
                 state = None
             continue
         if state.phase == PostClosePhase.TRIGGERED:
+            if policy.entry_policy == "INSIDE_BREAKOUT_STOP_V7":
+                if quote.time_utc < parse_utc(
+                    state.placement_due_at or state.arm.expires_at
+                ):
+                    continue
+                pending_order, reason = _build_inside_breakout_stop(
+                    state,
+                    quote,
+                    policy,
+                )
+                events.append(
+                    _event(
+                        "PLACEMENT_SIMULATED" if pending_order else "PLACEMENT_REJECTED",
+                        quote.time,
+                        state.arm,
+                        reason=reason,
+                    )
+                )
+                if pending_order is None:
+                    rows.append(
+                        _row(
+                            state.arm,
+                            state=state,
+                            accepted=True,
+                            filled=False,
+                            outcome="REJECTED",
+                            reason=reason,
+                            closed_at=quote.time,
+                        )
+                    )
+                    consumed = _ConsumedZone(state.arm)
+                    state = None
+                else:
+                    pending = pending_order
+                    state = pending_order.state
+                continue
             if policy.entry_policy == "SHOCK_RECLAIM_STOP_V6":
                 if quote.time_utc < parse_utc(
                     state.placement_due_at or state.arm.expires_at

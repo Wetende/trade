@@ -32,6 +32,9 @@ V5_1_MANIFEST = Path(
 V6_MANIFEST = Path(
     "docs/analysis/2026-07-15-one-minute-shock-reclaim-v6-manifest.json"
 )
+V7_MANIFEST = Path(
+    "docs/analysis/2026-07-15-one-minute-impulse-inside-pullback-v7-manifest.json"
+)
 
 
 def test_post_close_cli_writes_deterministic_broker_free_discovery_report(tmp_path):
@@ -243,6 +246,43 @@ def test_v6_loader_rejects_changed_frozen_threshold(tmp_path):
     changed.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="shock_range_baseline_minimum"):
+        screen_post_close_fixture_path(
+            FIXTURE,
+            manifest_path=changed,
+            stage="DISCOVERY",
+        )
+
+
+def test_post_close_cli_accepts_frozen_v7_inside_pullback_manifest(tmp_path):
+    output = tmp_path / "v7.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "one-minute-post-close-screen",
+            "--fixture",
+            str(FIXTURE),
+            "--manifest",
+            str(V7_MANIFEST),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["candidate"] == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7"
+    assert payload["manifest"]["signal_model"] == "IMPULSE_INSIDE_PULLBACK"
+    assert payload["broker_mutation_enabled"] is False
+
+
+def test_v7_loader_rejects_changed_frozen_threshold(tmp_path):
+    manifest = json.loads(V7_MANIFEST.read_text(encoding="utf-8"))
+    manifest["pullback_range_baseline_maximum"] = 0.8
+    changed = tmp_path / "changed-v7.json"
+    changed.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pullback_range_baseline_maximum"):
         screen_post_close_fixture_path(
             FIXTURE,
             manifest_path=changed,

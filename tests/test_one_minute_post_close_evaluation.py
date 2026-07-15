@@ -161,3 +161,32 @@ def test_v6_discovery_requires_two_positive_preregistered_folds():
     assert passed["discovery_stop"]["positive_folds"] == 2
     assert "DISCOVERY_REQUIRES_THREE_FOLDS" in missing["discovery_stop"]["reasons"]
     assert "DISCOVERY_FEWER_THAN_TWO_POSITIVE_FOLDS" in missing["discovery_stop"]["reasons"]
+
+
+def test_v7_discovery_applies_compact_continuation_execution_and_fold_gates():
+    rows = tuple(
+        _row(
+            index,
+            -0.2 if index % 4 == 0 else 0.3,
+            family=(
+                "IMPULSE_INSIDE_PULLBACK_SELL"
+                if index % 2 == 0
+                else "IMPULSE_INSIDE_PULLBACK_BUY"
+            ),
+            direction="SELL" if index % 2 == 0 else "BUY",
+        )
+        for index in range(40)
+    )
+    result = PostCloseReplayResult(rows=rows, events=(), arms_detected=40)
+
+    report = evaluate_post_close_result(
+        result,
+        stage="DISCOVERY",
+        candidate="ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
+        fold_metrics=({"net_r": 1.0}, {"net_r": 0.5}, {"net_r": -0.2}),
+    )
+
+    assert report["discovery_stop"]["passed"] is True
+    assert report["discovery_stop"]["positive_folds"] == 2
+    assert report["executability"]["trigger_rate"] == 1.0
+    assert report["executability"]["placement_rate"] == 1.0

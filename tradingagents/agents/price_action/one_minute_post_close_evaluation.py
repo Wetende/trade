@@ -126,6 +126,20 @@ SHOCK_RECLAIM_PROSPECTIVE_GATE = {
     "min_expectancy_r": 0.08,
 }
 
+INSIDE_PULLBACK_EXECUTION_GATE = {
+    "min_trigger_rate": 0.40,
+    "min_placement_rate": 0.50,
+    "min_stop_fill_rate": 0.40,
+    "max_crossed_rate": 0.10,
+    "max_geometry_reject_rate": 0.10,
+    "max_median_drift_r": 0.15,
+    "max_p95_drift_r": 0.35,
+    "max_safety_failures": 0,
+}
+
+INSIDE_PULLBACK_HELD_OUT_GATE = dict(SHOCK_RECLAIM_HELD_OUT_GATE)
+INSIDE_PULLBACK_PROSPECTIVE_GATE = dict(SHOCK_RECLAIM_PROSPECTIVE_GATE)
+
 
 def _percentile(values: list[float], probability: float) -> float | None:
     if not values:
@@ -233,6 +247,7 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
             "PENDING_RETEST_EXPIRED",
             "PENDING_HOLD_STOP_EXPIRED",
             "PENDING_RECLAIM_STOP_EXPIRED",
+            "PENDING_INSIDE_BREAKOUT_STOP_EXPIRED",
         }
     ]
     crossed = [
@@ -252,6 +267,7 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
             "ENTRY_DRIFT_ABOVE_MAXIMUM",
             "HOLD_ENTRY_DRIFT_ABOVE_MAXIMUM",
             "RECLAIM_ENTRY_DRIFT_ABOVE_MAXIMUM",
+            "INSIDE_ENTRY_DRIFT_ABOVE_MAXIMUM",
         }
     ]
     safety_failures = [
@@ -317,16 +333,24 @@ def _gate_reasons(
     for passed, reason in checks:
         if not passed:
             reasons.append(reason)
-    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+    if candidate in {
+        "ONE_MINUTE_SHOCK_RECLAIM_V6",
+        "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
+    }:
+        execution_gate = (
+            INSIDE_PULLBACK_EXECUTION_GATE
+            if candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7"
+            else SHOCK_RECLAIM_EXECUTION_GATE
+        )
         execution_checks = (
-            (execution["trigger_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_trigger_rate"], "TRIGGER_RATE_BELOW_GATE"),
-            (execution["placement_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_placement_rate"], "PLACEMENT_RATE_BELOW_GATE"),
-            (execution["fill_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_stop_fill_rate"], "STOP_FILL_RATE_BELOW_GATE"),
-            (execution["crossed_rate"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_crossed_rate"], "CROSSED_RATE_ABOVE_GATE"),
-            (execution["geometry_reject_rate"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_geometry_reject_rate"], "GEOMETRY_REJECT_RATE_ABOVE_GATE"),
-            ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= SHOCK_RECLAIM_EXECUTION_GATE["max_median_drift_r"], "MEDIAN_DRIFT_ABOVE_GATE"),
-            ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= SHOCK_RECLAIM_EXECUTION_GATE["max_p95_drift_r"], "P95_DRIFT_ABOVE_GATE"),
-            (execution["safety_failure_count"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_safety_failures"], "SAFETY_FAILURES_ABOVE_GATE"),
+            (execution["trigger_rate"] >= execution_gate["min_trigger_rate"], "TRIGGER_RATE_BELOW_GATE"),
+            (execution["placement_rate"] >= execution_gate["min_placement_rate"], "PLACEMENT_RATE_BELOW_GATE"),
+            (execution["fill_rate"] >= execution_gate["min_stop_fill_rate"], "STOP_FILL_RATE_BELOW_GATE"),
+            (execution["crossed_rate"] <= execution_gate["max_crossed_rate"], "CROSSED_RATE_ABOVE_GATE"),
+            (execution["geometry_reject_rate"] <= execution_gate["max_geometry_reject_rate"], "GEOMETRY_REJECT_RATE_ABOVE_GATE"),
+            ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= execution_gate["max_median_drift_r"], "MEDIAN_DRIFT_ABOVE_GATE"),
+            ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= execution_gate["max_p95_drift_r"], "P95_DRIFT_ABOVE_GATE"),
+            (execution["safety_failure_count"] <= execution_gate["max_safety_failures"], "SAFETY_FAILURES_ABOVE_GATE"),
         )
     elif candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
         execution_checks = (
@@ -399,7 +423,11 @@ def evaluate_post_close_result(
 ) -> dict[str, Any]:
     normalized_stage = str(stage).strip().upper()
     normalized_folds = [dict(item) for item in (fold_metrics or ())]
-    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6" and normalized_stage == "PROSPECTIVE":
+    if candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7" and normalized_stage == "PROSPECTIVE":
+        gate = INSIDE_PULLBACK_PROSPECTIVE_GATE
+    elif candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7":
+        gate = INSIDE_PULLBACK_HELD_OUT_GATE
+    elif candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6" and normalized_stage == "PROSPECTIVE":
         gate = SHOCK_RECLAIM_PROSPECTIVE_GATE
     elif candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
         gate = SHOCK_RECLAIM_HELD_OUT_GATE
@@ -419,7 +447,10 @@ def evaluate_post_close_result(
         "touch_count": _segments(rows, "touch_count"),
         "confirmation_type": _segments(rows, "confirmation_type"),
     }
-    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+    if candidate in {
+        "ONE_MINUTE_SHOCK_RECLAIM_V6",
+        "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
+    }:
         if sum(
             float(item["net_r"]) > 0
             for item in segmentation["direction"].values()
@@ -459,6 +490,7 @@ def evaluate_post_close_result(
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
         "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
         "ONE_MINUTE_SHOCK_RECLAIM_V6",
+        "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
     } and normalized_stage == "DISCOVERY":
         direction_metrics = report["segmentation"]["direction"]
         family_metrics = report["segmentation"]["family"]
@@ -484,6 +516,7 @@ def evaluate_post_close_result(
             "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
             "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
             "ONE_MINUTE_SHOCK_RECLAIM_V6",
+            "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
         }:
             minimum_sessions = (
                 10
@@ -491,6 +524,7 @@ def evaluate_post_close_result(
                 in {
                     "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
                     "ONE_MINUTE_SHOCK_RECLAIM_V6",
+                    "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
                 }
                 else 5
             )
@@ -509,9 +543,12 @@ def evaluate_post_close_result(
         if candidate in {
             "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
             "ONE_MINUTE_SHOCK_RECLAIM_V6",
+            "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
         }:
             execution_gate = (
-                SHOCK_RECLAIM_EXECUTION_GATE
+                INSIDE_PULLBACK_EXECUTION_GATE
+                if candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7"
+                else SHOCK_RECLAIM_EXECUTION_GATE
                 if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
                 else HOLD_EXECUTION_GATE
             )
@@ -525,7 +562,10 @@ def evaluate_post_close_result(
                 ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= execution_gate["max_p95_drift_r"], "DISCOVERY_P95_DRIFT_ABOVE_GATE"),
             )
             stop_reasons.extend(reason for passed, reason in hold_checks if not passed)
-            if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+            if candidate in {
+                "ONE_MINUTE_SHOCK_RECLAIM_V6",
+                "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
+            }:
                 if execution["safety_failure_count"] > 0:
                     stop_reasons.append("DISCOVERY_SAFETY_FAILURES_ABOVE_GATE")
                 positive_folds = sum(
@@ -548,7 +588,11 @@ def evaluate_post_close_result(
                     float(item.get("net_r", 0.0)) > 0
                     for item in normalized_folds
                 )
-                if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
+                if candidate
+                in {
+                    "ONE_MINUTE_SHOCK_RECLAIM_V6",
+                    "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
+                }
                 else None
             ),
         }
@@ -574,6 +618,7 @@ def _validated_manifest(manifest_file: Path) -> tuple[dict[str, Any], str]:
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
         "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
         "ONE_MINUTE_SHOCK_RECLAIM_V6",
+        "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7",
     }:
         raise ValueError("unexpected post-close candidate manifest")
     if manifest.get("broker_mutation_enabled") is not False:
@@ -610,6 +655,42 @@ def _validated_manifest(manifest_file: Path) -> tuple[dict[str, Any], str]:
         if mismatches:
             raise ValueError(
                 "V6 manifest differs from frozen preregistration: "
+                + ", ".join(sorted(mismatches))
+            )
+    if candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7":
+        frozen = {
+            "baseline_window": 36,
+            "post_close_policy_version": 7,
+            "version": "7.0",
+            "signal_model": "IMPULSE_INSIDE_PULLBACK",
+            "entry_policy": "POST_CLOSE_INSIDE_BREAKOUT_STOP",
+            "impulse_range_baseline_minimum": 1.25,
+            "impulse_body_fraction_minimum": 0.6,
+            "impulse_close_location_minimum": 0.75,
+            "pullback_range_baseline_maximum": 0.75,
+            "pullback_body_fraction_minimum": 0.25,
+            "pullback_inside_required": True,
+            "pullback_opposite_color_required": True,
+            "pullback_retain_impulse_midpoint": True,
+            "hold_start_delay_seconds": 5.0,
+            "hold_observation_seconds": 1.0,
+            "placement_delay_after_hold_seconds": 5.0,
+            "minimum_stop_distance": 0.35,
+            "minimum_stop_spread_multiple": 1.2,
+            "maximum_stop_distance": 1.5,
+            "maximum_entry_drift_r": 0.15,
+            "pending_stop_expiry_seconds": 20,
+            "state_cap_seconds_after_confirmation_close": 90,
+            "risk_reward": 1.5,
+            "modeled_round_trip_cost_r": 0.05,
+            "volume_policy": "CONSTANT_RESEARCH_VOLUME",
+        }
+        mismatches = [
+            key for key, value in frozen.items() if manifest.get(key) != value
+        ]
+        if mismatches:
+            raise ValueError(
+                "V7 manifest differs from frozen preregistration: "
                 + ", ".join(sorted(mismatches))
             )
     return manifest, candidate
@@ -670,7 +751,9 @@ def _replay_config(
         capture_events=False,
         cost_per_fill_r=float(manifest.get("modeled_round_trip_cost_r", 0.05)),
         entry_policy=(
-            "SHOCK_RECLAIM_STOP_V6"
+            "INSIDE_BREAKOUT_STOP_V7"
+            if candidate == "ONE_MINUTE_IMPULSE_INSIDE_PULLBACK_V7"
+            else "SHOCK_RECLAIM_STOP_V6"
             if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
             else "HOLD_CONTINUATION_STOP_V5_1"
             if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1"
@@ -698,6 +781,12 @@ def _replay_config(
         ),
         maximum_reclaim_entry_drift_r=float(
             manifest.get("maximum_entry_drift_r", 0.75)
+        ),
+        inside_stop_expiry_seconds=int(
+            manifest.get("pending_stop_expiry_seconds", 20)
+        ),
+        maximum_inside_entry_drift_r=float(
+            manifest.get("maximum_entry_drift_r", 0.15)
         ),
         state_cap_seconds_after_confirmation_close=int(
             manifest.get("state_cap_seconds_after_confirmation_close", 90)
@@ -865,6 +954,9 @@ __all__ = [
     "HELD_OUT_GATE",
     "HOLD_EXECUTION_GATE",
     "HOLD_HELD_OUT_GATE",
+    "INSIDE_PULLBACK_EXECUTION_GATE",
+    "INSIDE_PULLBACK_HELD_OUT_GATE",
+    "INSIDE_PULLBACK_PROSPECTIVE_GATE",
     "PROSPECTIVE_GATE",
     "RETEST_EXECUTION_GATE",
     "RECONFIRMATION_EXECUTION_GATE",
