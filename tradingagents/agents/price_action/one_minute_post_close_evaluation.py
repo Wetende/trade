@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 from collections import Counter, defaultdict
@@ -15,7 +16,10 @@ from tradingagents.agents.price_action.one_minute_post_close_replay import (
     PostCloseReplayRow,
     replay_post_close_fixture,
 )
-from tradingagents.agents.price_action.one_minute_post_close_state import PlacementConfig
+from tradingagents.agents.price_action.one_minute_post_close_state import (
+    PlacementConfig,
+    parse_utc,
+)
 
 
 HELD_OUT_GATE = {
@@ -72,6 +76,22 @@ RECONFIRMATION_EXECUTION_GATE = {
     "max_geometry_reject_rate": 0.05,
     "max_median_drift_r": 0.05,
     "max_p95_drift_r": 0.15,
+}
+
+HOLD_EXECUTION_GATE = {
+    "min_trigger_rate": 0.15,
+    "min_placement_rate": 0.60,
+    "min_stop_fill_rate": 0.50,
+    "max_crossed_rate": 0.05,
+    "max_geometry_reject_rate": 0.10,
+    "max_median_drift_r": 0.50,
+    "max_p95_drift_r": 0.75,
+}
+
+HOLD_HELD_OUT_GATE = {
+    **HELD_OUT_GATE,
+    "min_fills": 15,
+    "min_sessions": 5,
 }
 
 
@@ -173,7 +193,11 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
     placed = [row for row in rows if row.placed_at is not None]
     retested = [row for row in rows if row.retest_at is not None]
     expiries = [row for row in rows if row.outcome == "EXPIRED"]
-    pending_expiries = [row for row in rows if row.reason == "PENDING_RETEST_EXPIRED"]
+    pending_expiries = [
+        row
+        for row in rows
+        if row.reason in {"PENDING_RETEST_EXPIRED", "PENDING_HOLD_STOP_EXPIRED"}
+    ]
     crossed = [
         row
         for row in rows
@@ -189,6 +213,7 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
             "INVALID_STOP_GEOMETRY",
             "STOP_DISTANCE_ABOVE_MAXIMUM",
             "ENTRY_DRIFT_ABOVE_MAXIMUM",
+            "HOLD_ENTRY_DRIFT_ABOVE_MAXIMUM",
         }
     ]
     drifts = [float(row.entry_drift_r) for row in filled if row.entry_drift_r is not None]
@@ -239,7 +264,17 @@ def _gate_reasons(
     for passed, reason in checks:
         if not passed:
             reasons.append(reason)
-    if candidate in {
+    if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
+        execution_checks = (
+            (execution["trigger_rate"] >= HOLD_EXECUTION_GATE["min_trigger_rate"], "TRIGGER_RATE_BELOW_GATE"),
+            (execution["placement_rate"] >= HOLD_EXECUTION_GATE["min_placement_rate"], "PLACEMENT_RATE_BELOW_GATE"),
+            (execution["fill_rate"] >= HOLD_EXECUTION_GATE["min_stop_fill_rate"], "STOP_FILL_RATE_BELOW_GATE"),
+            (execution["crossed_rate"] <= HOLD_EXECUTION_GATE["max_crossed_rate"], "CROSSED_RATE_ABOVE_GATE"),
+            (execution["geometry_reject_rate"] <= HOLD_EXECUTION_GATE["max_geometry_reject_rate"], "GEOMETRY_REJECT_RATE_ABOVE_GATE"),
+            ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_median_drift_r"], "MEDIAN_DRIFT_ABOVE_GATE"),
+            ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_p95_drift_r"], "P95_DRIFT_ABOVE_GATE"),
+        )
+    elif candidate in {
         "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
         "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
@@ -298,7 +333,12 @@ def evaluate_post_close_result(
     candidate: str = "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1",
 ) -> dict[str, Any]:
     normalized_stage = str(stage).strip().upper()
-    gate = PROSPECTIVE_GATE if normalized_stage == "PROSPECTIVE" else HELD_OUT_GATE
+    if normalized_stage == "PROSPECTIVE":
+        gate = PROSPECTIVE_GATE
+    elif candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
+        gate = HOLD_HELD_OUT_GATE
+    else:
+        gate = HELD_OUT_GATE
     metrics = summarize_post_close_rows(result.rows)
     execution = summarize_executability(result)
     reasons = _gate_reasons(metrics, execution, gate, candidate)
@@ -331,6 +371,7 @@ def evaluate_post_close_result(
         "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
         "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
+        "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
     } and normalized_stage == "DISCOVERY":
         direction_metrics = report["segmentation"]["direction"]
         family_metrics = report["segmentation"]["family"]
@@ -354,15 +395,34 @@ def evaluate_post_close_result(
         if candidate in {
             "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
             "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
+            "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
         }:
-            if metrics["session_count"] < 5:
-                stop_reasons.append("DISCOVERY_FEWER_THAN_FIVE_SESSIONS")
+            minimum_sessions = (
+                10 if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1" else 5
+            )
+            if metrics["session_count"] < minimum_sessions:
+                stop_reasons.append(
+                    "DISCOVERY_FEWER_THAN_TEN_SESSIONS"
+                    if minimum_sessions == 10
+                    else "DISCOVERY_FEWER_THAN_FIVE_SESSIONS"
+                )
             if metrics["profitable_session_ratio"] < 0.50:
                 stop_reasons.append("DISCOVERY_PROFITABLE_SESSION_RATIO_BELOW_0_50")
             if metrics["max_portfolio_drawdown_r"] > 8.0:
                 stop_reasons.append("DISCOVERY_DRAWDOWN_ABOVE_8R")
             if metrics["max_loss_streak"] > 6:
                 stop_reasons.append("DISCOVERY_LOSS_STREAK_ABOVE_6")
+        if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
+            hold_checks = (
+                (execution["trigger_rate"] >= HOLD_EXECUTION_GATE["min_trigger_rate"], "DISCOVERY_TRIGGER_RATE_BELOW_GATE"),
+                (execution["placement_rate"] >= HOLD_EXECUTION_GATE["min_placement_rate"], "DISCOVERY_PLACEMENT_RATE_BELOW_GATE"),
+                (execution["fill_rate"] >= HOLD_EXECUTION_GATE["min_stop_fill_rate"], "DISCOVERY_STOP_FILL_RATE_BELOW_GATE"),
+                (execution["crossed_rate"] <= HOLD_EXECUTION_GATE["max_crossed_rate"], "DISCOVERY_CROSSED_RATE_ABOVE_GATE"),
+                (execution["geometry_reject_rate"] <= HOLD_EXECUTION_GATE["max_geometry_reject_rate"], "DISCOVERY_GEOMETRY_REJECT_RATE_ABOVE_GATE"),
+                ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_median_drift_r"], "DISCOVERY_MEDIAN_DRIFT_ABOVE_GATE"),
+                ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_p95_drift_r"], "DISCOVERY_P95_DRIFT_ABOVE_GATE"),
+            )
+            stop_reasons.extend(reason for passed, reason in hold_checks if not passed)
         report["discovery_stop"] = {
             "passed": not stop_reasons,
             "reasons": stop_reasons,
@@ -380,21 +440,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def screen_post_close_fixture_path(
-    fixture_path: str | Path,
-    *,
-    manifest_path: str | Path,
-    stage: str = "DISCOVERY",
-) -> dict[str, Any]:
-    """Load one sanitized fixture and emit a broker-free frozen report."""
-    from tradingagents.agents.price_action.opening_state_screening import (
-        OpeningResearchFixture,
-    )
-    from tradingagents.agents.price_action.models import Candle
-    from tradingagents.agents.price_action.opening_tick_replay import MarketTick
-
-    fixture_file = Path(fixture_path)
-    manifest_file = Path(manifest_path)
+def _validated_manifest(manifest_file: Path) -> tuple[dict[str, Any], str]:
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     candidate = str(manifest.get("candidate") or "")
     if candidate not in {
@@ -403,10 +449,21 @@ def screen_post_close_fixture_path(
         "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
         "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
+        "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
     }:
         raise ValueError("unexpected post-close candidate manifest")
     if manifest.get("broker_mutation_enabled") is not False:
         raise ValueError("post-close evaluation manifest must disable broker mutation")
+    return manifest, candidate
+
+
+def _load_research_fixture(fixture_file: Path) -> tuple[Any, Any, Any]:
+    from tradingagents.agents.price_action.opening_state_screening import (
+        OpeningResearchFixture,
+    )
+    from tradingagents.agents.price_action.models import Candle
+    from tradingagents.agents.price_action.opening_tick_replay import MarketTick
+
     raw_fixture = json.loads(fixture_file.read_bytes())
     evidence_start = raw_fixture.get("evidence_start")
     evidence_end = raw_fixture.get("evidence_end")
@@ -433,46 +490,100 @@ def screen_post_close_fixture_path(
         ),
     )
     del raw_fixture
+    return fixture, evidence_start, evidence_end
+
+
+def _replay_config(
+    manifest: dict[str, Any],
+    candidate: str,
+    *,
+    evidence_start: Any,
+    evidence_end: Any,
+) -> PostCloseReplayConfig:
+    return PostCloseReplayConfig(
+        placement=PlacementConfig(
+            minimum_stop_distance=float(manifest.get("minimum_stop_distance", 0.35)),
+            minimum_stop_spread_multiple=float(
+                manifest.get("minimum_stop_spread_multiple", 1.2)
+            ),
+            maximum_stop_distance=float(manifest.get("maximum_stop_distance", 1.0)),
+            risk_reward=float(manifest.get("risk_reward", 1.5)),
+        ),
+        capture_events=False,
+        cost_per_fill_r=float(manifest.get("modeled_round_trip_cost_r", 0.05)),
+        entry_policy=(
+            "HOLD_CONTINUATION_STOP_V5_1"
+            if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1"
+            else "RETEST_RECONFIRM_STOP_V3"
+            if candidate
+            in {
+                "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
+                "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
+                "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
+            }
+            else "RETEST_LIMIT_V2"
+            if candidate == "ONE_MINUTE_POST_CLOSE_RETEST_V2"
+            else "MARKET_V1"
+        ),
+        pending_expiry_seconds=int(manifest.get("pending_expiry_seconds", 20)),
+        reconfirmation_stop_expiry_seconds=int(
+            manifest.get("reconfirmation_stop_expiry_seconds", 15)
+        ),
+        hold_stop_expiry_seconds=int(manifest.get("hold_stop_expiry_seconds", 20)),
+        maximum_hold_entry_drift_r=float(
+            manifest.get("maximum_hold_entry_drift_r", 0.75)
+        ),
+        state_cap_seconds_after_confirmation_close=int(
+            manifest.get("state_cap_seconds_after_confirmation_close", 90)
+        ),
+        clean_levels=(candidate == "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4"),
+        candidate_name=candidate,
+        signal_model=str(manifest.get("signal_model", "REPEATED_LEVEL")),
+        evidence_start=str(evidence_start) if evidence_start else None,
+        evidence_end=str(evidence_end) if evidence_end else None,
+    )
+
+
+def _evidence_summary(
+    fixture: Any,
+    *,
+    evidence_start: Any,
+    evidence_end: Any,
+) -> dict[str, Any]:
+    return {
+        "candle_count": len(fixture.candles),
+        "tick_count": len(fixture.ticks),
+        "earliest_candle": min(
+            (str(candle.timestamp) for candle in fixture.candles),
+            default=None,
+        ),
+        "latest_candle": max(
+            (str(candle.timestamp) for candle in fixture.candles),
+            default=None,
+        ),
+        "evidence_start": evidence_start,
+        "evidence_end": evidence_end,
+    }
+
+
+def screen_post_close_fixture_path(
+    fixture_path: str | Path,
+    *,
+    manifest_path: str | Path,
+    stage: str = "DISCOVERY",
+) -> dict[str, Any]:
+    """Load one sanitized fixture and emit a broker-free frozen report."""
+    fixture_file = Path(fixture_path)
+    manifest_file = Path(manifest_path)
+    manifest, candidate = _validated_manifest(manifest_file)
+    fixture, evidence_start, evidence_end = _load_research_fixture(fixture_file)
     replay = replay_post_close_fixture(
         fixture,
-        config=PostCloseReplayConfig(
-            placement=PlacementConfig(
-                minimum_stop_distance=float(
-                    manifest.get("minimum_stop_distance", 0.35)
-                ),
-                minimum_stop_spread_multiple=float(
-                    manifest.get("minimum_stop_spread_multiple", 1.2)
-                ),
-                maximum_stop_distance=float(
-                    manifest.get("maximum_stop_distance", 1.0)
-                ),
-                risk_reward=float(manifest.get("risk_reward", 1.5)),
-            ),
-            capture_events=False,
-            cost_per_fill_r=float(manifest.get("modeled_round_trip_cost_r", 0.05)),
-            entry_policy=(
-                "RETEST_RECONFIRM_STOP_V3"
-                if candidate in {
-                    "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
-                    "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
-                    "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
-                }
-                else "RETEST_LIMIT_V2"
-                if candidate == "ONE_MINUTE_POST_CLOSE_RETEST_V2"
-                else "MARKET_V1"
-            ),
-            pending_expiry_seconds=int(manifest.get("pending_expiry_seconds", 20)),
-            reconfirmation_stop_expiry_seconds=int(
-                manifest.get("reconfirmation_stop_expiry_seconds", 15)
-            ),
-            state_cap_seconds_after_confirmation_close=int(
-                manifest.get("state_cap_seconds_after_confirmation_close", 90)
-            ),
-            clean_levels=(candidate == "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4"),
-            candidate_name=candidate,
-            signal_model=str(manifest.get("signal_model", "REPEATED_LEVEL")),
-            evidence_start=str(evidence_start) if evidence_start else None,
-            evidence_end=str(evidence_end) if evidence_end else None,
+        config=_replay_config(
+            manifest,
+            candidate,
+            evidence_start=evidence_start,
+            evidence_end=evidence_end,
         ),
     )
     report = evaluate_post_close_result(replay, stage=stage, candidate=candidate)
@@ -481,19 +592,93 @@ def screen_post_close_fixture_path(
             "manifest": manifest,
             "manifest_sha256": _sha256(manifest_file),
             "source_fixture_sha256": _sha256(fixture_file),
+            "evidence": _evidence_summary(
+                fixture,
+                evidence_start=evidence_start,
+                evidence_end=evidence_end,
+            ),
+        }
+    )
+    return report
+
+
+def screen_post_close_fixture_paths(
+    fixture_paths: Iterable[str | Path],
+    *,
+    manifest_path: str | Path,
+    stage: str = "DISCOVERY",
+) -> dict[str, Any]:
+    """Replay ordered non-overlapping fixture folds without co-loading them."""
+    manifest_file = Path(manifest_path)
+    manifest, candidate = _validated_manifest(manifest_file)
+    paths = [Path(path) for path in fixture_paths]
+    if not paths:
+        raise ValueError("at least one post-close fixture is required")
+
+    rows: list[PostCloseReplayRow] = []
+    arms_detected = 0
+    sources: list[dict[str, Any]] = []
+    previous_end = None
+    for fixture_file in paths:
+        fixture, evidence_start, evidence_end = _load_research_fixture(fixture_file)
+        if evidence_start is None or evidence_end is None:
+            raise ValueError("multi-fixture screening requires explicit evidence bounds")
+        start = parse_utc(str(evidence_start))
+        end = parse_utc(str(evidence_end))
+        if end <= start:
+            raise ValueError("fixture evidence end must be after start")
+        if previous_end is not None and start < previous_end:
+            raise ValueError("multi-fixture evidence windows must not overlap")
+        previous_end = end
+        replay = replay_post_close_fixture(
+            fixture,
+            config=_replay_config(
+                manifest,
+                candidate,
+                evidence_start=evidence_start,
+                evidence_end=evidence_end,
+            ),
+        )
+        rows.extend(replay.rows)
+        arms_detected += replay.arms_detected
+        source_hash = _sha256(fixture_file)
+        sources.append(
+            {
+                "path": str(fixture_file),
+                "sha256": source_hash,
+                **_evidence_summary(
+                    fixture,
+                    evidence_start=evidence_start,
+                    evidence_end=evidence_end,
+                ),
+            }
+        )
+        del replay
+        del fixture
+        gc.collect()
+
+    rows.sort(key=lambda row: (parse_utc(row.armed_at), row.arm_id))
+    combined = PostCloseReplayResult(
+        rows=tuple(rows),
+        events=(),
+        arms_detected=arms_detected,
+    )
+    report = evaluate_post_close_result(combined, stage=stage, candidate=candidate)
+    source_hashes = "".join(str(source["sha256"]) for source in sources)
+    report.update(
+        {
+            "manifest": manifest,
+            "manifest_sha256": _sha256(manifest_file),
+            "combined_source_sha256": hashlib.sha256(
+                source_hashes.encode("ascii")
+            ).hexdigest(),
             "evidence": {
-                "candle_count": len(fixture.candles),
-                "tick_count": len(fixture.ticks),
-                "earliest_candle": min(
-                    (str(candle.timestamp) for candle in fixture.candles),
-                    default=None,
-                ),
-                "latest_candle": max(
-                    (str(candle.timestamp) for candle in fixture.candles),
-                    default=None,
-                ),
-                "evidence_start": evidence_start,
-                "evidence_end": evidence_end,
+                "fold_count": len(sources),
+                "candle_count": sum(int(source["candle_count"]) for source in sources),
+                "tick_count": sum(int(source["tick_count"]) for source in sources),
+                "evidence_start": sources[0]["evidence_start"],
+                "evidence_end": sources[-1]["evidence_end"],
+                "sources": sources,
             },
         }
     )
@@ -503,11 +688,14 @@ def screen_post_close_fixture_path(
 __all__ = [
     "EXECUTION_GATE",
     "HELD_OUT_GATE",
+    "HOLD_EXECUTION_GATE",
+    "HOLD_HELD_OUT_GATE",
     "PROSPECTIVE_GATE",
     "RETEST_EXECUTION_GATE",
     "RECONFIRMATION_EXECUTION_GATE",
     "evaluate_post_close_result",
     "screen_post_close_fixture_path",
+    "screen_post_close_fixture_paths",
     "summarize_executability",
     "summarize_post_close_rows",
 ]

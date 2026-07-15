@@ -25,6 +25,9 @@ V4_MANIFEST = Path(
 V5_MANIFEST = Path(
     "docs/analysis/2026-07-15-one-minute-compression-expansion-v5-manifest.json"
 )
+V5_1_MANIFEST = Path(
+    "docs/analysis/2026-07-15-one-minute-compression-hold-v5-1-manifest.json"
+)
 
 
 def test_post_close_cli_writes_deterministic_broker_free_discovery_report(tmp_path):
@@ -179,3 +182,76 @@ def test_post_close_cli_accepts_frozen_v5_compression_manifest(tmp_path):
     assert payload["candidate"] == "ONE_MINUTE_COMPRESSION_EXPANSION_V5"
     assert "discovery_stop" in payload
     assert payload["manifest"]["signal_model"] == "COMPRESSION_EXPANSION"
+
+
+def test_post_close_cli_accepts_frozen_v5_1_hold_manifest(tmp_path):
+    output = tmp_path / "v5-1.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "one-minute-post-close-screen",
+            "--fixture",
+            str(FIXTURE),
+            "--manifest",
+            str(V5_1_MANIFEST),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["candidate"] == "ONE_MINUTE_COMPRESSION_HOLD_V5_1"
+    assert "discovery_stop" in payload
+    assert payload["manifest"]["entry_policy"] == (
+        "POST_CLOSE_HOLD_CONTINUATION_STOP"
+    )
+
+
+def test_post_close_multi_cli_aggregates_ordered_bounded_folds(tmp_path):
+    source = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_text(
+        json.dumps(
+            {
+                **source,
+                "evidence_start": "2026-07-01T12:00:00+00:00",
+                "evidence_end": "2026-07-01T13:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    second.write_text(
+        json.dumps(
+            {
+                **source,
+                "evidence_start": "2026-07-01T13:00:00+00:00",
+                "evidence_end": "2026-07-01T14:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "multi.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "one-minute-post-close-multi-screen",
+            "--fixture",
+            str(first),
+            "--fixture",
+            str(second),
+            "--manifest",
+            str(V5_1_MANIFEST),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["evidence"]["fold_count"] == 2
+    assert len(payload["evidence"]["sources"]) == 2
+    assert payload["candidate"] == "ONE_MINUTE_COMPRESSION_HOLD_V5_1"

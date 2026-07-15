@@ -401,6 +401,8 @@ def _trigger(state: PostCloseState, quote: QuoteObservation, reason: str) -> Sta
 def observe_post_close_quote(
     state: PostCloseState,
     quote: QuoteObservation,
+    *,
+    allow_break_retest_trigger: bool = True,
 ) -> StateTransition:
     """Advance an armed setup using one causally available quote."""
     if state.phase != PostClosePhase.ARMED:
@@ -443,7 +445,11 @@ def observe_post_close_quote(
         if was_zone_observed and quote.ask >= arm.zone_high + arm.break_margin:
             return _trigger(updated, quote, "POST_CLOSE_ZONE_REJECTION_UP")
     elif family == HIGH_BREAK_BUY:
-        if was_zone_observed and quote.ask >= arm.zone_high + arm.break_margin:
+        if (
+            allow_break_retest_trigger
+            and was_zone_observed
+            and quote.ask >= arm.zone_high + arm.break_margin
+        ):
             return _trigger(updated, quote, "POST_CLOSE_BREAK_RETEST_RESUME_UP")
         if quote.bid > arm.zone_high:
             if state.first_hold_at is None:
@@ -455,7 +461,11 @@ def observe_post_close_quote(
         else:
             updated = replace(updated, first_hold_at=None)
     elif family == LOW_BREAK_SELL:
-        if was_zone_observed and quote.bid <= arm.zone_low - arm.break_margin:
+        if (
+            allow_break_retest_trigger
+            and was_zone_observed
+            and quote.bid <= arm.zone_low - arm.break_margin
+        ):
             return _trigger(updated, quote, "POST_CLOSE_BREAK_RETEST_RESUME_DOWN")
         if quote.ask < arm.zone_low:
             if state.first_hold_at is None:

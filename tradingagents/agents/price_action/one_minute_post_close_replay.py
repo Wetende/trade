@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
+from math import ceil, floor
 from typing import Any, Iterable
 
 from tradingagents.agents.price_action.models import Candle
@@ -37,6 +38,8 @@ class PostCloseReplayConfig:
     entry_policy: str = "MARKET_V1"
     pending_expiry_seconds: int = 20
     reconfirmation_stop_expiry_seconds: int = 15
+    hold_stop_expiry_seconds: int = 20
+    maximum_hold_entry_drift_r: float = 0.75
     state_cap_seconds_after_confirmation_close: int = 90
     clean_levels: bool = False
     candidate_name: str = "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1"
@@ -423,6 +426,118 @@ def _build_reconfirmation_stop(
     )
 
 
+def _build_hold_continuation_stop(
+    state: PostCloseState,
+    quote: QuoteObservation,
+    policy: PostCloseReplayConfig,
+) -> tuple[_PendingRetest | None, str]:
+    """Build a future stop after a causally confirmed post-close hold."""
+    arm = state.arm
+    now = quote.time_utc
+    if not quote.valid:
+        return None, "INVALID_PLACEMENT_QUOTE"
+    state_cap = parse_utc(arm.confirmation_closed_at) + timedelta(
+        seconds=max(1, policy.state_cap_seconds_after_confirmation_close)
+    )
+    if now >= state_cap:
+        return None, "STATE_CAP_EXPIRED_BEFORE_PLACEMENT"
+    tick_size = max(float(policy.placement.tick_size), 1e-9)
+    if arm.direction == "BUY":
+        if quote.bid < arm.invalidation:
+            return None, "BUY_STORY_INVALIDATED_AT_HOLD_STOP_PLACEMENT"
+        structural_trigger = arm.zone_high + arm.break_margin
+        entry = round(
+            ceil(
+                max(structural_trigger, float(quote.ask) + tick_size)
+                / tick_size
+                - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+    else:
+        if quote.ask > arm.invalidation:
+            return None, "SELL_STORY_INVALIDATED_AT_HOLD_STOP_PLACEMENT"
+        structural_trigger = arm.zone_low - arm.break_margin
+        entry = round(
+            floor(
+                min(structural_trigger, float(quote.bid) - tick_size)
+                / tick_size
+                + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+
+    spread = quote.spread
+    minimum_risk = max(
+        policy.placement.minimum_stop_distance,
+        spread * policy.placement.minimum_stop_spread_multiple,
+    )
+    if arm.direction == "BUY":
+        stop = round(
+            floor(
+                min(arm.invalidation, entry - minimum_risk) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = entry - stop
+    else:
+        stop = round(
+            ceil(
+                max(arm.invalidation, entry + minimum_risk) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = stop - entry
+    if risk <= 0:
+        return None, "INVALID_STOP_GEOMETRY"
+    if risk > policy.placement.maximum_stop_distance:
+        return None, "STOP_DISTANCE_ABOVE_MAXIMUM"
+    drift_r = abs(entry - arm.level) / risk
+    if drift_r > float(policy.maximum_hold_entry_drift_r):
+        return None, "HOLD_ENTRY_DRIFT_ABOVE_MAXIMUM"
+
+    if arm.direction == "BUY":
+        target = round(
+            floor(
+                (entry + risk * policy.placement.risk_reward) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+    else:
+        target = round(
+            ceil(
+                (entry - risk * policy.placement.risk_reward) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+
+    expires_at = min(
+        now + timedelta(seconds=max(1, policy.hold_stop_expiry_seconds)),
+        state_cap,
+    )
+    return (
+        _PendingRetest(
+            state=replace(state, phase=PostClosePhase.PLACED),
+            placed_at=quote.time,
+            expires_at=expires_at.isoformat(),
+            entry=entry,
+            stop=stop,
+            target=target,
+            intended_risk=risk,
+            spread_r=spread / risk,
+            structural_distance_r=drift_r,
+            order_kind="STOP",
+        ),
+        "PLACEMENT_ACCEPTED",
+    )
+
+
 def _event(name: str, time: str, arm: PostCloseArm, **details: Any) -> dict[str, Any]:
     return {
         "event": name,
@@ -673,6 +788,11 @@ def replay_post_close_arms(
                 pending = None
                 continue
             if quote.time_utc >= parse_utc(pending.expires_at):
+                expiry_reason = (
+                    "PENDING_HOLD_STOP_EXPIRED"
+                    if pending.order_kind == "STOP" and pending.retest_at is None
+                    else "PENDING_RETEST_EXPIRED"
+                )
                 rows.append(
                     _row(
                         pending.arm,
@@ -680,11 +800,18 @@ def replay_post_close_arms(
                         accepted=True,
                         filled=False,
                         outcome="EXPIRED",
-                        reason="PENDING_RETEST_EXPIRED",
+                        reason=expiry_reason,
                         closed_at=quote.time,
                     )
                 )
-                events.append(_event("PENDING_EXPIRED", quote.time, pending.arm))
+                events.append(
+                    _event(
+                        "PENDING_EXPIRED",
+                        quote.time,
+                        pending.arm,
+                        reason=expiry_reason,
+                    )
+                )
                 consumed = _ConsumedZone(pending.arm)
                 state = None
                 pending = None
@@ -885,7 +1012,13 @@ def replay_post_close_arms(
         if state is None:
             continue
         if state.phase == PostClosePhase.ARMED:
-            transition = observe_post_close_quote(state, quote)
+            transition = observe_post_close_quote(
+                state,
+                quote,
+                allow_break_retest_trigger=(
+                    policy.entry_policy != "HOLD_CONTINUATION_STOP_V5_1"
+                ),
+            )
             state = transition.state
             events.append(transition.as_dict())
             if state.phase in {PostClosePhase.EXPIRED, PostClosePhase.INVALIDATED}:
@@ -904,6 +1037,42 @@ def replay_post_close_arms(
                 state = None
             continue
         if state.phase == PostClosePhase.TRIGGERED:
+            if policy.entry_policy == "HOLD_CONTINUATION_STOP_V5_1":
+                if quote.time_utc < parse_utc(
+                    state.placement_due_at or state.arm.expires_at
+                ):
+                    continue
+                pending_order, reason = _build_hold_continuation_stop(
+                    state,
+                    quote,
+                    policy,
+                )
+                events.append(
+                    _event(
+                        "PLACEMENT_SIMULATED" if pending_order else "PLACEMENT_REJECTED",
+                        quote.time,
+                        state.arm,
+                        reason=reason,
+                    )
+                )
+                if pending_order is None:
+                    rows.append(
+                        _row(
+                            state.arm,
+                            state=state,
+                            accepted=True,
+                            filled=False,
+                            outcome="REJECTED",
+                            reason=reason,
+                            closed_at=quote.time,
+                        )
+                    )
+                    consumed = _ConsumedZone(state.arm)
+                    state = None
+                else:
+                    pending = pending_order
+                    state = pending_order.state
+                continue
             if policy.entry_policy == "RETEST_RECONFIRM_STOP_V3":
                 if quote.time_utc < parse_utc(state.placement_due_at or state.arm.expires_at):
                     continue

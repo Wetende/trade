@@ -754,6 +754,30 @@ def one_minute_post_close_collect(
             broker.shutdown()
 
 
+@app.command("one-minute-post-close-multi-screen")
+def one_minute_post_close_multi_screen(
+    fixture: list[Path] = typer.Option(..., "--fixture"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    output: Path = typer.Option(..., "--output"),
+    stage: str = typer.Option("DISCOVERY", "--stage"),
+):
+    """Screen ordered non-overlapping post-close fixture folds."""
+    from tradingagents.agents.price_action.one_minute_post_close_evaluation import (
+        screen_post_close_fixture_paths,
+    )
+
+    normalized_stage = stage.strip().upper()
+    if normalized_stage not in {"DISCOVERY", "HELD_OUT", "PROSPECTIVE"}:
+        raise typer.BadParameter("stage must be DISCOVERY, HELD_OUT, or PROSPECTIVE")
+    report = screen_post_close_fixture_paths(
+        fixture,
+        manifest_path=manifest,
+        stage=normalized_stage,
+    )
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-opening-target-grid-shadow-step")
 def one_minute_opening_target_grid_shadow_step(
     manifest: Path = typer.Option(..., "--manifest"),
