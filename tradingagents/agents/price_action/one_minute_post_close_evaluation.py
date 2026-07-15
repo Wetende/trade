@@ -94,6 +94,38 @@ HOLD_HELD_OUT_GATE = {
     "min_sessions": 5,
 }
 
+SHOCK_RECLAIM_EXECUTION_GATE = {
+    "min_trigger_rate": 0.50,
+    "min_placement_rate": 0.60,
+    "min_stop_fill_rate": 0.50,
+    "max_crossed_rate": 0.0,
+    "max_geometry_reject_rate": 0.10,
+    "max_median_drift_r": 0.50,
+    "max_p95_drift_r": 0.75,
+    "max_safety_failures": 0,
+}
+
+SHOCK_RECLAIM_HELD_OUT_GATE = {
+    "min_fills": 15,
+    "min_sessions": 5,
+    "min_profit_factor": 1.25,
+    "min_expectancy_r": 0.10,
+    "min_profitable_session_ratio": 0.60,
+    "max_portfolio_drawdown_r": 6.0,
+    "max_loss_streak": 5,
+    "max_best_session_profit_share": 0.50,
+    "max_best_family_profit_share": 0.65,
+    "max_best_direction_profit_share": 0.65,
+}
+
+SHOCK_RECLAIM_PROSPECTIVE_GATE = {
+    **SHOCK_RECLAIM_HELD_OUT_GATE,
+    "min_fills": 60,
+    "min_sessions": 10,
+    "min_profit_factor": 1.20,
+    "min_expectancy_r": 0.08,
+}
+
 
 def _percentile(values: list[float], probability: float) -> float | None:
     if not values:
@@ -196,7 +228,12 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
     pending_expiries = [
         row
         for row in rows
-        if row.reason in {"PENDING_RETEST_EXPIRED", "PENDING_HOLD_STOP_EXPIRED"}
+        if row.reason
+        in {
+            "PENDING_RETEST_EXPIRED",
+            "PENDING_HOLD_STOP_EXPIRED",
+            "PENDING_RECLAIM_STOP_EXPIRED",
+        }
     ]
     crossed = [
         row
@@ -214,7 +251,13 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
             "STOP_DISTANCE_ABOVE_MAXIMUM",
             "ENTRY_DRIFT_ABOVE_MAXIMUM",
             "HOLD_ENTRY_DRIFT_ABOVE_MAXIMUM",
+            "RECLAIM_ENTRY_DRIFT_ABOVE_MAXIMUM",
         }
+    ]
+    safety_failures = [
+        row
+        for row in rows
+        if row.reason in {"INVALID_FILL_GEOMETRY", "AMBIGUOUS_STOP_TARGET"}
     ]
     drifts = [float(row.entry_drift_r) for row in filled if row.entry_drift_r is not None]
     return {
@@ -232,7 +275,10 @@ def summarize_executability(result: PostCloseReplayResult) -> dict[str, Any]:
         "expiry_rate": round(len(expiries) / result.arms_detected, 6) if result.arms_detected else 0.0,
         "pending_expiry_rate": round(len(pending_expiries) / len(placed), 6) if placed else 0.0,
         "crossed_rate": round(len(crossed) / len(triggered), 6) if triggered else 0.0,
+        "crossed_count": len(crossed),
         "geometry_reject_rate": round(len(geometry) / len(triggered), 6) if triggered else 0.0,
+        "safety_failure_count": len(safety_failures)
+        + int(bool(result.broker_mutation_enabled)),
         "median_entry_drift_r": round(median(drifts), 6) if drifts else None,
         "p95_entry_drift_r": round(_percentile(drifts, 0.95), 6) if drifts else None,
     }
@@ -245,7 +291,7 @@ def _gate_reasons(
     candidate: str,
 ) -> list[str]:
     reasons: list[str] = []
-    checks = (
+    checks = [
         (metrics["fills"] >= gate["min_fills"], "INSUFFICIENT_FILLS"),
         (metrics["session_count"] >= gate["min_sessions"], "INSUFFICIENT_SESSIONS"),
         ((metrics["profit_factor"] or 0.0) >= gate["min_profit_factor"], "PROFIT_FACTOR_BELOW_GATE"),
@@ -253,18 +299,36 @@ def _gate_reasons(
         (metrics["net_r"] > 0, "NON_POSITIVE_NET_R"),
         (metrics["profitable_session_ratio"] >= gate["min_profitable_session_ratio"], "PROFITABLE_SESSION_RATIO_BELOW_GATE"),
         (metrics["max_portfolio_drawdown_r"] <= gate["max_portfolio_drawdown_r"], "PORTFOLIO_DRAWDOWN_ABOVE_GATE"),
-        (metrics["max_session_drawdown_r"] <= gate["max_session_drawdown_r"], "SESSION_DRAWDOWN_ABOVE_GATE"),
         (metrics["max_loss_streak"] <= gate["max_loss_streak"], "LOSS_STREAK_ABOVE_GATE"),
         ((metrics["best_session_profit_share"] or 1.0) <= gate["max_best_session_profit_share"], "SESSION_PROFIT_CONCENTRATION"),
         ((metrics["best_family_profit_share"] or 1.0) <= gate["max_best_family_profit_share"], "FAMILY_PROFIT_CONCENTRATION"),
         ((metrics["best_direction_profit_share"] or 1.0) <= gate["max_best_direction_profit_share"], "DIRECTION_PROFIT_CONCENTRATION"),
         (metrics["net_without_best_session_r"] > 0, "NOT_PROFITABLE_WITHOUT_BEST_SESSION"),
         (metrics["net_with_extra_0_05r_cost"] > 0, "FAILS_EXTRA_COST_STRESS"),
-    )
+    ]
+    if "max_session_drawdown_r" in gate:
+        checks.append(
+            (
+                metrics["max_session_drawdown_r"]
+                <= gate["max_session_drawdown_r"],
+                "SESSION_DRAWDOWN_ABOVE_GATE",
+            )
+        )
     for passed, reason in checks:
         if not passed:
             reasons.append(reason)
-    if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
+    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+        execution_checks = (
+            (execution["trigger_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_trigger_rate"], "TRIGGER_RATE_BELOW_GATE"),
+            (execution["placement_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_placement_rate"], "PLACEMENT_RATE_BELOW_GATE"),
+            (execution["fill_rate"] >= SHOCK_RECLAIM_EXECUTION_GATE["min_stop_fill_rate"], "STOP_FILL_RATE_BELOW_GATE"),
+            (execution["crossed_rate"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_crossed_rate"], "CROSSED_RATE_ABOVE_GATE"),
+            (execution["geometry_reject_rate"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_geometry_reject_rate"], "GEOMETRY_REJECT_RATE_ABOVE_GATE"),
+            ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= SHOCK_RECLAIM_EXECUTION_GATE["max_median_drift_r"], "MEDIAN_DRIFT_ABOVE_GATE"),
+            ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= SHOCK_RECLAIM_EXECUTION_GATE["max_p95_drift_r"], "P95_DRIFT_ABOVE_GATE"),
+            (execution["safety_failure_count"] <= SHOCK_RECLAIM_EXECUTION_GATE["max_safety_failures"], "SAFETY_FAILURES_ABOVE_GATE"),
+        )
+    elif candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
         execution_checks = (
             (execution["trigger_rate"] >= HOLD_EXECUTION_GATE["min_trigger_rate"], "TRIGGER_RATE_BELOW_GATE"),
             (execution["placement_rate"] >= HOLD_EXECUTION_GATE["min_placement_rate"], "PLACEMENT_RATE_BELOW_GATE"),
@@ -331,9 +395,15 @@ def evaluate_post_close_result(
     *,
     stage: str,
     candidate: str = "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1",
+    fold_metrics: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_stage = str(stage).strip().upper()
-    if normalized_stage == "PROSPECTIVE":
+    normalized_folds = [dict(item) for item in (fold_metrics or ())]
+    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6" and normalized_stage == "PROSPECTIVE":
+        gate = SHOCK_RECLAIM_PROSPECTIVE_GATE
+    elif candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+        gate = SHOCK_RECLAIM_HELD_OUT_GATE
+    elif normalized_stage == "PROSPECTIVE":
         gate = PROSPECTIVE_GATE
     elif candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
         gate = HOLD_HELD_OUT_GATE
@@ -342,12 +412,32 @@ def evaluate_post_close_result(
     metrics = summarize_post_close_rows(result.rows)
     execution = summarize_executability(result)
     reasons = _gate_reasons(metrics, execution, gate, candidate)
-    evaluable = normalized_stage in {"HELD_OUT", "PROSPECTIVE"}
-    if not evaluable:
-        decision = "DISCOVERY_ONLY_NOT_APPROVAL"
-    else:
-        decision = "PASS" if not reasons else "FAIL"
     rows = list(result.rows)
+    segmentation = {
+        "family": _segments(rows, "family"),
+        "direction": _segments(rows, "direction"),
+        "touch_count": _segments(rows, "touch_count"),
+        "confirmation_type": _segments(rows, "confirmation_type"),
+    }
+    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+        if sum(
+            float(item["net_r"]) > 0
+            for item in segmentation["direction"].values()
+        ) < 2:
+            reasons.append("NOT_POSITIVE_BOTH_DIRECTIONS")
+        if sum(
+            float(item["net_r"]) > 0
+            for item in segmentation["family"].values()
+        ) < 2:
+            reasons.append("NOT_POSITIVE_BOTH_FAMILIES")
+    evaluable = normalized_stage in {"HELD_OUT", "PROSPECTIVE"}
+    decision = (
+        "DISCOVERY_ONLY_NOT_APPROVAL"
+        if not evaluable
+        else "PASS"
+        if not reasons
+        else "FAIL"
+    )
     report = {
         "schema_version": 1,
         "candidate": candidate,
@@ -360,18 +450,15 @@ def evaluate_post_close_result(
         "executability": execution,
         "outcome_counts": dict(sorted(Counter(row.outcome for row in rows).items())),
         "reason_counts": dict(sorted(Counter(row.reason for row in rows).items())),
-        "segmentation": {
-            "family": _segments(rows, "family"),
-            "direction": _segments(rows, "direction"),
-            "touch_count": _segments(rows, "touch_count"),
-            "confirmation_type": _segments(rows, "confirmation_type"),
-        },
+        "segmentation": segmentation,
+        "fold_metrics": normalized_folds,
     }
     if candidate in {
         "ONE_MINUTE_RETEST_RECONFIRMATION_V3",
         "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
         "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
+        "ONE_MINUTE_SHOCK_RECLAIM_V6",
     } and normalized_stage == "DISCOVERY":
         direction_metrics = report["segmentation"]["direction"]
         family_metrics = report["segmentation"]["family"]
@@ -396,9 +483,16 @@ def evaluate_post_close_result(
             "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
             "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
             "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
+            "ONE_MINUTE_SHOCK_RECLAIM_V6",
         }:
             minimum_sessions = (
-                10 if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1" else 5
+                10
+                if candidate
+                in {
+                    "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
+                    "ONE_MINUTE_SHOCK_RECLAIM_V6",
+                }
+                else 5
             )
             if metrics["session_count"] < minimum_sessions:
                 stop_reasons.append(
@@ -412,22 +506,51 @@ def evaluate_post_close_result(
                 stop_reasons.append("DISCOVERY_DRAWDOWN_ABOVE_8R")
             if metrics["max_loss_streak"] > 6:
                 stop_reasons.append("DISCOVERY_LOSS_STREAK_ABOVE_6")
-        if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1":
+        if candidate in {
+            "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
+            "ONE_MINUTE_SHOCK_RECLAIM_V6",
+        }:
+            execution_gate = (
+                SHOCK_RECLAIM_EXECUTION_GATE
+                if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
+                else HOLD_EXECUTION_GATE
+            )
             hold_checks = (
-                (execution["trigger_rate"] >= HOLD_EXECUTION_GATE["min_trigger_rate"], "DISCOVERY_TRIGGER_RATE_BELOW_GATE"),
-                (execution["placement_rate"] >= HOLD_EXECUTION_GATE["min_placement_rate"], "DISCOVERY_PLACEMENT_RATE_BELOW_GATE"),
-                (execution["fill_rate"] >= HOLD_EXECUTION_GATE["min_stop_fill_rate"], "DISCOVERY_STOP_FILL_RATE_BELOW_GATE"),
-                (execution["crossed_rate"] <= HOLD_EXECUTION_GATE["max_crossed_rate"], "DISCOVERY_CROSSED_RATE_ABOVE_GATE"),
-                (execution["geometry_reject_rate"] <= HOLD_EXECUTION_GATE["max_geometry_reject_rate"], "DISCOVERY_GEOMETRY_REJECT_RATE_ABOVE_GATE"),
-                ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_median_drift_r"], "DISCOVERY_MEDIAN_DRIFT_ABOVE_GATE"),
-                ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= HOLD_EXECUTION_GATE["max_p95_drift_r"], "DISCOVERY_P95_DRIFT_ABOVE_GATE"),
+                (execution["trigger_rate"] >= execution_gate["min_trigger_rate"], "DISCOVERY_TRIGGER_RATE_BELOW_GATE"),
+                (execution["placement_rate"] >= execution_gate["min_placement_rate"], "DISCOVERY_PLACEMENT_RATE_BELOW_GATE"),
+                (execution["fill_rate"] >= execution_gate["min_stop_fill_rate"], "DISCOVERY_STOP_FILL_RATE_BELOW_GATE"),
+                (execution["crossed_rate"] <= execution_gate["max_crossed_rate"], "DISCOVERY_CROSSED_RATE_ABOVE_GATE"),
+                (execution["geometry_reject_rate"] <= execution_gate["max_geometry_reject_rate"], "DISCOVERY_GEOMETRY_REJECT_RATE_ABOVE_GATE"),
+                ((execution["median_entry_drift_r"] if execution["median_entry_drift_r"] is not None else float("inf")) <= execution_gate["max_median_drift_r"], "DISCOVERY_MEDIAN_DRIFT_ABOVE_GATE"),
+                ((execution["p95_entry_drift_r"] if execution["p95_entry_drift_r"] is not None else float("inf")) <= execution_gate["max_p95_drift_r"], "DISCOVERY_P95_DRIFT_ABOVE_GATE"),
             )
             stop_reasons.extend(reason for passed, reason in hold_checks if not passed)
+            if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+                if execution["safety_failure_count"] > 0:
+                    stop_reasons.append("DISCOVERY_SAFETY_FAILURES_ABOVE_GATE")
+                positive_folds = sum(
+                    float(item.get("net_r", 0.0)) > 0
+                    for item in normalized_folds
+                )
+                if len(normalized_folds) != 3:
+                    stop_reasons.append("DISCOVERY_REQUIRES_THREE_FOLDS")
+                if positive_folds < 2:
+                    stop_reasons.append(
+                        "DISCOVERY_FEWER_THAN_TWO_POSITIVE_FOLDS"
+                    )
         report["discovery_stop"] = {
             "passed": not stop_reasons,
             "reasons": stop_reasons,
             "positive_directions": positive_directions,
             "positive_families": positive_families,
+            "positive_folds": (
+                sum(
+                    float(item.get("net_r", 0.0)) > 0
+                    for item in normalized_folds
+                )
+                if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
+                else None
+            ),
         }
     return report
 
@@ -450,10 +573,45 @@ def _validated_manifest(manifest_file: Path) -> tuple[dict[str, Any], str]:
         "ONE_MINUTE_CLEAN_LEVEL_RECONFIRMATION_V4",
         "ONE_MINUTE_COMPRESSION_EXPANSION_V5",
         "ONE_MINUTE_COMPRESSION_HOLD_V5_1",
+        "ONE_MINUTE_SHOCK_RECLAIM_V6",
     }:
         raise ValueError("unexpected post-close candidate manifest")
     if manifest.get("broker_mutation_enabled") is not False:
         raise ValueError("post-close evaluation manifest must disable broker mutation")
+    if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6":
+        frozen = {
+            "baseline_window": 36,
+            "reference_window": 12,
+            "signal_model": "SHOCK_RECLAIM",
+            "entry_policy": "POST_CLOSE_RECLAIM_STOP",
+            "shock_range_baseline_minimum": 1.5,
+            "shock_body_fraction_minimum": 0.6,
+            "shock_close_extension_baseline_range_minimum": 0.1,
+            "shock_close_location_minimum": 0.8,
+            "reclaim_body_fraction_minimum": 0.5,
+            "reclaim_close_depth_baseline_range_minimum": 0.1,
+            "reclaim_close_location_minimum": 0.7,
+            "hold_start_delay_seconds": 5.0,
+            "hold_observation_seconds": 1.0,
+            "placement_delay_after_hold_seconds": 5.0,
+            "minimum_stop_distance": 0.35,
+            "minimum_stop_spread_multiple": 1.2,
+            "maximum_stop_distance": 1.5,
+            "maximum_entry_drift_r": 0.75,
+            "pending_stop_expiry_seconds": 20,
+            "state_cap_seconds_after_confirmation_close": 90,
+            "risk_reward": 1.5,
+            "modeled_round_trip_cost_r": 0.05,
+            "volume_policy": "CONSTANT_RESEARCH_VOLUME",
+        }
+        mismatches = [
+            key for key, value in frozen.items() if manifest.get(key) != value
+        ]
+        if mismatches:
+            raise ValueError(
+                "V6 manifest differs from frozen preregistration: "
+                + ", ".join(sorted(mismatches))
+            )
     return manifest, candidate
 
 
@@ -512,7 +670,9 @@ def _replay_config(
         capture_events=False,
         cost_per_fill_r=float(manifest.get("modeled_round_trip_cost_r", 0.05)),
         entry_policy=(
-            "HOLD_CONTINUATION_STOP_V5_1"
+            "SHOCK_RECLAIM_STOP_V6"
+            if candidate == "ONE_MINUTE_SHOCK_RECLAIM_V6"
+            else "HOLD_CONTINUATION_STOP_V5_1"
             if candidate == "ONE_MINUTE_COMPRESSION_HOLD_V5_1"
             else "RETEST_RECONFIRM_STOP_V3"
             if candidate
@@ -532,6 +692,12 @@ def _replay_config(
         hold_stop_expiry_seconds=int(manifest.get("hold_stop_expiry_seconds", 20)),
         maximum_hold_entry_drift_r=float(
             manifest.get("maximum_hold_entry_drift_r", 0.75)
+        ),
+        reclaim_stop_expiry_seconds=int(
+            manifest.get("pending_stop_expiry_seconds", 20)
+        ),
+        maximum_reclaim_entry_drift_r=float(
+            manifest.get("maximum_entry_drift_r", 0.75)
         ),
         state_cap_seconds_after_confirmation_close=int(
             manifest.get("state_cap_seconds_after_confirmation_close", 90)
@@ -618,6 +784,7 @@ def screen_post_close_fixture_paths(
     rows: list[PostCloseReplayRow] = []
     arms_detected = 0
     sources: list[dict[str, Any]] = []
+    fold_metrics: list[dict[str, Any]] = []
     previous_end = None
     for fixture_file in paths:
         fixture, evidence_start, evidence_end = _load_research_fixture(fixture_file)
@@ -641,11 +808,14 @@ def screen_post_close_fixture_paths(
         )
         rows.extend(replay.rows)
         arms_detected += replay.arms_detected
+        current_fold_metrics = summarize_post_close_rows(replay.rows)
+        fold_metrics.append(current_fold_metrics)
         source_hash = _sha256(fixture_file)
         sources.append(
             {
                 "path": str(fixture_file),
                 "sha256": source_hash,
+                "metrics": current_fold_metrics,
                 **_evidence_summary(
                     fixture,
                     evidence_start=evidence_start,
@@ -663,7 +833,12 @@ def screen_post_close_fixture_paths(
         events=(),
         arms_detected=arms_detected,
     )
-    report = evaluate_post_close_result(combined, stage=stage, candidate=candidate)
+    report = evaluate_post_close_result(
+        combined,
+        stage=stage,
+        candidate=candidate,
+        fold_metrics=fold_metrics,
+    )
     source_hashes = "".join(str(source["sha256"]) for source in sources)
     report.update(
         {
@@ -693,6 +868,9 @@ __all__ = [
     "PROSPECTIVE_GATE",
     "RETEST_EXECUTION_GATE",
     "RECONFIRMATION_EXECUTION_GATE",
+    "SHOCK_RECLAIM_EXECUTION_GATE",
+    "SHOCK_RECLAIM_HELD_OUT_GATE",
+    "SHOCK_RECLAIM_PROSPECTIVE_GATE",
     "evaluate_post_close_result",
     "screen_post_close_fixture_path",
     "screen_post_close_fixture_paths",

@@ -20,6 +20,7 @@ from tradingagents.agents.price_action.one_minute_post_close_state import (
     detect_post_close_arms,
     evaluate_post_close_placement,
     observe_post_close_quote,
+    observe_post_close_reclaim_quote,
     parse_utc,
 )
 from tradingagents.agents.price_action.opening_tick_replay import MarketTick
@@ -40,6 +41,8 @@ class PostCloseReplayConfig:
     reconfirmation_stop_expiry_seconds: int = 15
     hold_stop_expiry_seconds: int = 20
     maximum_hold_entry_drift_r: float = 0.75
+    reclaim_stop_expiry_seconds: int = 20
+    maximum_reclaim_entry_drift_r: float = 0.75
     state_cap_seconds_after_confirmation_close: int = 90
     clean_levels: bool = False
     candidate_name: str = "ONE_MINUTE_SYMMETRIC_POST_CLOSE_STATE_V1"
@@ -160,6 +163,8 @@ class _PendingRetest:
     structural_distance_r: float
     order_kind: str = "LIMIT"
     retest_at: str | None = None
+    expiry_reason: str = "PENDING_RETEST_EXPIRED"
+    drift_basis: str = "EXECUTION"
 
     @property
     def arm(self) -> PostCloseArm:
@@ -201,7 +206,16 @@ def detect_replay_arms(
     arms: list[PostCloseArm] = []
     for index in range(2, len(ordered)):
         window = ordered[max(0, index - 59) : index + 1]
-        if signal_model == "COMPRESSION_EXPANSION":
+        if signal_model == "SHOCK_RECLAIM":
+            from tradingagents.agents.price_action.one_minute_shock_reclaim import (
+                detect_shock_reclaim_arms,
+            )
+
+            candidates = detect_shock_reclaim_arms(
+                window,
+                candidate_name=candidate_name,
+            )
+        elif signal_model == "COMPRESSION_EXPANSION":
             from tradingagents.agents.price_action.one_minute_compression_expansion import (
                 detect_compression_expansion_arms,
             )
@@ -533,6 +547,112 @@ def _build_hold_continuation_stop(
             spread_r=spread / risk,
             structural_distance_r=drift_r,
             order_kind="STOP",
+            expiry_reason="PENDING_HOLD_STOP_EXPIRED",
+        ),
+        "PLACEMENT_ACCEPTED",
+    )
+
+
+def _build_reclaim_stop(
+    state: PostCloseState,
+    quote: QuoteObservation,
+    policy: PostCloseReplayConfig,
+) -> tuple[_PendingRetest | None, str]:
+    """Build the frozen V6 future stop after a post-close reclaim hold."""
+    arm = state.arm
+    now = quote.time_utc
+    if not quote.valid:
+        return None, "INVALID_PLACEMENT_QUOTE"
+    state_cap = parse_utc(arm.confirmation_closed_at) + timedelta(
+        seconds=max(1, policy.state_cap_seconds_after_confirmation_close)
+    )
+    if now >= state_cap:
+        return None, "STATE_CAP_EXPIRED_BEFORE_PLACEMENT"
+
+    tick_size = max(float(policy.placement.tick_size), 1e-9)
+    if arm.direction == "BUY":
+        if quote.bid < arm.invalidation:
+            return None, "BUY_STORY_INVALIDATED_AT_RECLAIM_STOP_PLACEMENT"
+        entry = round(
+            ceil((float(quote.ask) + tick_size) / tick_size - 1e-9)
+            * tick_size,
+            10,
+        )
+    else:
+        if quote.ask > arm.invalidation:
+            return None, "SELL_STORY_INVALIDATED_AT_RECLAIM_STOP_PLACEMENT"
+        entry = round(
+            floor((float(quote.bid) - tick_size) / tick_size + 1e-9)
+            * tick_size,
+            10,
+        )
+
+    spread = quote.spread
+    minimum_risk = max(
+        policy.placement.minimum_stop_distance,
+        spread * policy.placement.minimum_stop_spread_multiple,
+    )
+    if arm.direction == "BUY":
+        stop = round(
+            floor(
+                min(arm.invalidation, entry - minimum_risk) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = entry - stop
+    else:
+        stop = round(
+            ceil(
+                max(arm.invalidation, entry + minimum_risk) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+        risk = stop - entry
+    if risk <= 0:
+        return None, "INVALID_STOP_GEOMETRY"
+    if risk > policy.placement.maximum_stop_distance:
+        return None, "STOP_DISTANCE_ABOVE_MAXIMUM"
+    drift_r = abs(entry - arm.level) / risk
+    if drift_r > float(policy.maximum_reclaim_entry_drift_r):
+        return None, "RECLAIM_ENTRY_DRIFT_ABOVE_MAXIMUM"
+
+    if arm.direction == "BUY":
+        target = round(
+            floor(
+                (entry + risk * policy.placement.risk_reward) / tick_size + 1e-9
+            )
+            * tick_size,
+            10,
+        )
+    else:
+        target = round(
+            ceil(
+                (entry - risk * policy.placement.risk_reward) / tick_size - 1e-9
+            )
+            * tick_size,
+            10,
+        )
+
+    expires_at = min(
+        now + timedelta(seconds=max(1, policy.reclaim_stop_expiry_seconds)),
+        state_cap,
+    )
+    return (
+        _PendingRetest(
+            state=replace(state, phase=PostClosePhase.PLACED),
+            placed_at=quote.time,
+            expires_at=expires_at.isoformat(),
+            entry=entry,
+            stop=stop,
+            target=target,
+            intended_risk=risk,
+            spread_r=spread / risk,
+            structural_distance_r=drift_r,
+            order_kind="STOP",
+            expiry_reason="PENDING_RECLAIM_STOP_EXPIRED",
+            drift_basis="LEVEL",
         ),
         "PLACEMENT_ACCEPTED",
     )
@@ -788,11 +908,7 @@ def replay_post_close_arms(
                 pending = None
                 continue
             if quote.time_utc >= parse_utc(pending.expires_at):
-                expiry_reason = (
-                    "PENDING_HOLD_STOP_EXPIRED"
-                    if pending.order_kind == "STOP" and pending.retest_at is None
-                    else "PENDING_RETEST_EXPIRED"
-                )
+                expiry_reason = pending.expiry_reason
                 rows.append(
                     _row(
                         pending.arm,
@@ -851,7 +967,11 @@ def replay_post_close_arms(
                 state = None
                 pending = None
                 continue
-            execution_drift_r = abs(fill - pending.entry) / risk
+            execution_drift_r = (
+                abs(fill - pending.arm.level) / risk
+                if pending.drift_basis == "LEVEL"
+                else abs(fill - pending.entry) / risk
+            )
             position = _ActivePosition(
                 state=pending.state,
                 entry=fill,
@@ -1012,13 +1132,16 @@ def replay_post_close_arms(
         if state is None:
             continue
         if state.phase == PostClosePhase.ARMED:
-            transition = observe_post_close_quote(
-                state,
-                quote,
-                allow_break_retest_trigger=(
-                    policy.entry_policy != "HOLD_CONTINUATION_STOP_V5_1"
-                ),
-            )
+            if policy.entry_policy == "SHOCK_RECLAIM_STOP_V6":
+                transition = observe_post_close_reclaim_quote(state, quote)
+            else:
+                transition = observe_post_close_quote(
+                    state,
+                    quote,
+                    allow_break_retest_trigger=(
+                        policy.entry_policy != "HOLD_CONTINUATION_STOP_V5_1"
+                    ),
+                )
             state = transition.state
             events.append(transition.as_dict())
             if state.phase in {PostClosePhase.EXPIRED, PostClosePhase.INVALIDATED}:
@@ -1037,6 +1160,42 @@ def replay_post_close_arms(
                 state = None
             continue
         if state.phase == PostClosePhase.TRIGGERED:
+            if policy.entry_policy == "SHOCK_RECLAIM_STOP_V6":
+                if quote.time_utc < parse_utc(
+                    state.placement_due_at or state.arm.expires_at
+                ):
+                    continue
+                pending_order, reason = _build_reclaim_stop(
+                    state,
+                    quote,
+                    policy,
+                )
+                events.append(
+                    _event(
+                        "PLACEMENT_SIMULATED" if pending_order else "PLACEMENT_REJECTED",
+                        quote.time,
+                        state.arm,
+                        reason=reason,
+                    )
+                )
+                if pending_order is None:
+                    rows.append(
+                        _row(
+                            state.arm,
+                            state=state,
+                            accepted=True,
+                            filled=False,
+                            outcome="REJECTED",
+                            reason=reason,
+                            closed_at=quote.time,
+                        )
+                    )
+                    consumed = _ConsumedZone(state.arm)
+                    state = None
+                else:
+                    pending = pending_order
+                    state = pending_order.state
+                continue
             if policy.entry_policy == "HOLD_CONTINUATION_STOP_V5_1":
                 if quote.time_utc < parse_utc(
                     state.placement_due_at or state.arm.expires_at

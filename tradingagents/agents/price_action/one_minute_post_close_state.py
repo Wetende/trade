@@ -480,6 +480,69 @@ def observe_post_close_quote(
     return StateTransition("POST_CLOSE_OBSERVATION", updated, quote)
 
 
+def observe_post_close_reclaim_quote(
+    state: PostCloseState,
+    quote: QuoteObservation,
+) -> StateTransition:
+    """Require two ordered quotes that persist on the reclaimed side."""
+    if state.phase != PostClosePhase.ARMED:
+        return StateTransition("STATE_NOT_ARMED", state, quote)
+    if not quote.valid:
+        return StateTransition("INVALID_QUOTE_IGNORED", state, quote)
+    now = quote.time_utc
+    if state.last_quote_at and now <= parse_utc(state.last_quote_at):
+        return StateTransition("NON_MONOTONIC_QUOTE_IGNORED", state, quote)
+    if now < parse_utc(state.arm.trigger_eligible_at):
+        return StateTransition("PRE_CAUSAL_QUOTE_IGNORED", state, quote)
+    if now >= parse_utc(state.arm.expires_at):
+        return _terminal(state, PostClosePhase.EXPIRED, "ARM_EXPIRED", quote)
+
+    arm = state.arm
+    if arm.direction == "SELL" and quote.ask > arm.invalidation:
+        return _terminal(
+            state,
+            PostClosePhase.INVALIDATED,
+            "SELL_STORY_INVALIDATED",
+            quote,
+        )
+    if arm.direction == "BUY" and quote.bid < arm.invalidation:
+        return _terminal(
+            state,
+            PostClosePhase.INVALIDATED,
+            "BUY_STORY_INVALIDATED",
+            quote,
+        )
+
+    holds_reclaimed_side = (
+        quote.ask < arm.level
+        if arm.direction == "SELL"
+        else quote.bid > arm.level
+    )
+    updated = replace(
+        state,
+        zone_observed=state.zone_observed or holds_reclaimed_side,
+        last_quote_at=quote.time,
+        sequence=state.sequence + 1,
+    )
+    if not holds_reclaimed_side:
+        return StateTransition(
+            "RECLAIM_HOLD_RESET",
+            replace(updated, first_hold_at=None),
+            quote,
+        )
+    if state.first_hold_at is None:
+        return StateTransition(
+            "RECLAIM_HOLD_STARTED",
+            replace(updated, first_hold_at=quote.time),
+            quote,
+        )
+    if now - parse_utc(state.first_hold_at) >= timedelta(
+        seconds=BREAK_HOLD_OBSERVATION_SECONDS
+    ):
+        return _trigger(updated, quote, "POST_CLOSE_RECLAIM_HOLD")
+    return StateTransition("POST_CLOSE_RECLAIM_OBSERVATION", updated, quote)
+
+
 def _snap(value: float, tick_size: float) -> float:
     size = max(float(tick_size), 1e-9)
     return round(round(float(value) / size) * size, 10)
@@ -580,6 +643,7 @@ __all__ = [
     "detect_post_close_arms",
     "evaluate_post_close_placement",
     "observe_post_close_quote",
+    "observe_post_close_reclaim_quote",
     "parse_utc",
     "select_post_close_arm",
 ]

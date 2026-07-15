@@ -127,3 +127,37 @@ def test_v3_discovery_stop_requires_both_directions_and_two_families():
     assert report["discovery_stop"]["passed"] is True
     assert report["discovery_stop"]["positive_directions"] == 2
     assert report["discovery_stop"]["positive_families"] == 2
+
+
+def test_v6_discovery_requires_two_positive_preregistered_folds():
+    rows = tuple(
+        _row(
+            index,
+            -0.2 if index % 4 == 0 else 0.3,
+            family=(
+                "FAILED_HIGH_BREAK_SELL"
+                if index % 2 == 0
+                else "FAILED_LOW_BREAK_BUY"
+            ),
+            direction="SELL" if index % 2 == 0 else "BUY",
+        )
+        for index in range(40)
+    )
+    result = PostCloseReplayResult(rows=rows, events=(), arms_detected=40)
+
+    passed = evaluate_post_close_result(
+        result,
+        stage="DISCOVERY",
+        candidate="ONE_MINUTE_SHOCK_RECLAIM_V6",
+        fold_metrics=({"net_r": 1.0}, {"net_r": -0.5}, {"net_r": 0.2}),
+    )
+    missing = evaluate_post_close_result(
+        result,
+        stage="DISCOVERY",
+        candidate="ONE_MINUTE_SHOCK_RECLAIM_V6",
+    )
+
+    assert passed["discovery_stop"]["passed"] is True
+    assert passed["discovery_stop"]["positive_folds"] == 2
+    assert "DISCOVERY_REQUIRES_THREE_FOLDS" in missing["discovery_stop"]["reasons"]
+    assert "DISCOVERY_FEWER_THAN_TWO_POSITIVE_FOLDS" in missing["discovery_stop"]["reasons"]

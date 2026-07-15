@@ -49,7 +49,7 @@ wins and six losses for `-0.8187R`, profit factor `0.7501`, and expectancy
 
 Fifty-three triggered states were rejected because their structurally valid
 stop distance exceeded the frozen `1.50` maximum. This made placement
-infeasible under the risk policy, but the 18 fills that did fit the policy
+infeasible under the risk policy, but the 17 fills that did fit the policy
 were also decisively negative. Widening the stop after observing these
 outcomes would be post-hoc risk tuning and cannot convert this run to a pass.
 

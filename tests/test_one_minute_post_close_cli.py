@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from cli.main import app
@@ -27,6 +28,9 @@ V5_MANIFEST = Path(
 )
 V5_1_MANIFEST = Path(
     "docs/analysis/2026-07-15-one-minute-compression-hold-v5-1-manifest.json"
+)
+V6_MANIFEST = Path(
+    "docs/analysis/2026-07-15-one-minute-shock-reclaim-v6-manifest.json"
 )
 
 
@@ -207,6 +211,43 @@ def test_post_close_cli_accepts_frozen_v5_1_hold_manifest(tmp_path):
     assert payload["manifest"]["entry_policy"] == (
         "POST_CLOSE_HOLD_CONTINUATION_STOP"
     )
+
+
+def test_post_close_cli_accepts_frozen_v6_shock_reclaim_manifest(tmp_path):
+    output = tmp_path / "v6.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "one-minute-post-close-screen",
+            "--fixture",
+            str(FIXTURE),
+            "--manifest",
+            str(V6_MANIFEST),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["candidate"] == "ONE_MINUTE_SHOCK_RECLAIM_V6"
+    assert payload["manifest"]["signal_model"] == "SHOCK_RECLAIM"
+    assert payload["broker_mutation_enabled"] is False
+
+
+def test_v6_loader_rejects_changed_frozen_threshold(tmp_path):
+    manifest = json.loads(V6_MANIFEST.read_text(encoding="utf-8"))
+    manifest["shock_range_baseline_minimum"] = 1.49
+    changed = tmp_path / "changed-v6.json"
+    changed.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="shock_range_baseline_minimum"):
+        screen_post_close_fixture_path(
+            FIXTURE,
+            manifest_path=changed,
+            stage="DISCOVERY",
+        )
 
 
 def test_post_close_multi_cli_aggregates_ordered_bounded_folds(tmp_path):
