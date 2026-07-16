@@ -1,16 +1,22 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
+from tradingagents.brokers.mt5 import MT5BrokerError
 from tradingagents.brokers.mt5_runner import MT5Runner, MT5RunnerConfig
 
 
 class FakeExecutor:
     def __init__(self, active=False):
         self.active = active
+        self.orders = [{"ticket": 1}] if active else []
+        self.positions = []
         self.executed = []
         self.cancel_calls = 0
+        self.cancel_all_calls = 0
         self.manage_calls = 0
+        self.close_all_calls = 0
         self.manage_result = {
             "status": "NO_POSITION_ACTION",
             "account_safety": {
@@ -26,8 +32,8 @@ class FakeExecutor:
 
     def snapshot_state(self):
         return {
-            "orders": [{"ticket": 1}] if self.active else [],
-            "positions": [],
+            "orders": list(self.orders),
+            "positions": list(self.positions),
         }
 
     def cancel_stale_pending_orders(self):
@@ -37,6 +43,18 @@ class FakeExecutor:
     def manage_open_positions(self):
         self.manage_calls += 1
         return dict(self.manage_result)
+
+    def cancel_all_pending_orders(self, *, reason):
+        self.cancel_all_calls += 1
+        self.orders = []
+        self.active = bool(self.positions)
+        return {"status": "CANCELLED_ALL", "reason": reason}
+
+    def close_all_positions(self, *, reason):
+        self.close_all_calls += 1
+        self.positions = []
+        self.active = bool(self.orders)
+        return {"status": "CLOSED_ALL", "reason": reason}
 
     def execute_proposal(self, proposal):
         self.executed.append(proposal)
@@ -689,6 +707,84 @@ def test_runner_stops_after_max_runtime_seconds(tmp_path, monkeypatch):
     assert sleeps == []
 
 
+def test_runner_deadline_drain_requires_repeated_flat_snapshots(
+    tmp_path,
+    monkeypatch,
+):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    clock = MonotonicClock([0.0, 0.0, 2.0, 2.0])
+    sleeps = []
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.monotonic",
+        clock,
+    )
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            maintenance_poll_seconds=1,
+            max_runtime_seconds=1,
+            drain_on_stop=True,
+            shutdown_grace_seconds=120,
+            flat_verification_count=2,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_RUNTIME_SECONDS_DRAINED_FLAT"
+    assert result["drain_result"]["flat_verification_count"] == 2
+    assert result["drain_result"]["orders"] == []
+    assert result["drain_result"]["positions"] == []
+    assert sleeps == [1]
+
+
+def test_runner_deadline_drain_cancels_orders_and_closes_positions_after_grace(
+    tmp_path,
+    monkeypatch,
+):
+    executor = FakeExecutor(active=False)
+    executor.orders = [{"ticket": 1}]
+    executor.positions = [{"ticket": 2}]
+    clock = MonotonicClock([0.0, 121.0, 121.0, 121.0])
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.monotonic",
+        clock,
+    )
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda _seconds: None,
+    )
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            maintenance_poll_seconds=1,
+            drain_on_stop=True,
+            shutdown_grace_seconds=120,
+            flat_verification_count=1,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner._drain_to_flat("STOPPED_TEST", {"status": "TEST"})
+
+    assert result["status"] == "STOPPED_TEST_DRAINED_FLAT"
+    assert executor.cancel_all_calls == 1
+    assert executor.close_all_calls == 1
+    assert result["drain_result"]["orders"] == []
+    assert result["drain_result"]["positions"] == []
+
+
 def test_runner_forever_stops_when_session_loss_limit_is_reached(tmp_path, monkeypatch):
     executor = FakeExecutor(active=False)
     executor.history_result = {
@@ -719,6 +815,59 @@ def test_runner_forever_stops_when_session_loss_limit_is_reached(tmp_path, monke
     assert result["status"] == "STOPPED_RISK_LIMIT"
     assert result["last_result"]["status"] == "RISK_LIMIT_REACHED"
     assert sleeps == []
+
+
+def test_runner_retries_transient_mt5_broker_error_without_order_attempt(
+    tmp_path,
+    monkeypatch,
+):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    sleeps = []
+
+    class TransientBrokerExecutor(FakeExecutor):
+        def __init__(self):
+            super().__init__(active=False)
+            self.snapshot_calls = 0
+
+        def snapshot_state(self):
+            self.snapshot_calls += 1
+            if self.snapshot_calls == 1:
+                raise MT5BrokerError(
+                    "MT5 initialize failed: (-6, 'Terminal: Authorization failed')"
+                )
+            return super().snapshot_state()
+
+    executor = TransientBrokerExecutor()
+    monkeypatch.setattr(
+        "tradingagents.brokers.mt5_runner.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=2,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    result = runner.run_forever()
+
+    assert result["status"] == "STOPPED_MAX_CYCLES"
+    assert result["last_result"]["status"] == "NO_TRADE"
+    assert executor.executed == []
+    assert sleeps == [5.0]
+    cycles = [
+        json.loads(line)
+        for line in (tmp_path / "mt5_runner" / "cycles.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert cycles[0]["status"] == "RUNNER_BROKER_ERROR"
+    assert cycles[0]["broker_error"]["consecutive_failures"] == 1
+    assert cycles[0]["broker_error"]["order_attempted"] is False
 
 
 def test_runner_maintains_active_trade_each_second_between_full_cycles(

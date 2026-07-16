@@ -1,0 +1,51 @@
+{
+  "account_mode": "DEMO_ONLY",
+  "admission_firewall": {
+    "basis": [
+      "failed-break BUY and SELL triggers were 0-for-7 in the learning set",
+      "tight stop-to-spread trades formed a strongly losing cluster",
+      "the firewall is experimental and is not promotion evidence"
+    ],
+    "blocked_strategy_rules": [
+      "FAILED_HIGH_BREAK_SELL:*",
+      "FAILED_LOW_BREAK_BUY:*"
+    ],
+    "minimum_candidate_score": 8.0,
+    "minimum_stop_to_spread_multiple": 2.2
+  },
+  "artifact_hashes": {
+    "cli/main.py": "cf35e4e720502d22772967e4812e507a50314f477d0011ac275eebe959d043c0",
+    "scripts/start-one-minute-experimental-demo.ps1": "2f576f180edaa6c99426dca69206a9639d4c7aad38b0399e9c726763b1b81083",
+    "tradingagents/agents/price_action/one_minute_entry_model.py": "a8499925eed69d34cb8c33f5f93804a3010b207f036c46fad8c4d546a8ab86e4",
+    "tradingagents/agents/price_action/one_minute_experimental_demo.py": "931ab94d2047f8ddcfce7014c8ac4d6e65b121d2062444a4c3c9747641318758",
+    "tradingagents/brokers/mt5_execution.py": "c4342b7e2f6556b76685cfa9a71ad9d0b116a3a2b2b7f65ab523173d0fbfca01",
+    "tradingagents/brokers/mt5_runner.py": "c0299125f24d9e36e1265c3d2bb18771461c5498808d3cb6922d8e0289cd6f15"
+  },
+  "authorization_type": "EXPLICIT_USER_DEMO_RESEARCH_OVERRIDE",
+  "candidate": "ONE_MINUTE_ENTRY_MODEL_EXPERIMENTAL_V1",
+  "evidence_role": "HYPOTHESIS_GENERATION_ONLY",
+  "expires_at_utc": "2026-07-18T08:38:41.813488+00:00",
+  "flat_verification_count": 2,
+  "generated_at_utc": "2026-07-16T08:38:41.813488+00:00",
+  "loss_streak_cooldown_count": 2,
+  "loss_streak_cooldown_seconds": 900,
+  "max_session_hours": 3.0,
+  "max_session_loss_account_currency": 20.0,
+  "max_total_hours": 48.0,
+  "prohibited_actions": [
+    "REAL_ACCOUNT_ORDER",
+    "AUTOMATIC_PROMOTION",
+    "VOLUME_BOOST",
+    "MARTINGALE",
+    "GRID",
+    "STRADDLE",
+    "M15_OR_M30_CHANGE"
+  ],
+  "promotion_eligible": false,
+  "schema_version": 1,
+  "shutdown_grace_seconds": 120,
+  "status": "EXPERIMENTAL_DEMO_ONLY",
+  "user_authorized": true,
+  "volume": 0.1,
+  "volume_boost_enabled": false
+}

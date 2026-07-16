@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from tradingagents.agents.schemas import OrderProposal
 from tradingagents.brokers.mode_gate import TradingMode, health_gate, mode_value
+from tradingagents.brokers.mt5 import MT5BrokerError
 from tradingagents.brokers.runner_summary import RunnerSummaryStore
 
 
@@ -30,6 +31,9 @@ class MT5RunnerConfig:
     loss_streak_cooldown_seconds: int = 0
     blocked_strategy_rules: tuple[str, ...] = ()
     trading_mode: str = TradingMode.ENTRY_ONLY.value
+    drain_on_stop: bool = False
+    shutdown_grace_seconds: int = 120
+    flat_verification_count: int = 2
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
@@ -53,6 +57,14 @@ class MT5RunnerConfig:
             self.loss_streak_cooldown_seconds,
             "loss_streak_cooldown_seconds",
         )
+        shutdown_grace_seconds = _nonnegative_int(
+            self.shutdown_grace_seconds,
+            "shutdown_grace_seconds",
+        )
+        flat_verification_count = _nonnegative_int(
+            self.flat_verification_count,
+            "flat_verification_count",
+        )
         trading_mode = mode_value(self.trading_mode)
         if poll_seconds < 5:
             raise ValueError("poll_seconds must be at least 5")
@@ -69,6 +81,10 @@ class MT5RunnerConfig:
             raise ValueError("max_runtime_seconds must be non-negative")
         if not math.isfinite(max_session_loss) or max_session_loss < 0:
             raise ValueError("max_session_loss must be a finite non-negative number")
+        if bool(self.drain_on_stop) and shutdown_grace_seconds <= 0:
+            raise ValueError("shutdown_grace_seconds must be positive when draining")
+        if bool(self.drain_on_stop) and flat_verification_count <= 0:
+            raise ValueError("flat_verification_count must be positive when draining")
         object.__setattr__(self, "poll_seconds", poll_seconds)
         object.__setattr__(
             self,
@@ -99,6 +115,17 @@ class MT5RunnerConfig:
             self,
             "blocked_strategy_rules",
             _normalize_rule_list(self.blocked_strategy_rules),
+        )
+        object.__setattr__(self, "drain_on_stop", bool(self.drain_on_stop))
+        object.__setattr__(
+            self,
+            "shutdown_grace_seconds",
+            shutdown_grace_seconds,
+        )
+        object.__setattr__(
+            self,
+            "flat_verification_count",
+            flat_verification_count,
         )
 
 
@@ -507,38 +534,152 @@ class MT5Runner:
     def run_forever(self) -> dict:
         cycles = 0
         last_result = {"status": "NOT_STARTED"}
+        consecutive_broker_errors = 0
         deadline = (
             time.monotonic() + self.config.max_runtime_seconds
             if self.config.max_runtime_seconds
             else None
         )
         while True:
-            last_result = self.run_once()
+            try:
+                last_result = self.run_once()
+                consecutive_broker_errors = 0
+            except MT5BrokerError as exc:
+                consecutive_broker_errors += 1
+                last_result = self._write_heartbeat(
+                    {
+                        "status": "RUNNER_BROKER_ERROR",
+                        "started_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "selected_method": "HOLD",
+                        "selected_profile": None,
+                        "mode_decision": "BROKER_CONNECTION_RETRY",
+                        "mode_rejection_reason": "MT5_BROKER_ERROR",
+                        "health_gate": health_gate(
+                            False,
+                            ["mt5_broker_connection"],
+                        ),
+                        "broker_error": {
+                            "error_type": type(exc).__name__,
+                            "error": str(exc),
+                            "consecutive_failures": consecutive_broker_errors,
+                            "order_attempted": False,
+                        },
+                    }
+                )
             cycles += 1
             if last_result.get("status") == "RISK_LIMIT_REACHED":
-                return {"status": "STOPPED_RISK_LIMIT", "last_result": last_result}
+                return self._stop_result(
+                    "STOPPED_RISK_LIMIT",
+                    last_result,
+                )
             if (
                 deadline is None
                 and self.config.max_cycles
                 and cycles >= self.config.max_cycles
             ):
-                return {"status": "STOPPED_MAX_CYCLES", "last_result": last_result}
+                return self._stop_result(
+                    "STOPPED_MAX_CYCLES",
+                    last_result,
+                )
             if deadline is not None:
                 if time.monotonic() >= deadline:
-                    return {
-                        "status": "STOPPED_MAX_RUNTIME_SECONDS",
-                        "last_result": last_result,
-                    }
+                    return self._stop_result(
+                        "STOPPED_MAX_RUNTIME_SECONDS",
+                        last_result,
+                    )
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
-                    return {
-                        "status": "STOPPED_MAX_RUNTIME_SECONDS",
-                        "last_result": last_result,
-                    }
+                    return self._stop_result(
+                        "STOPPED_MAX_RUNTIME_SECONDS",
+                        last_result,
+                    )
                 wait_seconds = min(self.config.poll_seconds, remaining_seconds)
                 self._wait_between_cycles(last_result, wait_seconds)
             else:
                 self._wait_between_cycles(last_result, self.config.poll_seconds)
+
+    def _stop_result(self, status: str, last_result: dict) -> dict:
+        if not self.config.drain_on_stop:
+            return {"status": status, "last_result": last_result}
+        return self._drain_to_flat(status, last_result)
+
+    def _drain_to_flat(self, stop_status: str, last_result: dict) -> dict:
+        grace_deadline = time.monotonic() + self.config.shutdown_grace_seconds
+        flat_verifications = 0
+        drain_cycles = 0
+        latest = None
+        while True:
+            drain_cycles += 1
+            cancel_result = None
+            management_result = None
+            close_result = None
+            errors = []
+            try:
+                snapshot = self.executor.snapshot_state()
+                if snapshot.get("orders"):
+                    cancel_all = getattr(
+                        self.executor,
+                        "cancel_all_pending_orders",
+                        None,
+                    )
+                    cancel_result = (
+                        cancel_all(reason=stop_status)
+                        if callable(cancel_all)
+                        else self.executor.cancel_stale_pending_orders()
+                    )
+                if snapshot.get("positions"):
+                    if time.monotonic() < grace_deadline:
+                        management_result = self.executor.manage_open_positions()
+                    else:
+                        close_all = getattr(
+                            self.executor,
+                            "close_all_positions",
+                            None,
+                        )
+                        if not callable(close_all):
+                            raise RuntimeError(
+                                "drain deadline requires close_all_positions"
+                            )
+                        close_result = close_all(reason=stop_status)
+                fresh = self.executor.snapshot_state()
+            except Exception as exc:  # pragma: no cover - defensive live retry
+                errors.append(
+                    {
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+                fresh = {"orders": ["UNKNOWN"], "positions": ["UNKNOWN"]}
+
+            if not fresh.get("orders") and not fresh.get("positions"):
+                flat_verifications += 1
+            else:
+                flat_verifications = 0
+            complete = flat_verifications >= self.config.flat_verification_count
+            latest = self._write_heartbeat(
+                {
+                    "status": "DRAINED_FLAT" if complete else "DRAINING",
+                    "stop_status": stop_status,
+                    "drain_cycle": drain_cycles,
+                    "flat_verification_count": flat_verifications,
+                    "required_flat_verifications": (
+                        self.config.flat_verification_count
+                    ),
+                    "cancel_result": cancel_result,
+                    "management_result": management_result,
+                    "close_result": close_result,
+                    "errors": errors,
+                    "orders": fresh.get("orders"),
+                    "positions": fresh.get("positions"),
+                }
+            )
+            if complete:
+                return {
+                    "status": f"{stop_status}_DRAINED_FLAT",
+                    "last_result": last_result,
+                    "drain_result": latest,
+                }
+            time.sleep(self.config.maintenance_poll_seconds)
 
     def _wait_between_cycles(
         self,

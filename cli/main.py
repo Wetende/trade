@@ -814,6 +814,22 @@ def one_minute_v8_promote(
     console.print(json.dumps(record, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-experimental-freeze")
+def one_minute_experimental_freeze(
+    output: Path = typer.Option(..., "--output"),
+):
+    """Freeze the explicit 0.1-volume DEMO learning authorization."""
+    from tradingagents.agents.price_action.one_minute_experimental_demo import (
+        generate_experimental_demo_record,
+    )
+
+    record = generate_experimental_demo_record(
+        output,
+        repo_root=Path.cwd(),
+    )
+    console.print(json.dumps(record, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-post-close-collect")
 def one_minute_post_close_collect(
     start: str = typer.Option(..., "--start"),
@@ -1446,6 +1462,11 @@ def mt5_run(
         "--promotion-record",
         help="Hash-matched DEMO-only V8 promotion record.",
     ),
+    experimental_demo_record: Path | None = typer.Option(
+        None,
+        "--experimental-demo-record",
+        help="Hash-locked 0.1-volume unpromoted DEMO learning authorization.",
+    ),
     max_session_r: float = typer.Option(
         2.0,
         "--max-session-r",
@@ -1504,11 +1525,18 @@ def mt5_run(
             one_minute_candidate_manifest is not None
             or promotion_record is not None
         )
-        if m1_requested and not v8_requested:
+        experimental_requested = experimental_demo_record is not None
+        if v8_requested and experimental_requested:
+            raise ValueError(
+                "V8 promotion and experimental DEMO authorization are "
+                "mutually exclusive"
+            )
+        if m1_requested and not v8_requested and not experimental_requested:
             raise ValueError(
                 "The legacy one_minute_entry_model is read-only. Order-capable "
                 "M1 startup requires --one-minute-candidate-manifest and "
-                "--promotion-record for ONE_MINUTE_QUOTE_PRESSURE_V8."
+                "--promotion-record for ONE_MINUTE_QUOTE_PRESSURE_V8, or an "
+                "explicit --experimental-demo-record."
             )
         if v8_requested and (
             one_minute_candidate_manifest is None or promotion_record is None
@@ -1519,6 +1547,10 @@ def mt5_run(
             )
         if v8_requested and not m1_requested:
             raise ValueError("V8 startup flags are valid only for an M1 fast profile")
+        if experimental_requested and not m1_requested:
+            raise ValueError(
+                "Experimental DEMO startup is valid only for an M1 fast profile"
+            )
         if v8_requested and str(
             DEFAULT_CONFIG.get("entry_profile_mode", "auto")
         ).strip().lower() != "fast_only":
@@ -1527,7 +1559,63 @@ def mt5_run(
             )
         if v8_requested and trading_mode != TradingMode.ENTRY_ONLY:
             raise ValueError("Promoted V8 startup requires ENTRY_ONLY trading mode")
+        if experimental_requested and str(
+            DEFAULT_CONFIG.get("entry_profile_mode", "auto")
+        ).strip().lower() != "fast_only":
+            raise ValueError(
+                "Experimental DEMO startup requires "
+                "TRADINGAGENTS_ENTRY_PROFILE_MODE=fast_only"
+            )
+        if experimental_requested and trading_mode != TradingMode.ENTRY_ONLY:
+            raise ValueError(
+                "Experimental DEMO startup requires ENTRY_ONLY trading mode"
+            )
         config = MT5ConnectionConfig.from_env()
+        if experimental_requested:
+            from tradingagents.agents.price_action.one_minute_experimental_demo import (
+                ExperimentalDemoAuthorizationError,
+                validate_experimental_demo_record,
+            )
+
+            try:
+                experimental_validation = validate_experimental_demo_record(
+                    experimental_demo_record,
+                    repo_root=Path.cwd(),
+                    requested_volume=config.volume,
+                    requested_session_hours=duration_hours,
+                    runtime_config={
+                        "require_demo_account": config.require_demo_account,
+                        "allow_real_orders": config.allow_real_orders,
+                        "max_session_loss": DEFAULT_CONFIG.get(
+                            "runner_max_session_loss"
+                        ),
+                        "volume_boost_enabled": DEFAULT_CONFIG.get(
+                            "fast_volume_boost_enabled"
+                        ),
+                        "blocked_strategy_rules": tuple(
+                            DEFAULT_CONFIG.get(
+                                "runner_blocked_strategy_rules",
+                                (),
+                            )
+                        ),
+                        "minimum_candidate_score": DEFAULT_CONFIG.get(
+                            "fast_min_candidate_score"
+                        ),
+                        "minimum_stop_spread_multiple": DEFAULT_CONFIG.get(
+                            "fast_min_stop_spread_multiple"
+                        ),
+                    },
+                )
+            except ExperimentalDemoAuthorizationError as exc:
+                raise ValueError(str(exc)) from exc
+            _write_json_atomic(
+                (
+                    Path(DEFAULT_CONFIG["results_dir"])
+                    / "mt5_runner"
+                    / "experimental_authorization.json"
+                ),
+                experimental_validation.as_dict(),
+            )
         executor = MT5Executor(
             config,
             DEFAULT_CONFIG["results_dir"],
@@ -1624,6 +1712,9 @@ def mt5_run(
                             0,
                         )
                     ),
+                    "drain_on_stop": experimental_requested,
+                    "shutdown_grace_seconds": shutdown_grace_seconds,
+                    "flat_verification_count": 2,
                 }
             )
         if trading_mode == TradingMode.AUTO_GATED:

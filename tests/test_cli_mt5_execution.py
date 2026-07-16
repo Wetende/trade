@@ -130,6 +130,7 @@ def test_mt5_run_command_exists():
     assert "--decision-mode" in result.output
     assert "--one-minute-candidat" in result.output
     assert "--promotion-record" in result.output
+    assert "--experimental-demo-r" in result.output
     assert "--max-session-r" in result.output
     assert "--shutdown-grace-seco" in result.output
 
@@ -227,6 +228,120 @@ def test_mt5_run_routes_promoted_fast_only_m1_to_v8_runner(monkeypatch, tmp_path
     assert calls["runner_config"].max_runtime_seconds == 3 * 3600
     assert calls["runner_config"].max_session_r == 2.0
     assert calls["runner_config"].shutdown_grace_seconds == 120
+
+
+def test_mt5_run_routes_explicit_demo_experiment_to_draining_legacy_runner(
+    monkeypatch,
+    tmp_path,
+):
+    from types import SimpleNamespace
+
+    from tradingagents.agents.price_action import one_minute_experimental_demo
+    from tradingagents.brokers import mt5_execution, mt5_runner
+    from tradingagents.brokers.mt5 import MT5ConnectionConfig
+
+    calls = {}
+    config = SimpleNamespace(
+        symbol="XAUUSD",
+        volume=0.1,
+        require_demo_account=True,
+        allow_real_orders=False,
+    )
+
+    class Validation:
+        def as_dict(self):
+            return {"candidate": "ONE_MINUTE_ENTRY_MODEL_EXPERIMENTAL_V1"}
+
+    class Executor:
+        def __init__(
+            self,
+            received_config,
+            results_dir,
+            exit_management=None,
+            one_minute_lifecycle=None,
+        ):
+            calls["executor"] = received_config
+            calls["exit_management"] = exit_management
+            calls["one_minute_lifecycle"] = one_minute_lifecycle
+
+    class ExperimentalRunner:
+        def __init__(
+            self,
+            runner_config,
+            *,
+            executor,
+            analysis_func,
+            current_as_of_func,
+        ):
+            calls["runner_config"] = runner_config
+            calls["runner_executor"] = executor
+
+        def run_once(self):
+            return {"status": "EXPERIMENTAL_READY"}
+
+        def run_forever(self):
+            raise AssertionError("--once must call run_once")
+
+    def validate(*args, **kwargs):
+        calls["validation_kwargs"] = kwargs
+        return Validation()
+
+    _isolate_runtime_env(monkeypatch)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "results_dir", tmp_path)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "entry_profile_mode", "fast_only")
+    monkeypatch.setenv("TRADINGAGENTS_ENTRY_PROFILE_MODE", "fast_only")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_entries_enabled", True)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_timeframe", "1m")
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "runner_max_session_loss", 20.0)
+    monkeypatch.setitem(
+        cli_main.DEFAULT_CONFIG,
+        "runner_blocked_strategy_rules",
+        ("FAILED_HIGH_BREAK_SELL:*", "FAILED_LOW_BREAK_BUY:*"),
+    )
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_volume_boost_enabled", False)
+    monkeypatch.setitem(cli_main.DEFAULT_CONFIG, "fast_min_candidate_score", 8.0)
+    monkeypatch.setitem(
+        cli_main.DEFAULT_CONFIG,
+        "fast_min_stop_spread_multiple",
+        2.2,
+    )
+    monkeypatch.setattr(MT5ConnectionConfig, "from_env", staticmethod(lambda: config))
+    monkeypatch.setattr(mt5_execution, "MT5Executor", Executor)
+    monkeypatch.setattr(mt5_runner, "MT5Runner", ExperimentalRunner)
+    monkeypatch.setattr(
+        one_minute_experimental_demo,
+        "validate_experimental_demo_record",
+        validate,
+    )
+    record = tmp_path / "experimental.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "mt5-run",
+            "--once",
+            "--duration-hours",
+            "3",
+            "--experimental-demo-record",
+            str(record),
+            "--shutdown-grace-seconds",
+            "120",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"status": "EXPERIMENTAL_READY"}
+    assert calls["executor"] is config
+    assert calls["exit_management"].enabled is True
+    assert calls["runner_config"].max_runtime_seconds == 3 * 3600
+    assert calls["runner_config"].max_session_loss == 20.0
+    assert calls["runner_config"].drain_on_stop is True
+    assert calls["runner_config"].shutdown_grace_seconds == 120
+    assert calls["runner_config"].flat_verification_count == 2
+    assert calls["validation_kwargs"]["requested_volume"] == 0.1
+    assert (
+        tmp_path / "mt5_runner" / "experimental_authorization.json"
+    ).is_file()
 
 
 def test_mt5_straddle_run_command_exists():

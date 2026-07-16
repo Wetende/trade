@@ -931,6 +931,7 @@ class FakeBroker:
         self.closed_rate_calls = []
         self.checked_requests = []
         self.check_result = {"ok": True, "retcode": 10009, "comment": "check ok"}
+        self.check_results = []
         self.place_result = {
             "ok": True,
             "order": 111222,
@@ -981,6 +982,8 @@ class FakeBroker:
 
     def check_order(self, request):
         self.checked_requests.append(dict(request))
+        if self.check_results:
+            return dict(self.check_results.pop(0))
         return dict(self.check_result)
 
     def cancel_order(self, ticket):
@@ -1265,6 +1268,200 @@ def test_executor_skips_when_order_check_fails(tmp_path):
     assert result["order_check_result"]["retcode"] == 10030
     assert broker.checked_requests
     assert broker.placed_requests == []
+
+
+def _one_minute_pending_stop_proposal(
+    side: TradeAction = TradeAction.BUY,
+) -> OrderProposal:
+    if side == TradeAction.BUY:
+        entry, stop, target = 2450.15, 2449.45, 2451.20
+        trigger = "CLEAN_HIGH_IMPULSE_BUY"
+    else:
+        entry, stop, target = 2449.85, 2450.55, 2448.80
+        trigger = "CLEAN_LOW_IMPULSE_SELL"
+    return _one_minute_proposal(
+        reaction_type="impulse_break",
+        trigger_name=trigger,
+    ).model_copy(
+        update={
+            "side": side,
+            "order_type": "AUTO",
+            "entry_price": entry,
+            "stop_loss": stop,
+            "take_profit": target,
+            "decision_quote": {
+                "observed_at_utc": "2026-07-01T14:00:01+00:00",
+                "bid": 2449.90,
+                "ask": 2450.10,
+                "spread_price": 0.20,
+            },
+        }
+    )
+
+
+def _execution_race_broker() -> FakeBroker:
+    broker = FakeBroker()
+    broker.symbol_info.update(
+        {
+            "bid": 2449.90,
+            "ask": 2450.10,
+            "trade_stops_level": 1,
+            "trade_stops_distance_price": 0.01,
+        }
+    )
+    return broker
+
+
+def test_executor_reprices_buy_stop_once_after_invalid_price_race(tmp_path):
+    broker = _execution_race_broker()
+    broker.check_results = [
+        {"ok": False, "retcode": 10015, "comment": "Invalid price"},
+        {"ok": True, "retcode": 10009, "comment": "check ok"},
+    ]
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.96,
+                "ask": 2450.16,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        },
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.97,
+                "ask": 2450.17,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:03+00:00"},
+        },
+    ]
+    executor = MT5Executor(
+        replace(_config(), min_stop_spread_multiple=2.0),
+        tmp_path,
+        broker=broker,
+    )
+    _pin_context_submission_time(executor)
+
+    result = executor.execute_proposal(_one_minute_pending_stop_proposal())
+
+    assert result["status"] == "PLACED"
+    assert len(broker.checked_requests) == 2
+    assert len(broker.placed_requests) == 1
+    assert broker.checked_requests[0]["price"] == 2450.15
+    assert broker.checked_requests[1]["price"] == 2450.18
+    assert broker.checked_requests[1]["sl"] == 2449.45
+    assert broker.checked_requests[1]["tp"] == 2451.27
+    assert result["initial_order_check_result"]["retcode"] == 10015
+    assert result["price_reprice"]["adjustment"]["entry_drift"] == 0.03
+
+
+def test_executor_skips_invalid_price_reprice_when_quote_moved_too_far(tmp_path):
+    broker = _execution_race_broker()
+    broker.check_results = [
+        {"ok": False, "retcode": 10015, "comment": "Invalid price"},
+    ]
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2450.20,
+                "ask": 2450.40,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        },
+    ]
+    executor = MT5Executor(
+        replace(_config(), min_stop_spread_multiple=2.0),
+        tmp_path,
+        broker=broker,
+    )
+    _pin_context_submission_time(executor)
+
+    result = executor.execute_proposal(_one_minute_pending_stop_proposal())
+
+    assert result["status"] == "SKIPPED_ORDER_CHECK"
+    assert result["reason"] == "INVALID_PRICE_REPRICE_MOVED_TOO_FAR"
+    assert len(broker.checked_requests) == 1
+    assert broker.placed_requests == []
+
+
+def test_executor_stops_after_second_invalid_price_check(tmp_path):
+    broker = _execution_race_broker()
+    broker.check_results = [
+        {"ok": False, "retcode": 10015, "comment": "Invalid price"},
+        {"ok": False, "retcode": 10015, "comment": "Invalid price"},
+    ]
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.96,
+                "ask": 2450.16,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        },
+    ]
+    executor = MT5Executor(
+        replace(_config(), min_stop_spread_multiple=2.0),
+        tmp_path,
+        broker=broker,
+    )
+    _pin_context_submission_time(executor)
+
+    result = executor.execute_proposal(_one_minute_pending_stop_proposal())
+
+    assert result["status"] == "SKIPPED_ORDER_CHECK"
+    assert result["reason"] == (
+        "ORDER_CHECK_FAILED_AFTER_INVALID_PRICE_REPRICE"
+    )
+    assert len(broker.checked_requests) == 2
+    assert broker.placed_requests == []
+
+
+def test_executor_reprices_sell_stop_once_after_invalid_price_race(tmp_path):
+    broker = _execution_race_broker()
+    broker.check_results = [
+        {"ok": False, "retcode": 10015, "comment": "Invalid price"},
+        {"ok": True, "retcode": 10009, "comment": "check ok"},
+    ]
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.84,
+                "ask": 2450.04,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        },
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.83,
+                "ask": 2450.03,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:03+00:00"},
+        },
+    ]
+    executor = MT5Executor(
+        replace(_config(), min_stop_spread_multiple=2.0),
+        tmp_path,
+        broker=broker,
+    )
+    _pin_context_submission_time(executor)
+
+    result = executor.execute_proposal(
+        _one_minute_pending_stop_proposal(TradeAction.SELL)
+    )
+
+    assert result["status"] == "PLACED"
+    assert len(broker.checked_requests) == 2
+    assert len(broker.placed_requests) == 1
+    assert broker.checked_requests[0]["price"] == 2449.85
+    assert broker.checked_requests[1]["price"] == 2449.82
+    assert broker.checked_requests[1]["sl"] == 2450.55
+    assert broker.checked_requests[1]["tp"] == 2448.73
+    assert result["price_reprice"]["adjustment"]["entry_drift"] == 0.03
 
 
 def test_executor_result_and_journal_include_account_safety(tmp_path):

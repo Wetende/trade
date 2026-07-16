@@ -26,6 +26,9 @@ from tradingagents.brokers.mt5 import (
 
 ONE_MINUTE_POSITION_COMMENT = "TA|M1|FAST"
 ONE_MINUTE_MIN_SUBMISSION_WINDOW_SECONDS = 1.0
+ONE_MINUTE_INVALID_PRICE_RETCODE = 10015
+ONE_MINUTE_MAX_EXECUTION_REPRICE_R = 0.15
+ONE_MINUTE_MAX_STOP_DISTANCE_PRICE = 1.0
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,188 @@ class MT5Executor:
             "account_safety": account_safety,
         }
 
+    @staticmethod
+    def _invalid_price_order_check(result: dict[str, Any]) -> bool:
+        if result.get("retcode") == ONE_MINUTE_INVALID_PRICE_RETCODE:
+            return True
+        return "invalid price" in str(result.get("comment") or "").strip().lower()
+
+    def _reprice_after_invalid_price(
+        self,
+        proposal: OrderProposal,
+        request: dict[str, Any],
+        snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Rebuild one pending stop once against a fresh quote.
+
+        MT5 can reject a direction-safe stop when the quote crosses its price
+        between request construction and ``order_check``. The rebuild is
+        deliberately bounded: it keeps the structural stop, preserves the
+        reward/risk multiple, permits at most 0.15R of entry drift, and never
+        permits an M1 stop wider than one price unit.
+        """
+        request_type = str(request.get("type") or "").strip().upper()
+        if (
+            not _is_one_minute_scalper_proposal(proposal)
+            or request_type not in {"BUY_STOP", "SELL_STOP"}
+        ):
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_NOT_APPLICABLE",
+            }
+
+        symbol_info = dict(snapshot.get("symbol") or {})
+        observed_at = self._timeline_now_utc()
+        fresh_quote = _safe_quote_snapshot(snapshot, observed_at)
+        try:
+            bid = float(symbol_info.get("bid"))
+            ask = float(symbol_info.get("ask"))
+            entry = float(request["price"])
+            stop = float(request["sl"])
+            target = float(request["tp"])
+            digits = int(symbol_info.get("digits") or 2)
+            point = float(symbol_info.get("point") or 0.0)
+            tick_size = float(symbol_info.get("trade_tick_size") or 0.0)
+            stops_distance = float(
+                symbol_info.get("trade_stops_distance_price") or 0.0
+            )
+            if stops_distance <= 0:
+                stops_distance = (
+                    float(symbol_info.get("trade_stops_level") or 0.0) * point
+                )
+        except (KeyError, TypeError, ValueError):
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_QUOTE_UNAVAILABLE",
+                "fresh_quote": fresh_quote,
+            }
+        if not all(
+            math.isfinite(value)
+            for value in (
+                bid,
+                ask,
+                entry,
+                stop,
+                target,
+                point,
+                tick_size,
+                stops_distance,
+            )
+        ) or bid <= 0 or ask <= 0 or bid > ask:
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_QUOTE_INVALID",
+                "fresh_quote": fresh_quote,
+            }
+
+        grid = max(tick_size, point, 10 ** (-digits))
+        broker_clearance = max(0.0, stops_distance) + grid
+
+        def snap_up(value: float) -> float:
+            return round(math.ceil((value / grid) - 1e-12) * grid, digits)
+
+        def snap_down(value: float) -> float:
+            return round(math.floor((value / grid) + 1e-12) * grid, digits)
+
+        original_risk = abs(entry - stop)
+        original_reward = abs(target - entry)
+        if original_risk <= 0 or original_reward <= 0:
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_GEOMETRY_INVALID",
+                "fresh_quote": fresh_quote,
+            }
+        reward_multiple = original_reward / original_risk
+        if request_type == "BUY_STOP":
+            safe_entry = snap_up(ask + broker_clearance)
+            adjusted_entry = max(safe_entry, snap_up(entry + grid))
+            adjusted_risk = adjusted_entry - stop
+            adjusted_target = adjusted_entry + (adjusted_risk * reward_multiple)
+        else:
+            safe_entry = snap_down(bid - broker_clearance)
+            adjusted_entry = min(safe_entry, snap_down(entry - grid))
+            adjusted_risk = stop - adjusted_entry
+            adjusted_target = adjusted_entry - (adjusted_risk * reward_multiple)
+
+        entry_drift = abs(adjusted_entry - entry)
+        allowed_entry_drift = original_risk * ONE_MINUTE_MAX_EXECUTION_REPRICE_R
+        adjustment = {
+            "reason": "FRESH_QUOTE_AFTER_INVALID_PRICE",
+            "request_type": request_type,
+            "original_entry": round(entry, 8),
+            "adjusted_entry": round(adjusted_entry, 8),
+            "entry_drift": round(entry_drift, 8),
+            "allowed_entry_drift": round(allowed_entry_drift, 8),
+            "original_risk": round(original_risk, 8),
+            "adjusted_risk": round(adjusted_risk, 8),
+            "reward_multiple": round(reward_multiple, 8),
+            "broker_clearance": round(broker_clearance, 8),
+            "fresh_quote": fresh_quote,
+        }
+        if entry_drift > allowed_entry_drift + 1e-12:
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_MOVED_TOO_FAR",
+                "adjustment": adjustment,
+                "fresh_quote": fresh_quote,
+            }
+        if (
+            adjusted_risk <= 0
+            or adjusted_risk > ONE_MINUTE_MAX_STOP_DISTANCE_PRICE + 1e-12
+        ):
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_STOP_OUT_OF_RANGE",
+                "adjustment": adjustment,
+                "fresh_quote": fresh_quote,
+            }
+
+        adjusted_proposal = proposal.model_copy(
+            update={
+                "order_type": request_type,
+                "entry_price": adjusted_entry,
+                "stop_loss": stop,
+                "take_profit": adjusted_target,
+            }
+        )
+        try:
+            retry_request = self.builder.build_pending_order_request(
+                adjusted_proposal,
+                symbol_info,
+            )
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "reason": "INVALID_PRICE_REPRICE_REQUEST_INVALID",
+                "error": str(exc),
+                "adjustment": adjustment,
+                "fresh_quote": fresh_quote,
+            }
+        retry_request["comment"] = request.get(
+            "comment",
+            retry_request.get("comment"),
+        )
+        retry_request["type_time"] = request.get(
+            "type_time",
+            retry_request.get("type_time"),
+        )
+        if request.get("expiration") not in (None, ""):
+            retry_request["expiration"] = request["expiration"]
+        else:
+            retry_request.pop("expiration", None)
+        adjustment.update(
+            {
+                "adjusted_stop": retry_request["sl"],
+                "adjusted_target": retry_request["tp"],
+            }
+        )
+        return {
+            "ok": True,
+            "request": retry_request,
+            "adjustment": adjustment,
+            "fresh_quote": fresh_quote,
+        }
+
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
@@ -546,21 +731,84 @@ class MT5Executor:
         self.journal.append("ORDER_REQUEST_BUILT", request)
 
         order_check_result = None
+        initial_order_check_result = None
+        price_reprice = None
         check_order = getattr(self.broker, "check_order", None)
         if callable(check_order):
             order_check_result = check_order(request)
             self.journal.append("ORDER_CHECKED", order_check_result)
             if order_check_result.get("ok") is False:
-                result = {
-                    "status": "SKIPPED_ORDER_CHECK",
-                    "reason": "ORDER_CHECK_FAILED",
-                    "proposal": proposal.model_dump(mode="json"),
-                    "request": request,
-                    "order_check_result": order_check_result,
-                    "account_safety": account_safety,
-                }
-                self.journal.append("ORDER_SKIPPED", result)
-                return result
+                if self._invalid_price_order_check(order_check_result):
+                    initial_order_check_result = dict(order_check_result)
+                    snapshot_func = getattr(
+                        self.broker,
+                        "current_symbol_snapshot",
+                        None,
+                    )
+                    if callable(snapshot_func):
+                        price_reprice = self._reprice_after_invalid_price(
+                            proposal,
+                            request,
+                            snapshot_func(),
+                        )
+                    else:
+                        price_reprice = {
+                            "ok": False,
+                            "reason": "INVALID_PRICE_REPRICE_QUOTE_UNAVAILABLE",
+                        }
+                    self.journal.append(
+                        "ORDER_INVALID_PRICE_REPRICE_EVALUATED",
+                        price_reprice,
+                    )
+                    if price_reprice.get("ok") is True:
+                        request = dict(price_reprice["request"])
+                        self.journal.append("ORDER_REQUEST_REPRICED", request)
+                        order_check_result = check_order(request)
+                        self.journal.append("ORDER_CHECKED", order_check_result)
+                        if order_check_result.get("ok") is False:
+                            result = {
+                                "status": "SKIPPED_ORDER_CHECK",
+                                "reason": (
+                                    "ORDER_CHECK_FAILED_AFTER_INVALID_PRICE_REPRICE"
+                                ),
+                                "proposal": proposal.model_dump(mode="json"),
+                                "request": request,
+                                "initial_order_check_result": (
+                                    initial_order_check_result
+                                ),
+                                "order_check_result": order_check_result,
+                                "price_reprice": price_reprice,
+                                "account_safety": account_safety,
+                            }
+                            self.journal.append("ORDER_SKIPPED", result)
+                            return result
+                    else:
+                        result = {
+                            "status": "SKIPPED_ORDER_CHECK",
+                            "reason": price_reprice.get("reason")
+                            or "INVALID_PRICE_REPRICE_REJECTED",
+                            "proposal": proposal.model_dump(mode="json"),
+                            "request": request,
+                            "initial_order_check_result": (
+                                initial_order_check_result
+                            ),
+                            "order_check_result": order_check_result,
+                            "price_reprice": price_reprice,
+                            "account_safety": account_safety,
+                        }
+                        self.journal.append("ORDER_SKIPPED", result)
+                        return result
+                else:
+                    result = {
+                        "status": "SKIPPED_ORDER_CHECK",
+                        "reason": "ORDER_CHECK_FAILED",
+                        "proposal": proposal.model_dump(mode="json"),
+                        "request": request,
+                        "order_check_result": order_check_result,
+                        "account_safety": account_safety,
+                    }
+                    self.journal.append("ORDER_SKIPPED", result)
+                    return result
 
         expired_result = self._expired_pending_window_result(
             proposal,
@@ -599,6 +847,8 @@ class MT5Executor:
             ).isoformat(),
             "attempt": 1,
         }
+        if isinstance(price_reprice, dict):
+            execution_timeline["price_reprice"] = dict(price_reprice)
         self.journal.append("ORDER_EXECUTION_TIMELINE", execution_timeline)
         expiration_fallback = False
         if (
@@ -758,7 +1008,9 @@ class MT5Executor:
             "status": "PLACED" if ok else "REJECTED",
             "order": broker_result.get("order"),
             "broker_result": broker_result,
+            "initial_order_check_result": initial_order_check_result,
             "order_check_result": order_check_result,
+            "price_reprice": price_reprice,
             "pending_policy": pending_policy,
             "expiration_fallback": expiration_fallback,
             "execution_timeline": execution_timeline,
@@ -842,6 +1094,71 @@ class MT5Executor:
         }
         self.journal.append("ORDER_CANCELLED" if ok else "ORDER_CANCEL_FAILED", result)
         return result
+
+    def cancel_all_pending_orders(
+        self,
+        *,
+        reason: str = "RUNNER_DRAIN",
+    ) -> dict[str, Any]:
+        """Cancel every configured-symbol pending order during DEMO draining."""
+        connection = self.broker.connect()
+        account_safety = self._account_safety(connection)
+        if not account_safety.get("passed") or account_safety.get("trade_mode") != "DEMO":
+            raise ValueError("cancel-all draining requires a verified DEMO account")
+        orders = self.broker.open_orders(self.config.symbol)
+        actions = []
+        for order in orders:
+            ticket = int(order["ticket"])
+            result = self.broker.cancel_order(ticket)
+            actions.append({"ticket": ticket, "result": result})
+        remaining = self.broker.open_orders(self.config.symbol)
+        if not remaining:
+            self.state.clear_trade()
+        payload = {
+            "status": "CANCELLED_ALL" if not remaining else "CANCEL_ALL_INCOMPLETE",
+            "reason": reason,
+            "actions": actions,
+            "remaining_orders": remaining,
+            "account_safety": account_safety,
+        }
+        self.journal.append("DRAIN_CANCEL_ALL_PENDING", payload)
+        return payload
+
+    def close_all_positions(
+        self,
+        *,
+        reason: str = "RUNNER_DRAIN_DEADLINE",
+    ) -> dict[str, Any]:
+        """Close every configured-symbol position after the DEMO drain grace."""
+        connection = self.broker.connect()
+        account_safety = self._account_safety(connection)
+        if not account_safety.get("passed") or account_safety.get("trade_mode") != "DEMO":
+            raise ValueError("close-all draining requires a verified DEMO account")
+        positions = self.broker.open_positions(self.config.symbol)
+        actions = []
+        for position in positions:
+            result = self.broker.close_position(
+                position,
+                comment="TradingAgents experimental drain",
+            )
+            actions.append(
+                {
+                    "position": position.get("ticket"),
+                    "result": result,
+                }
+            )
+        remaining = self.broker.open_positions(self.config.symbol)
+        if not remaining and not self.broker.open_orders(self.config.symbol):
+            self.state.clear_trade()
+        payload = {
+            "status": "CLOSED_ALL" if not remaining else "CLOSE_ALL_INCOMPLETE",
+            "reason": reason,
+            "actions": actions,
+            "remaining_positions": remaining,
+            "account_safety": account_safety,
+        }
+        self.journal.append("DRAIN_CLOSE_ALL_POSITIONS", payload)
+        return payload
 
     def _pending_opening_invalidation(
         self,
