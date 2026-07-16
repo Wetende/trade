@@ -361,6 +361,25 @@ try {
         } else {
             $Probe = Read-BrokerProbe
         }
+        $RunnerHeartbeatAgeSeconds = $null
+        $RunnerHeartbeatFresh = $false
+        if ($null -ne $RunnerHeartbeat) {
+            try {
+                $RunnerHeartbeatObserved = [DateTimeOffset]::Parse(
+                    [string]$RunnerHeartbeat.heartbeat_utc
+                ).ToUniversalTime()
+                $RunnerHeartbeatAgeSeconds = [Math]::Max(
+                    0.0,
+                    (
+                        [DateTimeOffset]::UtcNow - $RunnerHeartbeatObserved
+                    ).TotalSeconds
+                )
+                $RunnerHeartbeatFresh = $RunnerHeartbeatAgeSeconds -le 120
+            } catch {
+                $RunnerHeartbeatAgeSeconds = $null
+                $RunnerHeartbeatFresh = $false
+            }
+        }
 
         $SafetyPassed = (
             $null -ne $Probe -and
@@ -451,6 +470,13 @@ try {
             } else {
                 $null
             }
+            runner_heartbeat_utc = if ($null -ne $RunnerHeartbeat) {
+                $RunnerHeartbeat.heartbeat_utc
+            } else {
+                $null
+            }
+            runner_heartbeat_age_seconds = $RunnerHeartbeatAgeSeconds
+            runner_heartbeat_fresh = $RunnerHeartbeatFresh
             account_safety = if ($Runners.Count -gt 0) {
                 if ($null -ne $RunnerHeartbeat) {
                     $RunnerHeartbeat.account_safety
@@ -473,6 +499,32 @@ try {
                 $Runners.Count -eq 0 -and $null -ne $Probe
             ) {
                 [int]$Probe.open_position_count
+            } else {
+                $null
+            }
+            session_metrics = if ($null -ne $RunnerHeartbeat) {
+                [ordered]@{
+                    status = $RunnerHeartbeat.status
+                    health_gate = $RunnerHeartbeat.health_gate
+                    total_checks = $RunnerHeartbeat.summary.total_checks
+                    orders_placed = $RunnerHeartbeat.summary.orders_placed
+                    orders_rejected = $RunnerHeartbeat.summary.orders_rejected
+                    orders_skipped = $RunnerHeartbeat.summary.orders_skipped
+                    broker_rejections = $RunnerHeartbeat.summary.broker_rejections
+                    filled_trades = (
+                        $RunnerHeartbeat.summary.trade_history.filled_trade_count
+                    )
+                    closed_trades = (
+                        $RunnerHeartbeat.summary.trade_history.closed_trade_count
+                    )
+                    wins = $RunnerHeartbeat.summary.trade_history.wins
+                    losses = $RunnerHeartbeat.summary.trade_history.losses
+                    break_even = $RunnerHeartbeat.summary.trade_history.break_even
+                    net_profit = (
+                        $RunnerHeartbeat.summary.trade_history.net_profit
+                    )
+                    latest_execution = $RunnerHeartbeat.summary.latest_execution
+                }
             } else {
                 $null
             }
