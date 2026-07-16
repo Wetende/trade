@@ -3309,7 +3309,7 @@ def test_executor_archives_excursion_and_merges_exact_exit_movement(tmp_path):
             "position_id": 111222,
             "symbol": "XAUUSD",
             "time": 2,
-            "time_utc": "2026-07-01T14:00:09+00:00",
+            "time_utc": "2026-07-01T15:00:09+00:00",
             "type": 1,
             "entry": 1,
             "volume": 1.0,
@@ -3329,6 +3329,9 @@ def test_executor_archives_excursion_and_merges_exact_exit_movement(tmp_path):
     assert trade["mfe_points"] == 0.4
     assert trade["mae_points"] == -0.5
     assert trade["excursion_source"] == "one_second_samples_plus_exit"
+    assert trade["closed_at_utc"] == "2026-07-01T14:00:06+00:00"
+    assert trade["broker_closed_at_utc"] == "2026-07-01T15:00:09+00:00"
+    assert trade["closed_time_source"] == "position_archive_reconciliation"
     assert trade["strategy_type"] == "LOW_RESPECT_BUY"
     assert trade["setup_name"] == "LOW_RESPECT_BUY"
     assert trade["entry_drift"] == pytest.approx(-0.123)

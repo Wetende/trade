@@ -2555,6 +2555,17 @@ class MT5Executor:
         if not isinstance(completed, dict):
             return summary
 
+        reconciled_close = self._reconcile_closed_timestamp(
+            summary.get("closed_at_utc"),
+            completed.get("archived_at_utc"),
+        )
+        if reconciled_close is not None:
+            summary["broker_closed_at_utc"] = summary["closed_at_utc"]
+            summary["closed_at_utc"] = reconciled_close
+            summary["closed_time_source"] = "position_archive_reconciliation"
+        else:
+            summary["closed_time_source"] = "broker_history"
+
         excursion = completed.get("position_excursion") or {}
         sampled_mfe = self._deal_float(excursion.get("mfe_points"))
         sampled_mae = self._deal_float(excursion.get("mae_points"))
@@ -2604,6 +2615,28 @@ class MT5Executor:
                 4,
             )
         return summary
+
+    @staticmethod
+    def _reconcile_closed_timestamp(
+        broker_closed_at_utc: Any,
+        archived_at_utc: Any,
+    ) -> str | None:
+        """Correct an impossible future deal time using durable close telemetry.
+
+        Some MT5 terminals expose deal-history timestamps in broker-local time
+        while ticks are already UTC.  An archival observation necessarily occurs
+        after a position has disappeared, so a broker close recorded more than
+        one minute *after* that observation cannot be chronological truth.
+        """
+        broker_closed = _parse_utc_datetime(broker_closed_at_utc)
+        archived = _parse_utc_datetime(archived_at_utc)
+        if (
+            broker_closed is None
+            or archived is None
+            or broker_closed <= archived + timedelta(minutes=1)
+        ):
+            return None
+        return archived.isoformat()
 
     @staticmethod
     def _deal_outcome(exit_deal: dict[str, Any], profit: float) -> str:
