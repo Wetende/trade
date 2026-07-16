@@ -17,8 +17,9 @@
     "cli/main.py": "cf35e4e720502d22772967e4812e507a50314f477d0011ac275eebe959d043c0",
     "scripts/start-one-minute-experimental-demo.ps1": "2f576f180edaa6c99426dca69206a9639d4c7aad38b0399e9c726763b1b81083",
     "tradingagents/agents/price_action/one_minute_entry_model.py": "a8499925eed69d34cb8c33f5f93804a3010b207f036c46fad8c4d546a8ab86e4",
-    "tradingagents/agents/price_action/one_minute_experimental_demo.py": "931ab94d2047f8ddcfce7014c8ac4d6e65b121d2062444a4c3c9747641318758",
-    "tradingagents/brokers/mt5_execution.py": "c4342b7e2f6556b76685cfa9a71ad9d0b116a3a2b2b7f65ab523173d0fbfca01",
+    "tradingagents/agents/price_action/one_minute_experimental_demo.py": "b80c53d0de2257cf39677d2c308077ec8e4a856aeac3191ab6c4a642a7e528e7",
+    "tradingagents/brokers/execution_state.py": "f44d4457dc6561a25b51e30d34fb751d9c7c1bbea2a88a19cabcf72fc4d1da33",
+    "tradingagents/brokers/mt5_execution.py": "82b217f5484894064da8fe3d14137f092a2291cacecd84279e8f8dc3df3028fe",
     "tradingagents/brokers/mt5_runner.py": "c0299125f24d9e36e1265c3d2bb18771461c5498808d3cb6922d8e0289cd6f15"
   },
   "authorization_type": "EXPLICIT_USER_DEMO_RESEARCH_OVERRIDE",

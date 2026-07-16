@@ -146,3 +146,57 @@ def test_experimental_record_rejects_expiry_and_artifact_tampering(tmp_path):
             runtime_config=_runtime(),
             now_utc=generated,
         )
+
+
+def test_experimental_refreeze_preserves_original_deadline(tmp_path):
+    _artifact_tree(tmp_path)
+    record = tmp_path / "authorization.json"
+    generated = datetime(2026, 7, 16, 8, 0, tzinfo=timezone.utc)
+    first = generate_experimental_demo_record(
+        record,
+        repo_root=tmp_path,
+        generated_at_utc=generated.isoformat(),
+    )
+    changed_artifact = tmp_path / ARTIFACT_PATHS[0]
+    changed_artifact.write_text("updated artifact\n", encoding="utf-8")
+
+    second = generate_experimental_demo_record(
+        record,
+        repo_root=tmp_path,
+    )
+
+    assert second["generated_at_utc"] == first["generated_at_utc"]
+    assert second["expires_at_utc"] == first["expires_at_utc"]
+    assert (
+        second["artifact_hashes"][ARTIFACT_PATHS[0]]
+        != first["artifact_hashes"][ARTIFACT_PATHS[0]]
+    )
+
+
+def test_experimental_record_rejects_extended_deadline(tmp_path):
+    _artifact_tree(tmp_path)
+    record = tmp_path / "authorization.json"
+    generated = datetime(2026, 7, 16, 8, 0, tzinfo=timezone.utc)
+    generate_experimental_demo_record(
+        record,
+        repo_root=tmp_path,
+        generated_at_utc=generated.isoformat(),
+    )
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    payload["expires_at_utc"] = (
+        generated + timedelta(hours=49)
+    ).isoformat()
+    record.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(
+        ExperimentalDemoAuthorizationError,
+        match="authorization duration mismatch",
+    ):
+        validate_experimental_demo_record(
+            record,
+            repo_root=tmp_path,
+            requested_volume=0.1,
+            requested_session_hours=3.0,
+            runtime_config=_runtime(),
+            now_utc=generated + timedelta(hours=1),
+        )

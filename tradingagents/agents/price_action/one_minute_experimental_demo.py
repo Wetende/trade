@@ -28,6 +28,7 @@ ARTIFACT_PATHS = (
     "tradingagents/agents/price_action/one_minute_entry_model.py",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py",
     "tradingagents/brokers/mt5_execution.py",
+    "tradingagents/brokers/execution_state.py",
     "tradingagents/brokers/mt5_runner.py",
 )
 
@@ -67,8 +68,27 @@ def generate_experimental_demo_record(
 ) -> dict[str, Any]:
     """Freeze the exact code and constraints for the user-authorized experiment."""
     root = Path(repo_root).resolve()
+    output = Path(output_path)
+    preserved_generated_at = None
+    if generated_at_utc is None and output.is_file():
+        try:
+            existing = _json_object(output)
+            if (
+                existing.get("schema_version") == 1
+                and existing.get("candidate") == CANDIDATE_NAME
+            ):
+                preserved_generated_at = _parse_utc(
+                    str(existing.get("generated_at_utc") or "")
+                )
+        except ExperimentalDemoAuthorizationError:
+            preserved_generated_at = None
     generated_at = _parse_utc(
-        generated_at_utc or datetime.now(timezone.utc).isoformat()
+        generated_at_utc
+        or (
+            preserved_generated_at.isoformat()
+            if preserved_generated_at is not None
+            else datetime.now(timezone.utc).isoformat()
+        )
     )
     artifacts: dict[str, str] = {}
     for relative in ARTIFACT_PATHS:
@@ -116,7 +136,7 @@ def generate_experimental_demo_record(
             "M15_OR_M30_CHANGE",
         ],
     }
-    _atomic_json(Path(output_path), record)
+    _atomic_json(output, record)
     return record
 
 
@@ -163,7 +183,16 @@ def validate_experimental_demo_record(
         "record session duration mismatch",
     )
     now = _parse_utc(now_utc or datetime.now(timezone.utc))
+    generated_at = _parse_utc(str(record.get("generated_at_utc") or ""))
     expires_at = _parse_utc(str(record.get("expires_at_utc") or ""))
+    _require(now >= generated_at, "experimental authorization is not active")
+    authorization_hours = (
+        expires_at - generated_at
+    ).total_seconds() / 3600.0
+    _require(
+        abs(authorization_hours - MAX_TOTAL_HOURS) <= 1e-9,
+        "experimental authorization duration mismatch",
+    )
     _require(now < expires_at, "experimental authorization expired")
 
     expected_hashes = record.get("artifact_hashes")

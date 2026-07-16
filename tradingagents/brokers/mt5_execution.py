@@ -258,7 +258,17 @@ class MT5Executor:
         self.one_minute_lifecycle = (
             one_minute_lifecycle or MT5OneMinuteLifecycleConfig()
         )
-        self._server_expiration_supported: bool | None = None
+        persisted_capabilities = self.state.load_broker_capabilities()
+        persisted_short_expiration = (
+            persisted_capabilities.get("short_pending_expiration_supported")
+            if isinstance(persisted_capabilities, dict)
+            else None
+        )
+        self._server_expiration_supported: bool | None = (
+            persisted_short_expiration
+            if isinstance(persisted_short_expiration, bool)
+            else None
+        )
 
     @staticmethod
     def _now_utc() -> datetime:
@@ -352,6 +362,18 @@ class MT5Executor:
             "usable_submission_seconds": max(0.0, usable_seconds),
             "account_safety": account_safety,
         }
+
+    def _persist_short_expiration_support(
+        self,
+        supported: bool,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self.state.record_short_pending_expiration_support(
+            supported,
+            reason=reason,
+            observed_at_utc=self._now_utc(),
+        )
 
     @staticmethod
     def _invalid_price_order_check(result: dict[str, Any]) -> bool:
@@ -617,6 +639,10 @@ class MT5Executor:
         )
         if expiration_capability is False:
             self._server_expiration_supported = False
+            self._persist_short_expiration_support(
+                False,
+                reason="SYMBOL_CAPABILITY_REJECTS_SPECIFIED_EXPIRATION",
+            )
         elif (
             expiration_capability is True
             and self._server_expiration_supported is None
@@ -641,6 +667,11 @@ class MT5Executor:
                     "trade_stops_distance_price",
                     "trade_freeze_distance_price",
                     "pending_filling_mode",
+                )
+            }
+            | {
+                "persistent_short_expiration_supported": (
+                    self._server_expiration_supported
                 )
             },
         )
@@ -862,6 +893,10 @@ class MT5Executor:
             )
         ):
             self._server_expiration_supported = False
+            self._persist_short_expiration_support(
+                False,
+                reason="BROKER_REJECTED_SHORT_EXPIRATION",
+            )
             self.journal.append(
                 "ORDER_EXPIRATION_FALLBACK",
                 {

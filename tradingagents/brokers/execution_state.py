@@ -23,6 +23,7 @@ class ExecutionStateStore:
     """Persist one-symbol MT5 execution state."""
 
     filename = "mt5_state.json"
+    capabilities_file = "broker_capabilities.json"
     max_consumed_openings = 128
     max_completed_positions = 128
 
@@ -32,6 +33,7 @@ class ExecutionStateStore:
         self.directory = Path(results_dir) / safe_symbol / "execution_state"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / self.filename
+        self.capabilities_path = self.directory / self.capabilities_file
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -107,6 +109,39 @@ class ExecutionStateStore:
             )
             if key in state
         }
+
+    def load_broker_capabilities(self) -> dict[str, Any]:
+        if not self.capabilities_path.exists():
+            return {}
+        payload = json.loads(
+            self.capabilities_path.read_text(encoding="utf-8")
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    def record_short_pending_expiration_support(
+        self,
+        supported: bool,
+        *,
+        reason: str,
+        observed_at_utc: datetime | None = None,
+    ) -> dict[str, Any]:
+        capabilities = self.load_broker_capabilities()
+        capabilities.update(
+            {
+                "short_pending_expiration_supported": bool(supported),
+                "short_pending_expiration_reason": str(reason),
+                "short_pending_expiration_updated_at_utc": self._utc_iso(
+                    observed_at_utc
+                ),
+            }
+        )
+        temporary = self.capabilities_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(capabilities, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        temporary.replace(self.capabilities_path)
+        return capabilities
 
     def record_post_close_lifecycle(
         self,

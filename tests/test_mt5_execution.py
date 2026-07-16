@@ -282,6 +282,71 @@ def test_executor_falls_back_to_gtc_when_broker_rejects_short_expiration(tmp_pat
     assert "expiration" not in broker.placed_requests[2]
 
 
+def test_executor_persists_gtc_quirk_across_session_restart(tmp_path):
+    stable_state = tmp_path / "stable-state"
+    first_broker = FakeBroker()
+    first_broker.place_results = [
+        {
+            "ok": False,
+            "order": 0,
+            "retcode": 10022,
+            "comment": "Invalid expiration",
+        },
+        {
+            "ok": True,
+            "order": 111225,
+            "retcode": 10009,
+            "comment": "ok",
+        },
+    ]
+    first = MT5Executor(
+        _config(),
+        tmp_path / "session-one",
+        broker=first_broker,
+        state_dir=stable_state,
+    )
+    fixed_now = datetime(2026, 7, 1, 14, 0, 10, tzinfo=timezone.utc)
+    first._now_utc = lambda: fixed_now
+
+    placed = first.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="HIGH_RESPECT_SELL",
+        )
+    )
+    first.state.clear_trade()
+
+    assert placed["status"] == "PLACED"
+    assert placed["expiration_fallback"] is True
+
+    restarted_broker = FakeBroker()
+    restarted = MT5Executor(
+        _config(),
+        tmp_path / "session-two",
+        broker=restarted_broker,
+        state_dir=stable_state,
+    )
+    restarted._now_utc = lambda: fixed_now
+
+    restarted_result = restarted.execute_proposal(
+        _one_minute_proposal(
+            reaction_type="respect",
+            trigger_name="LOW_RESPECT_BUY",
+        )
+    )
+
+    assert restarted_result["status"] == "PLACED"
+    assert restarted_result["expiration_fallback"] is False
+    assert len(restarted_broker.placed_requests) == 1
+    assert restarted_broker.placed_requests[0]["type_time"] == "ORDER_TIME_GTC"
+    assert "expiration" not in restarted_broker.placed_requests[0]
+    capabilities = restarted.state.load_broker_capabilities()
+    assert capabilities["short_pending_expiration_supported"] is False
+    assert capabilities["short_pending_expiration_reason"] == (
+        "BROKER_REJECTED_SHORT_EXPIRATION"
+    )
+
+
 def test_executor_rebuilds_expiration_fallback_with_latest_quote(tmp_path):
     broker = FakeBroker()
     broker.symbol_info.update(
