@@ -63,6 +63,30 @@ permissions for broker mutation, live-rule mutation, automatic promotion, DEMO
 authorization, and REAL authorization. Add a completed session to the source
 registry only after broker reconciliation and verified-flat shutdown.
 
+## Experimental supervisor hook
+
+The bounded 0.1-volume DEMO experiment supervisor performs the same controlled
+learning update after each session only when all of these conditions hold:
+
+1. the runner has exited with a drained-flat completion result;
+2. a fresh broker probe proves the account is DEMO;
+3. the probe returns zero open orders and zero open positions.
+
+The supervisor then adds the completed session to its runtime-only source
+registry and rebuilds the research ledger. It validates that broker mutation,
+live-rule mutation, automatic promotion, DEMO authorization, and REAL
+authorization all remain disabled. The hook cannot change the next running
+session's strategy.
+
+The preserved artifacts are:
+
+- `runtime/one-minute-experimental-supervisor/learning-sources.json`
+- `runtime/one-minute-experimental-supervisor/learning-ledger.json`
+- `runtime/one-minute-experimental-supervisor/learning-heartbeat.json`
+
+Any learning failure is recorded in the learning heartbeat and supervisor log;
+it never grants operational permissions or bypasses the DEMO/flat restart gate.
+
 ## Current binding lesson
 
 The registered sources contain 54 filled legacy trades: 15 wins, 39 losses,

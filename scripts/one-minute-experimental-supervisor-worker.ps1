@@ -22,9 +22,16 @@ $Checkpoints = Join-Path $RuntimeDir "checkpoints.jsonl"
 $Log = Join-Path $RuntimeDir "supervisor.log"
 $PidFile = Join-Path $RuntimeDir "supervisor.pid"
 $StopFile = Join-Path $RuntimeDir "supervisor.stop"
+$LearningManifest = Join-Path $RuntimeDir "learning-sources.json"
+$LearningLedger = Join-Path $RuntimeDir "learning-ledger.json"
+$LearningHeartbeat = Join-Path $RuntimeDir "learning-heartbeat.json"
+$BaseLearningManifest = Join-Path $Root (
+    "docs\analysis\2026-07-15-one-minute-learning-sources.json"
+)
 $Deadline = [DateTimeOffset]::Parse($DeadlineUtc).ToUniversalTime()
 $LastCheckpointSession = $null
 $ConsecutiveLaunchFailures = 0
+$LastLearningUpdate = $null
 
 function Write-AtomicJson {
     param(
@@ -34,6 +41,18 @@ function Write-AtomicJson {
     $Temporary = $Path + ".tmp"
     $Payload | ConvertTo-Json -Depth 12 |
         Set-Content -LiteralPath $Temporary -Encoding UTF8
+    Move-Item -LiteralPath $Temporary -Destination $Path -Force
+}
+
+function Write-AtomicUtf8Json {
+    param(
+        [string]$Path,
+        [object]$Payload
+    )
+    $Temporary = $Path + ".tmp"
+    $Json = $Payload | ConvertTo-Json -Depth 20
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Temporary, $Json, $Utf8NoBom)
     Move-Item -LiteralPath $Temporary -Destination $Path -Force
 }
 
@@ -309,6 +328,127 @@ function Get-Checkpoint {
     }
 }
 
+function Update-ControlledLearning {
+    param(
+        [System.IO.DirectoryInfo]$Session,
+        [object]$Checkpoint
+    )
+    $Now = [DateTimeOffset]::UtcNow.ToString("o")
+    if (-not $Checkpoint.completed_learning_source) {
+        return [ordered]@{
+            status = "SKIPPED_INCOMPLETE_SESSION"
+            updated_at_utc = $Now
+            session = $Session.FullName
+            broker_mutation_enabled = $false
+            live_rule_mutation_enabled = $false
+            automatic_promotion_enabled = $false
+        }
+    }
+    try {
+        $ManifestSource = if (Test-Path -LiteralPath $LearningManifest) {
+            $LearningManifest
+        } else {
+            $BaseLearningManifest
+        }
+        if (-not (Test-Path -LiteralPath $ManifestSource)) {
+            throw "Controlled-learning base manifest is missing: $ManifestSource"
+        }
+        $Manifest = (
+            Get-Content -LiteralPath $ManifestSource -Raw
+        ) | ConvertFrom-Json
+        if (
+            $Manifest.schema_version -ne 1 -or
+            $Manifest.strategy_scope -ne "one_minute_scalper" -or
+            $Manifest.source_role -ne "HYPOTHESIS_GENERATION_ONLY"
+        ) {
+            throw "Controlled-learning source manifest guardrail failed."
+        }
+        if (
+            $Manifest.guardrails.broker_mutation_enabled -or
+            $Manifest.guardrails.live_rule_mutation_enabled -or
+            $Manifest.guardrails.automatic_promotion_enabled
+        ) {
+            throw "Controlled-learning source manifest grants prohibited permissions."
+        }
+        $Sessions = @($Manifest.sessions)
+        if ($Sessions -notcontains $Session.FullName) {
+            $Sessions += $Session.FullName
+        }
+        $Manifest.sessions = @($Sessions | Select-Object -Unique)
+        Write-AtomicUtf8Json -Path $LearningManifest -Payload $Manifest
+
+        $Lines = & $Python -m cli.main one-minute-learn `
+            --source-manifest $LearningManifest `
+            --output $LearningLedger 2>&1
+        $Code = $LASTEXITCODE
+        if ($Code -ne 0 -or -not (Test-Path -LiteralPath $LearningLedger)) {
+            throw (
+                "Controlled-learning command failed with exit code " +
+                $Code + ": " + ($Lines -join [Environment]::NewLine)
+            )
+        }
+        $Ledger = (
+            Get-Content -LiteralPath $LearningLedger -Raw
+        ) | ConvertFrom-Json
+        if (
+            $Ledger.broker_mutation_enabled -or
+            $Ledger.live_rule_mutation_enabled -or
+            $Ledger.automatic_promotion_enabled -or
+            $Ledger.operational_permissions.place_or_modify_orders -or
+            $Ledger.operational_permissions.change_strategy_configuration -or
+            $Ledger.operational_permissions.create_promotion_record -or
+            $Ledger.operational_permissions.authorize_demo_start -or
+            $Ledger.operational_permissions.authorize_real_start
+        ) {
+            throw "Controlled-learning ledger guardrail failed."
+        }
+        $Result = [ordered]@{
+            status = "UPDATED_RESEARCH_LEDGER"
+            updated_at_utc = $Now
+            session = $Session.FullName
+            source_manifest = $LearningManifest
+            ledger_path = $LearningLedger
+            ledger_sha256 = (
+                Get-FileHash -Algorithm SHA256 -LiteralPath $LearningLedger
+            ).Hash.ToLowerInvariant()
+            source_session_count = @($Ledger.source_registry.sessions).Count
+            summary = $Ledger.diagnostics.summary
+            hypothesis_generation_cutoff_utc = (
+                $Ledger.candidate_incubation.evidence_isolation.
+                    hypothesis_generation_cutoff_utc
+            )
+            broker_mutation_enabled = $false
+            live_rule_mutation_enabled = $false
+            automatic_promotion_enabled = $false
+        }
+        Write-AtomicJson -Path $LearningHeartbeat -Payload $Result
+        Add-Content -LiteralPath $Log -Value (
+            $Now + " LEARNING_UPDATED session=" + $Session.Name +
+            " sources=" + $Result.source_session_count +
+            " ledger_sha256=" + $Result.ledger_sha256
+        )
+        return $Result
+    } catch {
+        $Failure = [ordered]@{
+            status = "LEARNING_UPDATE_FAILED"
+            updated_at_utc = $Now
+            session = $Session.FullName
+            reason = $_.Exception.Message
+            source_manifest = $LearningManifest
+            ledger_path = $LearningLedger
+            broker_mutation_enabled = $false
+            live_rule_mutation_enabled = $false
+            automatic_promotion_enabled = $false
+        }
+        Write-AtomicJson -Path $LearningHeartbeat -Payload $Failure
+        Add-Content -LiteralPath $Log -Value (
+            $Now + " LEARNING_UPDATE_FAILED session=" + $Session.Name +
+            " reason=" + $Failure.reason
+        )
+        return $Failure
+    }
+}
+
 function Start-NextRunner {
     param([double]$DurationHours)
     $DurationText = $DurationHours.ToString(
@@ -405,6 +545,10 @@ try {
                 throw "Session exited without verified-flat DEMO state."
             }
             $Checkpoint = Get-Checkpoint -Session $Session -Probe $Probe
+            $LastLearningUpdate = Update-ControlledLearning `
+                -Session $Session `
+                -Checkpoint $Checkpoint
+            $Checkpoint["learning_update"] = $LastLearningUpdate
             Add-Content -LiteralPath $Checkpoints -Value (
                 $Checkpoint | ConvertTo-Json -Depth 12 -Compress
             )
@@ -529,6 +673,10 @@ try {
                 $null
             }
             last_checkpoint_session = $LastCheckpointSession
+            last_learning_update = $LastLearningUpdate
+            learning_manifest_path = $LearningManifest
+            learning_ledger_path = $LearningLedger
+            learning_heartbeat_path = $LearningHeartbeat
             consecutive_launch_failures = $ConsecutiveLaunchFailures
             strategy_mutation_enabled = $false
             automatic_promotion_enabled = $false
