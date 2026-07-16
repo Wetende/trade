@@ -27,6 +27,7 @@ ARTIFACT_PATHS = (
     "scripts/start-one-minute-experimental-demo.ps1",
     "tradingagents/agents/price_action/one_minute_entry_model.py",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py",
+    "tradingagents/brokers/mt5.py",
     "tradingagents/brokers/mt5_execution.py",
     "tradingagents/brokers/execution_state.py",
     "tradingagents/brokers/mt5_runner.py",

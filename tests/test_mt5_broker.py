@@ -50,6 +50,7 @@ class FakeMT5:
 
     def __init__(self):
         self.initialized_with = None
+        self.initialize_calls = 0
         self.selected_symbols = []
         self.shutdown_called = False
         self.sent_requests = []
@@ -93,6 +94,7 @@ class FakeMT5:
         ]
 
     def initialize(self, **kwargs):
+        self.initialize_calls = getattr(self, "initialize_calls", 0) + 1
         self.initialized_with = kwargs
         self.account_login = kwargs["login"]
         self.account_server = kwargs["server"]
@@ -830,6 +832,23 @@ def test_mt5_broker_connects_and_reads_symbol_specs():
     assert result["symbol"]["pending_filling_mode"] == "ORDER_FILLING_RETURN"
     assert result["symbol"]["trade_stops_distance_price"] == 0.5
     assert result["symbol"]["trade_freeze_distance_price"] == 0.2
+
+
+def test_mt5_broker_reuses_verified_terminal_connection():
+    fake_mt5 = FakeMT5()
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+    broker = MT5Broker(config, mt5_module=fake_mt5)
+
+    broker.connect()
+    broker.connect()
+
+    assert fake_mt5.initialize_calls == 1
+    assert fake_mt5.selected_symbols == [("XAUUSD", True), ("XAUUSD", True)]
 
 
 @pytest.mark.parametrize(

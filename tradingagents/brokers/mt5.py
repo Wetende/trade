@@ -694,7 +694,27 @@ class MT5Broker:
 
     def connect(self) -> dict[str, Any]:
         mt5 = self._module()
-        self._connected = False
+        if self._connected:
+            terminal_info = getattr(mt5, "terminal_info", None)
+            terminal = (
+                _asdict(terminal_info())
+                if callable(terminal_info)
+                else {}
+            )
+            if terminal.get("connected") is True:
+                try:
+                    return self._connection_snapshot(mt5)
+                except Exception:
+                    self._connected = False
+                    shutdown = getattr(mt5, "shutdown", None)
+                    if callable(shutdown):
+                        shutdown()
+                    raise
+            self._connected = False
+            shutdown = getattr(mt5, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+
         init_kwargs = {
             "login": self.config.login,
             "password": self.config.password,
@@ -707,27 +727,8 @@ class MT5Broker:
             raise MT5BrokerError(f"MT5 initialize failed: {mt5.last_error()}")
 
         try:
-            account = _asdict(mt5.account_info())
-            if not account:
-                raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
-            self._assert_expected_account(account)
-
-            if not mt5.symbol_select(self.config.symbol, True):
-                raise MT5BrokerError(
-                    f"MT5 could not select symbol {self.config.symbol}: {mt5.last_error()}"
-                )
-
-            symbol_info = _asdict(mt5.symbol_info(self.config.symbol))
-            if not symbol_info:
-                raise MT5BrokerError(
-                    f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
-                )
-            tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
-            if not tick:
-                raise MT5BrokerError(
-                    f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
-                )
             self._connected = True
+            return self._connection_snapshot(mt5)
         except Exception:
             self._connected = False
             shutdown = getattr(mt5, "shutdown", None)
@@ -735,6 +736,28 @@ class MT5Broker:
                 shutdown()
             raise
 
+    def _connection_snapshot(self, mt5: Any) -> dict[str, Any]:
+        """Return a fresh validated snapshot without reinitializing MT5."""
+        account = _asdict(mt5.account_info())
+        if not account:
+            raise MT5BrokerError(f"MT5 account_info failed: {mt5.last_error()}")
+        self._assert_expected_account(account)
+
+        if not mt5.symbol_select(self.config.symbol, True):
+            raise MT5BrokerError(
+                f"MT5 could not select symbol {self.config.symbol}: {mt5.last_error()}"
+            )
+
+        symbol_info = _asdict(mt5.symbol_info(self.config.symbol))
+        if not symbol_info:
+            raise MT5BrokerError(
+                f"MT5 symbol_info failed for {self.config.symbol}: {mt5.last_error()}"
+            )
+        tick = _asdict(mt5.symbol_info_tick(self.config.symbol))
+        if not tick:
+            raise MT5BrokerError(
+                f"MT5 symbol_info_tick failed for {self.config.symbol}: {mt5.last_error()}"
+            )
         capabilities = self._symbol_capabilities(symbol_info)
         return {
             "connected": True,
