@@ -91,6 +91,8 @@ function Get-Checkpoint {
         [object]$Probe
     )
     $SummaryPath = Join-Path $Session.FullName "mt5_runner\summary.json"
+    $RunnerStdoutPath = Join-Path $Session.FullName "runner.stdout.log"
+    $RunnerStderrPath = Join-Path $Session.FullName "runner.stderr.log"
     $Summary = $null
     if (Test-Path -LiteralPath $SummaryPath) {
         try {
@@ -105,6 +107,69 @@ function Get-Checkpoint {
         $Summary.trade_history
     } else {
         $null
+    }
+    $RunnerExit = $null
+    if (Test-Path -LiteralPath $RunnerStdoutPath) {
+        try {
+            $RunnerStdout = (
+                Get-Content -LiteralPath $RunnerStdoutPath -Raw
+            ).Trim()
+            if ($RunnerStdout) {
+                $RunnerExit = $RunnerStdout | ConvertFrom-Json
+            }
+        } catch {
+            $RunnerExit = $null
+        }
+    }
+    $RunnerStderrTail = @()
+    if (Test-Path -LiteralPath $RunnerStderrPath) {
+        $RunnerStderrTail = @(
+            Get-Content -LiteralPath $RunnerStderrPath -Tail 20 |
+                Where-Object { $_.Trim() }
+        )
+    }
+    $StartedAt = $null
+    $UpdatedAt = $null
+    if ($null -ne $Summary) {
+        try {
+            $StartedAt = [DateTimeOffset]::Parse(
+                [string]$Summary.started_at_utc
+            ).ToUniversalTime()
+        } catch {
+            $StartedAt = $null
+        }
+        try {
+            $UpdatedAt = [DateTimeOffset]::Parse(
+                [string]$Summary.updated_at_utc
+            ).ToUniversalTime()
+        } catch {
+            $UpdatedAt = $null
+        }
+    }
+    $ObservedDurationSeconds = if (
+        $null -ne $StartedAt -and $null -ne $UpdatedAt
+    ) {
+        [Math]::Max(0.0, ($UpdatedAt - $StartedAt).TotalSeconds)
+    } else {
+        $null
+    }
+    $ExitStatus = if ($null -ne $RunnerExit) {
+        [string]$RunnerExit.status
+    } else {
+        $null
+    }
+    $CompletedDrain = (
+        $ExitStatus -like "STOPPED_*_DRAINED_FLAT" -and
+        $RunnerStderrTail.Count -eq 0
+    )
+    $CompletionStatus = if ($CompletedDrain) {
+        "COMPLETED_DRAINED_FLAT"
+    } elseif ($RunnerStderrTail.Count -gt 0) {
+        "INCOMPLETE_RUNNER_ERROR"
+    } elseif ($null -eq $RunnerExit) {
+        "INCOMPLETE_MISSING_EXIT_RESULT"
+    } else {
+        "INCOMPLETE_UNVERIFIED_EXIT"
     }
     $Closed = if ($null -ne $TradeHistory) {
         [int]$TradeHistory.closed_trade_count
@@ -162,6 +227,22 @@ function Get-Checkpoint {
         checkpoint_utc = [DateTimeOffset]::UtcNow.ToString("o")
         session = $Session.FullName
         evidence_role = "HYPOTHESIS_GENERATION_ONLY"
+        completion_status = $CompletionStatus
+        completed_learning_source = $CompletedDrain
+        session_started_at_utc = if ($null -ne $StartedAt) {
+            $StartedAt.ToString("o")
+        } else {
+            $null
+        }
+        session_updated_at_utc = if ($null -ne $UpdatedAt) {
+            $UpdatedAt.ToString("o")
+        } else {
+            $null
+        }
+        observed_duration_seconds = $ObservedDurationSeconds
+        runner_exit_status = $ExitStatus
+        runner_exit_result = $RunnerExit
+        runner_stderr_tail = $RunnerStderrTail
         strategy_mutation_enabled = $false
         automatic_promotion_enabled = $false
         account_safety = $Probe.account_safety
