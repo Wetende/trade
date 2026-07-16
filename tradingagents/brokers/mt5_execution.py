@@ -2578,6 +2578,16 @@ class MT5Executor:
             }
         )
         proposal = completed.get("proposal") or {}
+        for key in (
+            "setup_name",
+            "strategy_type",
+            "trigger_name",
+            "reaction_type",
+            "confirmation_type",
+        ):
+            value = proposal.get(key)
+            if value not in (None, ""):
+                summary[key] = value
         proposed_entry = _first_float(proposal, "entry_price")
         if proposed_entry is not None:
             summary["entry_drift"] = round(

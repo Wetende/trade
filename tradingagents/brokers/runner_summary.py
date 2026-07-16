@@ -132,6 +132,27 @@ def _closed_exit_key(trade: dict[str, Any]) -> str:
     )
 
 
+def _enrich_closed_trade(
+    existing_trade: dict[str, Any],
+    reconciled_trade: dict[str, Any],
+) -> bool:
+    """Fill telemetry fields that arrived after the initial broker reconciliation.
+
+    A position can disappear from the broker between runner cycles.  In that
+    case the first history reconciliation has the financial close, while the
+    following maintenance cycle archives the position excursion and proposal
+    context.  Keep the original financial record and enrich only values that
+    were absent, so repeated reconciliation never changes trade statistics.
+    """
+    changed = False
+    for key, value in reconciled_trade.items():
+        if key not in existing_trade or existing_trade[key] is None:
+            if value is not None:
+                existing_trade[key] = value
+                changed = True
+    return changed
+
+
 def _apply_closed_trade_stats(
     history: dict[str, Any],
     profit: float,
@@ -522,6 +543,8 @@ class RunnerSummaryStore:
             if existing_index is not None:
                 existing_trade = history["closed_trades"][existing_index]
                 if _closed_exit_key(existing_trade) == exit_key:
+                    if _enrich_closed_trade(existing_trade, trade):
+                        history["latest_closed_trade"] = existing_trade
                     continue
                 _apply_closed_trade_stats(
                     history,

@@ -264,6 +264,55 @@ def test_runner_records_trade_history_reconciliation_in_summary(tmp_path):
     assert result["summary"]["trade_history"]["net_profit"] == 6.67
 
 
+def test_runner_enriches_closed_trade_when_telemetry_arrives_later(tmp_path):
+    proposal = proposed_order()
+    proposal.status = OrderStatus.NO_TRADE
+    executor = FakeExecutor(active=False)
+    closed_trade = {
+        "position_id": 111222,
+        "entry_deal_ticket": 1001,
+        "exit_deal_ticket": 1002,
+        "side": "BUY",
+        "entry_price": 2450.12,
+        "exit_price": 2449.45,
+        "volume": 0.01,
+        "profit": -6.67,
+        "outcome": "LOSS",
+        "closed_at_utc": "2026-05-24T10:00:00+00:00",
+    }
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trades": [closed_trade],
+    }
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposal),
+    )
+
+    runner.run_once()
+    executor.history_result = {
+        "status": "RECONCILED",
+        "closed_trades": [
+            {
+                **closed_trade,
+                "strategy_type": "LOW_RESPECT_BUY",
+                "mfe_points": 0.0,
+                "mae_points": -0.69,
+                "excursion_source": "one_second_samples_plus_exit",
+            }
+        ],
+    }
+    result = runner.run_once()
+
+    history = result["summary"]["trade_history"]
+    assert history["closed_trade_count"] == 1
+    assert history["net_profit"] == -6.67
+    assert history["closed_trades"][0]["strategy_type"] == "LOW_RESPECT_BUY"
+    assert history["closed_trades"][0]["mfe_points"] == 0.0
+    assert history["closed_trades"][0]["mae_points"] == -0.69
+
+
 def test_runner_stops_before_analysis_when_session_loss_limit_is_reached(tmp_path):
     executor = FakeExecutor(active=False)
     executor.history_result = {

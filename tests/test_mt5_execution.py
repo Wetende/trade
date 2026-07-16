@@ -86,6 +86,8 @@ def _context_one_minute_proposal(**opening_updates) -> OrderProposal:
         update={
             **price_update,
             "side": side,
+            "setup_name": "LOW_RESPECT_BUY",
+            "strategy_type": "LOW_RESPECT_BUY",
             "opening_context": context,
             "decision_quote": {
                 "observed_at_utc": "2026-07-01T14:00:01+00:00",
@@ -3327,6 +3329,8 @@ def test_executor_archives_excursion_and_merges_exact_exit_movement(tmp_path):
     assert trade["mfe_points"] == 0.4
     assert trade["mae_points"] == -0.5
     assert trade["excursion_source"] == "one_second_samples_plus_exit"
+    assert trade["strategy_type"] == "LOW_RESPECT_BUY"
+    assert trade["setup_name"] == "LOW_RESPECT_BUY"
     assert trade["entry_drift"] == pytest.approx(-0.123)
     assert trade["order_wait_seconds"] == 4.0
 

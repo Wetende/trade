@@ -19,7 +19,7 @@
     "tradingagents/agents/price_action/one_minute_entry_model.py": "a8499925eed69d34cb8c33f5f93804a3010b207f036c46fad8c4d546a8ab86e4",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py": "b80c53d0de2257cf39677d2c308077ec8e4a856aeac3191ab6c4a642a7e528e7",
     "tradingagents/brokers/execution_state.py": "f44d4457dc6561a25b51e30d34fb751d9c7c1bbea2a88a19cabcf72fc4d1da33",
-    "tradingagents/brokers/mt5_execution.py": "82b217f5484894064da8fe3d14137f092a2291cacecd84279e8f8dc3df3028fe",
+    "tradingagents/brokers/mt5_execution.py": "a979b1f5b5508f1bbf5ed61a28fdbd3977d80dfdeac506bd2cb4e73bf7e49829",
     "tradingagents/brokers/mt5_runner.py": "c0299125f24d9e36e1265c3d2bb18771461c5498808d3cb6922d8e0289cd6f15"
   },
   "authorization_type": "EXPLICIT_USER_DEMO_RESEARCH_OVERRIDE",
