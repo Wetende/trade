@@ -14,14 +14,14 @@
     "minimum_stop_to_spread_multiple": 2.2
   },
   "artifact_hashes": {
-    "cli/main.py": "0829c289832338467dc28d22c3a66e9a2ab907057f551b5caae1e95e1dcaecc7",
+    "cli/main.py": "7e704b7c96be5f52e56d478c24c91fba43aa78faca824a7611aa72a7316a0d9a",
     "scripts/start-one-minute-experimental-demo.ps1": "2f576f180edaa6c99426dca69206a9639d4c7aad38b0399e9c726763b1b81083",
     "tradingagents/agents/price_action/one_minute_entry_model.py": "a8499925eed69d34cb8c33f5f93804a3010b207f036c46fad8c4d546a8ab86e4",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py": "bd0d388c3756bc63d523906c5b47f709fe4a8321071014cdb9e2df32d957e075",
     "tradingagents/brokers/execution_state.py": "f44d4457dc6561a25b51e30d34fb751d9c7c1bbea2a88a19cabcf72fc4d1da33",
     "tradingagents/brokers/mt5.py": "bad274ad3bebbc34e3926574e8c47b0922e1cfd7632ecbdb9868d18b3d65bf4b",
     "tradingagents/brokers/mt5_execution.py": "2ed13ba5c9afe36fec4de8c2ab0f14559631d9ad231bb90d54daecd60953a35f",
-    "tradingagents/brokers/mt5_runner.py": "7c21c2cd7daad57a9dee65cce550723c8810845a74cb87f4721739cc23ece6c5"
+    "tradingagents/brokers/mt5_runner.py": "f399718d533aa3b0bd2e0ebabffcaee06580083a4e0f69415e8d0b7099a21313"
   },
   "authorization_type": "EXPLICIT_USER_DEMO_RESEARCH_OVERRIDE",
   "candidate": "ONE_MINUTE_ENTRY_MODEL_EXPERIMENTAL_V1",

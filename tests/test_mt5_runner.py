@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from tradingagents.agents.schemas import OrderProposal, OrderStatus, TradeAction
 from tradingagents.brokers.mt5 import MT5BrokerError
@@ -29,6 +30,16 @@ class FakeExecutor:
         self.history_calls = 0
         self.history_kwargs = []
         self.history_result = {"status": "RECONCILED", "closed_trade_count": 0}
+        self.stop_risk = 7.5
+        self.config = SimpleNamespace(volume=0.1)
+        self.broker = self
+
+    def estimate_stop_loss_account_currency(self, side, volume, entry_price, stop_loss):
+        assert side in {"BUY", "SELL"}
+        assert volume > 0
+        assert entry_price > 0
+        assert stop_loss > 0
+        return self.stop_risk
 
     def snapshot_state(self):
         return {
@@ -169,6 +180,38 @@ def test_experimental_runner_scopes_history_to_its_placed_orders(tmp_path):
     history = result["summary"]["trade_history"]
     assert history["closed_trade_count"] == 1
     assert history["net_profit"] == 6.5
+
+
+def test_experimental_runner_reserves_stop_risk_against_session_loss_cap(tmp_path):
+    executor = FakeExecutor(active=False)
+    executor.stop_risk = 7.4
+    executor.history_result = {
+        "status": "RECONCILED",
+        "net_profit": -16.9,
+        "closed_trade_count": 3,
+        "wins": 0,
+        "losses": 3,
+    }
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_session_loss=20.0,
+            reserve_stop_risk_against_session_limit=True,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_BLOCKED_SESSION_RISK"
+    assert executor.executed == []
+    budget = result["execution"]["session_risk_budget"]
+    assert budget["accepted"] is False
+    assert budget["reason"] == "SESSION_RISK_BUDGET_EXCEEDED"
+    assert budget["required_currency"] == 24.3
 
 
 def test_runner_propagates_engine_data_health_to_health_gate(tmp_path):

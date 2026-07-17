@@ -35,6 +35,7 @@ class MT5RunnerConfig:
     shutdown_grace_seconds: int = 120
     flat_verification_count: int = 2
     history_owned_orders_only: bool = False
+    reserve_stop_risk_against_session_limit: bool = False
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
@@ -122,6 +123,11 @@ class MT5RunnerConfig:
             self,
             "history_owned_orders_only",
             bool(self.history_owned_orders_only),
+        )
+        object.__setattr__(
+            self,
+            "reserve_stop_risk_against_session_limit",
+            bool(self.reserve_stop_risk_against_session_limit),
         )
         object.__setattr__(
             self,
@@ -378,6 +384,38 @@ class MT5Runner:
                 payload.pop("entry_profile", None)
             return self._write_heartbeat(payload)
 
+        session_risk_budget = self._session_risk_budget(
+            history_reconciliation,
+            proposal,
+        )
+        if session_risk_budget is not None and not session_risk_budget["accepted"]:
+            execution = {
+                "status": "SKIPPED_SESSION_RISK",
+                "reason": session_risk_budget["reason"],
+                "proposal": proposal.model_dump(mode="json"),
+                "session_risk_budget": session_risk_budget,
+            }
+            payload = {
+                "status": "ORDER_BLOCKED_SESSION_RISK",
+                "started_at_utc": started_at,
+                "entry_profile": profile,
+                "selected_method": selected_method,
+                "selected_profile": profile,
+                "mode_decision": f"{selected_method}_SESSION_RISK_BLOCKED",
+                "mode_rejection_reason": session_risk_budget["reason"],
+                "health_gate": health_gate(False, ["session_risk_budget"]),
+                "candidate_methods": self._candidate_methods(processed_rows),
+                "as_of": as_of,
+                "proposal": proposal.model_dump(mode="json"),
+                "execution": execution,
+                "analysis": analysis,
+                "position_management": position_management,
+                "history_reconciliation": history_reconciliation,
+            }
+            if not multi_profile_result:
+                payload.pop("entry_profile", None)
+            return self._write_heartbeat(payload)
+
         execution = self.executor.execute_proposal(proposal)
         if execution.get("status") == "PLACED":
             self._record_owned_entry_order(state, execution)
@@ -528,6 +566,66 @@ class MT5Runner:
             "closed_trade_count": history_reconciliation.get("closed_trade_count", 0),
             "wins": history_reconciliation.get("wins", 0),
             "losses": history_reconciliation.get("losses", 0),
+        }
+
+    def _session_risk_budget(
+        self,
+        history_reconciliation: dict[str, Any],
+        proposal: Any,
+    ) -> dict[str, Any] | None:
+        """Fail closed before a new M1 order could exceed session loss cap."""
+        if (
+            not self.config.reserve_stop_risk_against_session_limit
+            or self.config.max_session_loss <= 0
+            or history_reconciliation.get("status") != "RECONCILED"
+        ):
+            return None
+        try:
+            realized_net = float(history_reconciliation.get("net_profit", 0.0))
+        except (TypeError, ValueError):
+            realized_net = 0.0
+        if not math.isfinite(realized_net):
+            return {
+                "accepted": False,
+                "reason": "SESSION_RISK_HISTORY_INVALID",
+            }
+
+        side = str(getattr(getattr(proposal, "side", None), "value", getattr(proposal, "side", ""))).upper()
+        entry = getattr(proposal, "entry_price", None)
+        stop = getattr(proposal, "stop_loss", None)
+        volume = getattr(proposal, "volume", None)
+        if volume in (None, ""):
+            volume = getattr(getattr(self.executor, "config", None), "volume", None)
+        estimator = getattr(getattr(self.executor, "broker", None), "estimate_stop_loss_account_currency", None)
+        try:
+            if not callable(estimator):
+                raise ValueError("stop-risk estimator is unavailable")
+            proposed_risk = float(estimator(side, float(volume), float(entry), float(stop)))
+            if not math.isfinite(proposed_risk) or proposed_risk <= 0:
+                raise ValueError("stop-risk estimate is invalid")
+        except (TypeError, ValueError) as exc:
+            return {
+                "accepted": False,
+                "reason": "SESSION_RISK_UNPRICED",
+                "error": str(exc),
+            }
+
+        realized_loss = max(0.0, -realized_net)
+        limit = float(self.config.max_session_loss)
+        required = realized_loss + proposed_risk
+        accepted = required <= limit + 1e-9
+        return {
+            "accepted": accepted,
+            "reason": (
+                "SESSION_RISK_BUDGET_ACCEPTED"
+                if accepted
+                else "SESSION_RISK_BUDGET_EXCEEDED"
+            ),
+            "realized_loss_currency": round(realized_loss, 10),
+            "proposed_stop_risk_currency": round(proposed_risk, 10),
+            "required_currency": round(required, 10),
+            "budget_currency": round(limit, 10),
+            "remaining_currency": round(limit - realized_loss, 10),
         }
 
     def _entry_cooldown_payload(
