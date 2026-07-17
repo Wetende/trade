@@ -122,6 +122,55 @@ def test_runner_executes_proposed_order_once(tmp_path):
     assert Path(result["heartbeat_path"]).exists()
 
 
+def test_experimental_runner_scopes_history_to_its_placed_orders(tmp_path):
+    executor = FakeExecutor(active=False)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            history_owned_orders_only=True,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    runner.run_once()
+    executor.history_result = {
+        "status": "RECONCILED",
+        "filled_trades": [
+            {"entry_order": 123},
+            {"entry_order": 999},
+        ],
+        "closed_trades": [
+            {
+                "entry_order": 123,
+                "entry_deal_ticket": 1,
+                "exit_deal_ticket": 2,
+                "position_id": 3,
+                "profit": 6.5,
+            },
+            {
+                "entry_order": 999,
+                "entry_deal_ticket": 4,
+                "exit_deal_ticket": 5,
+                "position_id": 6,
+                "profit": -20.0,
+            },
+        ],
+    }
+
+    result = runner.run_once()
+
+    reconciliation = result["history_reconciliation"]
+    assert reconciliation["closed_trade_count"] == 1
+    assert reconciliation["net_profit"] == 6.5
+    assert reconciliation["excluded_unowned_closed_trades"] == 1
+    history = result["summary"]["trade_history"]
+    assert history["closed_trade_count"] == 1
+    assert history["net_profit"] == 6.5
+
+
 def test_runner_propagates_engine_data_health_to_health_gate(tmp_path):
     no_trade = proposed_order()
     no_trade.status = OrderStatus.NO_TRADE

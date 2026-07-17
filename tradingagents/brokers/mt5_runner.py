@@ -34,6 +34,7 @@ class MT5RunnerConfig:
     drain_on_stop: bool = False
     shutdown_grace_seconds: int = 120
     flat_verification_count: int = 2
+    history_owned_orders_only: bool = False
 
     def __post_init__(self) -> None:
         poll_seconds = int(self.poll_seconds)
@@ -119,6 +120,11 @@ class MT5RunnerConfig:
         object.__setattr__(self, "drain_on_stop", bool(self.drain_on_stop))
         object.__setattr__(
             self,
+            "history_owned_orders_only",
+            bool(self.history_owned_orders_only),
+        )
+        object.__setattr__(
+            self,
             "shutdown_grace_seconds",
             shutdown_grace_seconds,
         )
@@ -153,10 +159,11 @@ class MT5Runner:
 
     def run_once(self) -> dict:
         started_at = datetime.now(timezone.utc).isoformat()
+        state = self._load_state()
         snapshot = self.executor.snapshot_state()
         self.executor.cancel_stale_pending_orders()
         position_management = self.executor.manage_open_positions()
-        history_reconciliation = self._reconcile_trade_history()
+        history_reconciliation = self._reconcile_trade_history(state)
 
         if snapshot.get("orders") or snapshot.get("positions"):
             return self._write_heartbeat(
@@ -180,7 +187,6 @@ class MT5Runner:
                 }
             )
 
-        state = self._load_state()
         entry_cooldown = self._entry_cooldown_payload(history_reconciliation, state)
         if entry_cooldown is not None:
             return self._write_heartbeat(
@@ -373,6 +379,8 @@ class MT5Runner:
             return self._write_heartbeat(payload)
 
         execution = self.executor.execute_proposal(proposal)
+        if execution.get("status") == "PLACED":
+            self._record_owned_entry_order(state, execution)
         payload = {
             "status": (
                 "ORDER_PLACED"
@@ -405,21 +413,102 @@ class MT5Runner:
             "position_management": self.executor.manage_open_positions(),
         }
 
-    def _reconcile_trade_history(self) -> dict:
+    def _reconcile_trade_history(self, state: dict[str, Any]) -> dict:
         reconcile = getattr(self.executor, "reconcile_trade_history", None)
         if not callable(reconcile):
             return {"status": "UNAVAILABLE"}
         try:
-            return reconcile(
+            result = reconcile(
                 since_utc=self.history_since_utc,
                 now_utc=datetime.now(timezone.utc),
             )
+            if self.config.history_owned_orders_only:
+                return self._owned_trade_history(result, state)
+            return result
         except Exception as exc:
             return {
                 "status": "RECONCILE_ERROR",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
+
+    @staticmethod
+    def _owned_trade_history(
+        reconciliation: dict[str, Any],
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Limit session accounting to orders durably placed by this runner.
+
+        MT5 history can expose broker-local deal times while the runner clock is
+        UTC.  A time-window query alone can therefore include a close owned by
+        an earlier bounded session.  The persisted order ticket is the causal
+        session boundary; unknown broker records remain in the execution
+        journal but cannot affect this session's risk, cooldown, or evidence.
+        """
+        if reconciliation.get("status") != "RECONCILED":
+            return reconciliation
+        owned_orders = {
+            int(value)
+            for value in state.get("owned_entry_orders", [])
+            if str(value).strip().isdigit() and int(value) > 0
+        }
+
+        def is_owned(trade: dict[str, Any]) -> bool:
+            try:
+                return int(trade.get("entry_order")) in owned_orders
+            except (TypeError, ValueError):
+                return False
+
+        filled = [
+            trade for trade in reconciliation.get("filled_trades") or []
+            if is_owned(trade)
+        ]
+        closed = [
+            trade for trade in reconciliation.get("closed_trades") or []
+            if is_owned(trade)
+        ]
+        wins = sum(float(trade.get("profit") or 0.0) > 0 for trade in closed)
+        losses = sum(float(trade.get("profit") or 0.0) < 0 for trade in closed)
+        net_profit = round(sum(float(trade.get("profit") or 0.0) for trade in closed), 2)
+        return {
+            **reconciliation,
+            "filled_trade_count": len(filled),
+            "closed_trade_count": len(closed),
+            "wins": wins,
+            "losses": losses,
+            "break_even": len(closed) - wins - losses,
+            "net_profit": net_profit,
+            "filled_trades": filled,
+            "closed_trades": closed,
+            "latest_closed_trade": closed[-1] if closed else {},
+            "excluded_unowned_filled_trades": len(
+                reconciliation.get("filled_trades") or []
+            ) - len(filled),
+            "excluded_unowned_closed_trades": len(
+                reconciliation.get("closed_trades") or []
+            ) - len(closed),
+        }
+
+    def _record_owned_entry_order(
+        self,
+        state: dict[str, Any],
+        execution: dict[str, Any],
+    ) -> None:
+        try:
+            order = int(execution.get("order"))
+        except (TypeError, ValueError):
+            return
+        if order <= 0:
+            return
+        owned = {
+            int(value)
+            for value in state.get("owned_entry_orders", [])
+            if str(value).strip().isdigit() and int(value) > 0
+        }
+        if order in owned:
+            return
+        state["owned_entry_orders"] = sorted((*owned, order))
+        self._save_state(state)
 
     def _session_loss_limit(self, history_reconciliation: dict) -> dict | None:
         max_session_loss = self.config.max_session_loss

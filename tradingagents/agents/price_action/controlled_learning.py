@@ -88,6 +88,7 @@ def _session_source(root: Path, session: EvidenceSession) -> dict[str, Any]:
         "source_role": "HYPOTHESIS_GENERATION_ONLY",
         "observed_through_utc": _iso_utc(_session_observed_through(session)),
         "filled_trades": sum(trade.filled for trade in session.trades),
+        "unmatched_closed_trade_count": session.unmatched_closed_trade_count,
         "artifact_hashes": hashes,
         "combined_sha256": combined,
     }

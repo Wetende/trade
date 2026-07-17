@@ -1715,6 +1715,7 @@ def mt5_run(
                     "drain_on_stop": experimental_requested,
                     "shutdown_grace_seconds": shutdown_grace_seconds,
                     "flat_verification_count": 2,
+                    "history_owned_orders_only": experimental_requested,
                 }
             )
         if trading_mode == TradingMode.AUTO_GATED:

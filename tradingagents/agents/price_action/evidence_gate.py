@@ -66,6 +66,7 @@ class EvidenceSession(BaseModel):
     session_id: str
     decisions: tuple[EvidenceDecision, ...]
     trades: tuple[EvidenceTrade, ...]
+    unmatched_closed_trade_count: int = Field(default=0, ge=0)
 
 
 class VariantName(StrEnum):

@@ -42,10 +42,15 @@ def export_session(session_root: str | Path) -> EvidenceSession:
     summary = json.loads(
         (runner / "summary.json").read_text(encoding="utf-8")
     )
-    closed_by_order = {
-        int(trade["entry_order"]): trade
-        for trade in summary["trade_history"]["closed_trades"]
-    }
+    closed_by_order: dict[int, dict[str, Any]] = {}
+    for trade in summary["trade_history"]["closed_trades"]:
+        try:
+            order = int(trade["entry_order"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("closed trade is missing an entry-order join") from exc
+        if order in closed_by_order:
+            raise ValueError("closed trades require unique entry-order joins")
+        closed_by_order[order] = trade
 
     decisions: list[EvidenceDecision] = []
     trades: list[EvidenceTrade] = []
@@ -145,11 +150,15 @@ def export_session(session_root: str | Path) -> EvidenceSession:
             )
         )
 
+    # A runner can see an earlier bot close in the broker history when a
+    # terminal reports deal timestamps in broker-local time.  It is not
+    # evidence for this session unless this session recorded the placement.
+    # Keep the raw summary hash in the source registry and expose the count,
+    # but never invent a decision or attach that outcome to a later cycle.
     unmatched = set(closed_by_order) - seen_orders
-    if unmatched:
-        raise ValueError("closed trades could not be joined to placed cycles")
     return EvidenceSession(
         session_id=root.name,
         decisions=tuple(decisions),
         trades=tuple(trades),
+        unmatched_closed_trade_count=len(unmatched),
     )

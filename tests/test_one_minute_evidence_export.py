@@ -111,3 +111,28 @@ def test_export_session_preserves_unfilled_order_without_fake_outcome(tmp_path):
 
     assert exported.trades[0].filled is False
     assert exported.trades[0].profit is None
+
+
+def test_export_session_excludes_closed_trade_without_session_placement(tmp_path):
+    session_root = tmp_path / "session-c"
+    _write_session(session_root)
+    summary_path = session_root / "mt5_runner" / "summary.json"
+    summary = json.loads(summary_path.read_text())
+    summary["trade_history"]["closed_trades"].append(
+        {
+            "entry_order": 123456,
+            "opened_at_utc": "2026-07-02T19:00:00+00:00",
+            "closed_at_utc": "2026-07-02T19:00:30+00:00",
+            "profit": -12.0,
+            "mfe_points": 0.0,
+            "mae_points": -0.5,
+        }
+    )
+    summary_path.write_text(json.dumps(summary))
+
+    exported = export_session(session_root)
+
+    assert len(exported.decisions) == 1
+    assert len(exported.trades) == 1
+    assert exported.trades[0].profit == 50.0
+    assert exported.unmatched_closed_trade_count == 1
