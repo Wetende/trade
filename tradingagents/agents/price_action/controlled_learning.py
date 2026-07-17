@@ -54,7 +54,11 @@ def _collect_timestamps(value: Any) -> list[datetime]:
     return timestamps
 
 
-def _session_observed_through(session: EvidenceSession) -> datetime:
+def _session_observed_through(
+    session: EvidenceSession,
+    *,
+    summary_observed_at_utc: str | datetime | None = None,
+) -> datetime:
     values = [decision.as_of for decision in session.decisions]
     for trade in session.trades:
         values.extend(
@@ -63,6 +67,8 @@ def _session_observed_through(session: EvidenceSession) -> datetime:
             if value is not None
         )
     if not values:
+        if summary_observed_at_utc is not None:
+            return _as_utc(summary_observed_at_utc)
         raise ValueError(f"session {session.session_id!r} has no observations")
     return max(_as_utc(value) for value in values)
 
@@ -78,6 +84,10 @@ def _session_source(root: Path, session: EvidenceSession) -> dict[str, Any]:
             "completed learning session is missing required artifacts: "
             + ", ".join(missing)
         )
+    summary = json.loads(files["summary.json"].read_text(encoding="utf-8"))
+    summary_observed_at = (
+        summary.get("updated_at_utc") or summary.get("started_at_utc")
+    )
     hashes = {name: _sha256(path) for name, path in sorted(files.items())}
     combined = hashlib.sha256(
         json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -86,7 +96,12 @@ def _session_source(root: Path, session: EvidenceSession) -> dict[str, Any]:
         "session_id": session.session_id,
         "path": root.as_posix(),
         "source_role": "HYPOTHESIS_GENERATION_ONLY",
-        "observed_through_utc": _iso_utc(_session_observed_through(session)),
+        "observed_through_utc": _iso_utc(
+            _session_observed_through(
+                session,
+                summary_observed_at_utc=summary_observed_at,
+            )
+        ),
         "filled_trades": sum(trade.filled for trade in session.trades),
         "unmatched_closed_trade_count": session.unmatched_closed_trade_count,
         "artifact_hashes": hashes,

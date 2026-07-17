@@ -150,6 +150,38 @@ def test_controlled_learning_is_deterministic_and_cannot_promote(tmp_path):
     assert "FILTER_FEATURE:ZERO_MFE_REVERSAL" not in candidate_keys
 
 
+def test_controlled_learning_preserves_completed_no_decision_session(tmp_path):
+    sessions, retired = _sources(tmp_path)
+    empty = tmp_path / "session-empty"
+    runner = empty / "mt5_runner"
+    runner.mkdir(parents=True)
+    (runner / "cycles.jsonl").write_text("", encoding="utf-8")
+    (runner / "summary.json").write_text(
+        json.dumps(
+            {
+                "started_at_utc": "2026-07-15T18:00:00+00:00",
+                "updated_at_utc": "2026-07-15T18:30:00+00:00",
+                "trade_history": {"closed_trades": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ledger = build_controlled_learning_ledger(
+        [*sessions, empty],
+        [retired],
+        min_samples=1,
+    )
+
+    source = next(
+        item
+        for item in ledger["source_registry"]["sessions"]
+        if item["session_id"] == "session-empty"
+    )
+    assert source["filled_trades"] == 0
+    assert source["observed_through_utc"] == "2026-07-15T18:30:00Z"
+
+
 def test_evaluation_isolation_rejects_reused_or_old_sources(tmp_path):
     sessions, retired = _sources(tmp_path)
     ledger = build_controlled_learning_ledger(sessions, [retired], min_samples=1)
