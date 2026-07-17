@@ -1873,6 +1873,24 @@ def test_mt5_broker_shuts_down_after_wrong_account_connect_failure():
     assert fake_mt5.sent_requests == []
 
 
+def test_mt5_broker_shuts_down_after_initialize_failure():
+    fake_mt5 = FakeMT5()
+    fake_mt5.initialize = lambda **_kwargs: False
+    fake_mt5.last_error = lambda: (-6, "Terminal: Authorization failed")
+    config = MT5ConnectionConfig(
+        login=123456789,
+        password="secret",
+        server="ExampleBroker-Demo",
+        symbol="XAUUSD",
+    )
+
+    with pytest.raises(MT5BrokerError, match="MT5 initialize failed"):
+        MT5Broker(config, mt5_module=fake_mt5).connect()
+
+    assert fake_mt5.shutdown_called is True
+    assert fake_mt5.sent_requests == []
+
+
 def test_mt5_broker_blocks_real_account_before_order_send_without_acknowledgement():
     fake_mt5 = FakeMT5()
     config = MT5ConnectionConfig(

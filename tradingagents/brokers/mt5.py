@@ -724,7 +724,16 @@ class MT5Broker:
             init_kwargs["path"] = self.config.terminal_path
 
         if not mt5.initialize(**init_kwargs):
-            raise MT5BrokerError(f"MT5 initialize failed: {mt5.last_error()}")
+            # The native bridge can retain a partial session after a failed
+            # authorization or terminal reconnect.  Release it before the
+            # runner's bounded retry so a later retry is a clean connection
+            # attempt; this never submits, modifies, or closes an order.
+            self._connected = False
+            error = mt5.last_error()
+            shutdown = getattr(mt5, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+            raise MT5BrokerError(f"MT5 initialize failed: {error}")
 
         try:
             self._connected = True
