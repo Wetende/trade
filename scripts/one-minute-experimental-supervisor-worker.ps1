@@ -31,6 +31,7 @@ $BaseLearningManifest = Join-Path $Root (
 $Deadline = [DateTimeOffset]::Parse($DeadlineUtc).ToUniversalTime()
 $LastCheckpointSession = $null
 $ConsecutiveLaunchFailures = 0
+$LastLaunchHealthHold = $null
 $LastLearningUpdate = $null
 
 function Write-AtomicJson {
@@ -457,7 +458,7 @@ function Start-NextRunner {
     $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $LauncherStdout = Join-Path $RuntimeDir "launcher-$Stamp.stdout.log"
     $LauncherStderr = Join-Path $RuntimeDir "launcher-$Stamp.stderr.log"
-    return Start-Process `
+    $Process = Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @(
             "-NoProfile",
@@ -481,6 +482,32 @@ function Start-NextRunner {
         -RedirectStandardError $LauncherStderr `
         -WindowStyle Hidden `
         -PassThru
+    return [pscustomobject]@{
+        Process = $Process
+        StdoutPath = $LauncherStdout
+        StderrPath = $LauncherStderr
+    }
+}
+
+function Get-LaunchHealthHoldReason {
+    param([object]$Launch)
+    if (
+        $null -eq $Launch -or
+        $null -eq $Launch.Process -or
+        -not $Launch.Process.HasExited -or
+        -not (Test-Path -LiteralPath $Launch.StderrPath)
+    ) {
+        return $null
+    }
+    try {
+        $Stderr = Get-Content -LiteralPath $Launch.StderrPath -Raw
+        if ($Stderr -match "MT5 tick is stale or future-dated") {
+            return "MT5_TICK_STALE_OR_FUTURE_DATED"
+        }
+    } catch {
+        return $null
+    }
+    return $null
 }
 
 try {
@@ -579,21 +606,35 @@ try {
                     $RunnerReady = $true
                     break
                 }
-                if ($Launch.HasExited -and $Launch.ExitCode -ne 0) {
+                if (
+                    $Launch.Process.HasExited -and
+                    $Launch.Process.ExitCode -ne 0
+                ) {
                     break
                 }
             }
             if (-not $RunnerReady) {
-                $ConsecutiveLaunchFailures++
-                Add-Content -LiteralPath $Log -Value (
-                    [DateTimeOffset]::UtcNow.ToString("o") +
-                    " LAUNCH_FAILURE count=" + $ConsecutiveLaunchFailures
-                )
-                if ($ConsecutiveLaunchFailures -ge 3) {
-                    throw "Experimental runner restart failed three times."
+                $LaunchHealthHold = Get-LaunchHealthHoldReason -Launch $Launch
+                if ($null -ne $LaunchHealthHold) {
+                    $ConsecutiveLaunchFailures = 0
+                    $LastLaunchHealthHold = $LaunchHealthHold
+                    Add-Content -LiteralPath $Log -Value (
+                        [DateTimeOffset]::UtcNow.ToString("o") +
+                        " LAUNCH_HEALTH_HOLD reason=" + $LaunchHealthHold
+                    )
+                } else {
+                    $ConsecutiveLaunchFailures++
+                    Add-Content -LiteralPath $Log -Value (
+                        [DateTimeOffset]::UtcNow.ToString("o") +
+                        " LAUNCH_FAILURE count=" + $ConsecutiveLaunchFailures
+                    )
+                    if ($ConsecutiveLaunchFailures -ge 3) {
+                        throw "Experimental runner restart failed three times."
+                    }
                 }
             } else {
                 $ConsecutiveLaunchFailures = 0
+                $LastLaunchHealthHold = $null
                 $Session = Get-LatestSession
                 $RunnerHeartbeat = Read-RunnerHeartbeat -Session $Session
                 Add-Content -LiteralPath $Log -Value (
@@ -678,6 +719,7 @@ try {
             learning_ledger_path = $LearningLedger
             learning_heartbeat_path = $LearningHeartbeat
             consecutive_launch_failures = $ConsecutiveLaunchFailures
+            last_launch_health_hold = $LastLaunchHealthHold
             strategy_mutation_enabled = $false
             automatic_promotion_enabled = $false
             volume = 0.1
