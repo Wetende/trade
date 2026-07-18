@@ -336,7 +336,7 @@ function Update-ControlledLearning {
     )
     $Now = [DateTimeOffset]::UtcNow.ToString("o")
     if (-not $Checkpoint.completed_learning_source) {
-        return [ordered]@{
+        $Result = [ordered]@{
             status = "SKIPPED_INCOMPLETE_SESSION"
             updated_at_utc = $Now
             session = $Session.FullName
@@ -344,6 +344,11 @@ function Update-ControlledLearning {
             live_rule_mutation_enabled = $false
             automatic_promotion_enabled = $false
         }
+        Write-AtomicJson -Path $LearningHeartbeat -Payload $Result
+        Add-Content -LiteralPath $Log -Value (
+            $Now + " LEARNING_SKIPPED_INCOMPLETE session=" + $Session.Name
+        )
+        return $Result
     }
     try {
         $ManifestSource = if (Test-Path -LiteralPath $LearningManifest) {
