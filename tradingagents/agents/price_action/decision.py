@@ -217,16 +217,23 @@ def _market_health(
 
     tick_age_seconds = None
     max_tick_age = _as_float(config.get("max_tick_age_seconds"))
+    max_future_tick = _as_float(config.get("max_future_tick_seconds"))
     tick_time = _parse_utc_datetime(tick.get("time_utc"))
     if max_tick_age is not None and max_tick_age > 0:
         if tick_time is None:
             reasons.append("tick_time_missing")
         else:
             current = now_utc or datetime.now(timezone.utc)
-            tick_age_seconds = max(
-                (current.astimezone(timezone.utc) - tick_time).total_seconds(),
-                0.0,
-            )
+            raw_tick_age_seconds = (
+                current.astimezone(timezone.utc) - tick_time
+            ).total_seconds()
+            tick_age_seconds = max(raw_tick_age_seconds, 0.0)
+            if (
+                max_future_tick is not None
+                and max_future_tick >= 0
+                and raw_tick_age_seconds < -max_future_tick
+            ):
+                reasons.append("tick_future_dated")
             if tick_age_seconds > max_tick_age:
                 reasons.append("tick_stale")
 
@@ -240,6 +247,7 @@ def _market_health(
         "max_entry_spread_price": max_spread,
         "tick_age_seconds": tick_age_seconds,
         "max_tick_age_seconds": max_tick_age,
+        "max_future_tick_seconds": max_future_tick,
         "market_rollover": rollover,
     }
 

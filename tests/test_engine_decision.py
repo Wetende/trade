@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from tradingagents.agents.price_action.models import Candle
@@ -241,6 +242,52 @@ def test_engine_decision_returns_market_health_hold_for_wide_spread(
     assert payload["recommendation"] == "HOLD"
     assert payload["telemetry"]["decision_stage"] == "market_health"
     assert payload["market_health"]["reasons"] == ["spread_too_wide"]
+
+
+def test_engine_decision_rejects_future_dated_m1_tick(monkeypatch, tmp_path):
+    future_tick = datetime.now(timezone.utc) + timedelta(seconds=30)
+    snapshot = PriceActionSnapshot(
+        candles={"1m": _candles()["15m"]},
+        data_status=_healthy_status(),
+        market_metadata={
+            "symbol": {
+                "name": "XAUUSD.vx",
+                "bid": 4500.0,
+                "ask": 4500.2,
+                "spread_price": 0.2,
+            },
+            "tick": {
+                "bid": 4500.0,
+                "ask": 4500.2,
+                "time_utc": future_tick.isoformat(),
+            },
+        },
+    )
+
+    def fail_analyze(*args, **kwargs):
+        raise AssertionError("future-dated M1 tick should not reach analysis")
+
+    monkeypatch.setattr(decision, "analyze_playbook", fail_analyze)
+
+    state = decision.run_engine_decision(
+        "XAUUSD.vx",
+        broker_symbol="XAUUSD.vx",
+        as_of="2026-06-01 08:15",
+        results_dir=tmp_path,
+        timeframe="1m",
+        confirmation_timeframe="1m",
+        snapshot=snapshot,
+        session_config={
+            "entry_profile": "fast",
+            "max_tick_age_seconds": 120,
+            "max_future_tick_seconds": 5,
+        },
+    )
+
+    payload = state["engine_payload"]
+    assert payload["status"] == "NO_SETUP"
+    assert payload["telemetry"]["decision_stage"] == "market_health"
+    assert payload["market_health"]["reasons"] == ["tick_future_dated"]
 
 
 def test_engine_decision_blocks_entries_during_rollover_window(monkeypatch, tmp_path):

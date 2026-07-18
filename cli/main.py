@@ -1570,6 +1570,10 @@ def mt5_run(
             raise ValueError(
                 "Experimental DEMO startup requires ENTRY_ONLY trading mode"
             )
+        if experimental_requested:
+            # The experimental M1 launcher already rejects a future quote at
+            # startup. Preserve that same guard for every in-session cycle.
+            DEFAULT_CONFIG["price_action"]["max_future_tick_seconds"] = 5.0
         config = MT5ConnectionConfig.from_env()
         if experimental_requested:
             from tradingagents.agents.price_action.one_minute_experimental_demo import (
