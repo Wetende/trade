@@ -733,6 +733,95 @@ try {
         Write-AtomicJson -Path $Heartbeat -Payload $HeartbeatPayload
         Start-Sleep -Seconds $PollSeconds
     }
+
+    # The runner owns its drain-to-flat lifecycle.  At the supervisor deadline,
+    # wait for that bounded drain to finish, then checkpoint the final session
+    # before removing the supervisor PID.  Without this reconciliation a
+    # runner that exits just after the deadline is left out of the evidence
+    # ledger even though it drained safely.
+    $FinalDrainDeadline = [DateTimeOffset]::UtcNow.AddSeconds(180)
+    $Runners = @(Get-RunnerProcesses)
+    while (
+        $Runners.Count -gt 0 -and
+        [DateTimeOffset]::UtcNow -lt $FinalDrainDeadline
+    ) {
+        $FinalHeartbeat = [ordered]@{
+            schema_version = 1
+            heartbeat_utc = [DateTimeOffset]::UtcNow.ToString("o")
+            deadline_utc = $Deadline.ToString("o")
+            active = $true
+            draining_after_deadline = $true
+            runner_process_count = $Runners.Count
+            strategy_mutation_enabled = $false
+            automatic_promotion_enabled = $false
+            volume = 0.1
+            max_session_loss = 20.0
+        }
+        Write-AtomicJson -Path $Heartbeat -Payload $FinalHeartbeat
+        Start-Sleep -Seconds 5
+        $Runners = @(Get-RunnerProcesses)
+    }
+    if ($Runners.Count -gt 0) {
+        throw "Runner did not terminate during the post-deadline drain window."
+    }
+
+    $Session = Get-LatestSession
+    $Probe = Read-BrokerProbe
+    $SafetyPassed = (
+        $null -ne $Probe -and
+        $Probe.connected -and
+        $Probe.account_safety.passed -and
+        $Probe.account_safety.trade_mode -eq "DEMO"
+    )
+    $Flat = (
+        $SafetyPassed -and
+        [int]$Probe.open_order_count -eq 0 -and
+        [int]$Probe.open_position_count -eq 0
+    )
+    if (-not $SafetyPassed) {
+        throw "Broker safety proof failed after the authorization deadline."
+    }
+    if (-not $Flat) {
+        throw "Authorization deadline reached without verified-flat DEMO state."
+    }
+    if ($null -ne $Session -and $Session.FullName -ne $LastCheckpointSession) {
+        $Checkpoint = Get-Checkpoint -Session $Session -Probe $Probe
+        $LastLearningUpdate = Update-ControlledLearning `
+            -Session $Session `
+            -Checkpoint $Checkpoint
+        $Checkpoint["learning_update"] = $LastLearningUpdate
+        Add-Content -LiteralPath $Checkpoints -Value (
+            $Checkpoint | ConvertTo-Json -Depth 12 -Compress
+        )
+        $LastCheckpointSession = $Session.FullName
+        Add-Content -LiteralPath $Log -Value (
+            [DateTimeOffset]::UtcNow.ToString("o") +
+            " FINAL_CHECKPOINT session=" + $Session.Name +
+            " closed=" + $Checkpoint.closed_trades +
+            " net=" + $Checkpoint.net_profit
+        )
+    }
+    $CompletedHeartbeat = [ordered]@{
+        schema_version = 1
+        heartbeat_utc = [DateTimeOffset]::UtcNow.ToString("o")
+        deadline_utc = $Deadline.ToString("o")
+        active = $false
+        completed = $true
+        completion_reason = "AUTHORIZATION_DEADLINE_DRAINED_FLAT"
+        account_safety = $Probe.account_safety
+        open_order_count = [int]$Probe.open_order_count
+        open_position_count = [int]$Probe.open_position_count
+        last_checkpoint_session = $LastCheckpointSession
+        last_learning_update = $LastLearningUpdate
+        learning_manifest_path = $LearningManifest
+        learning_ledger_path = $LearningLedger
+        learning_heartbeat_path = $LearningHeartbeat
+        strategy_mutation_enabled = $false
+        automatic_promotion_enabled = $false
+        volume = 0.1
+        max_session_loss = 20.0
+    }
+    Write-AtomicJson -Path $Heartbeat -Payload $CompletedHeartbeat
 } catch {
     $Failure = [ordered]@{
         schema_version = 1
