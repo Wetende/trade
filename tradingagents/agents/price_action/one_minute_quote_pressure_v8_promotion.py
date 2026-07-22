@@ -18,6 +18,7 @@ from tradingagents.agents.price_action.one_minute_quote_pressure_v8 import (
 PROMOTABLE_CANDIDATES = {
     CANDIDATE_NAME,
     "ONE_MINUTE_CAUSAL_MICROBURST_V9_1",
+    "ONE_MINUTE_CAUSAL_RECLAIM_V10",
 }
 
 
@@ -315,6 +316,13 @@ def _candidate_windows(
 ) -> tuple[tuple[tuple[str, str], ...], tuple[str, str]]:
     if candidate == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1":
         from tradingagents.agents.price_action.one_minute_causal_microburst_v9_screening import (
+            DISCOVERY_FOLDS,
+            HELD_OUT_WINDOW,
+        )
+
+        return DISCOVERY_FOLDS, HELD_OUT_WINDOW
+    if candidate == "ONE_MINUTE_CAUSAL_RECLAIM_V10":
+        from tradingagents.agents.price_action.one_minute_causal_reclaim_v10_screening import (
             DISCOVERY_FOLDS,
             HELD_OUT_WINDOW,
         )

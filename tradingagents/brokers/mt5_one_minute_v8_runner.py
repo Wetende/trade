@@ -133,6 +133,13 @@ class MT5OneMinuteV8Runner:
 
             self._frozen_strategy = _strategy(manifest)
             self._signal_model = "CAUSAL_MICROBURST"
+        elif self.candidate == "ONE_MINUTE_CAUSAL_RECLAIM_V10":
+            from tradingagents.agents.price_action.one_minute_causal_reclaim_v10_screening import (
+                _strategy,
+            )
+
+            self._frozen_strategy = _strategy(manifest)
+            self._signal_model = "CAUSAL_RECLAIM"
         else:
             from tradingagents.agents.price_action.one_minute_quote_pressure_v8_screening import (
                 _strategy,
@@ -370,6 +377,15 @@ class MT5OneMinuteV8Runner:
             )
 
             arms = detect_causal_microburst_arms(
+                candles,
+                candidate_name=self.candidate,
+            )
+        elif self._signal_model == "CAUSAL_RECLAIM":
+            from tradingagents.agents.price_action.one_minute_causal_reclaim_v10 import (
+                detect_causal_reclaim_arms,
+            )
+
+            arms = detect_causal_reclaim_arms(
                 candles,
                 candidate_name=self.candidate,
             )
@@ -793,7 +809,11 @@ class MT5OneMinuteV8Runner:
             strategy_type=(
                 "causal_microburst"
                 if self._signal_model == "CAUSAL_MICROBURST"
-                else "quote_pressure"
+                else (
+                    "causal_reclaim"
+                    if self._signal_model == "CAUSAL_RECLAIM"
+                    else "quote_pressure"
+                )
             ),
             trigger_name=arm.family,
             reaction_type="quote_pressure",

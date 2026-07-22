@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tradingagents.agents.price_action.one_minute_entry_model import (
+    FAILED_LOW_BREAK_BUY,
     HIGH_BREAK_BUY,
     LOW_RESPECT_BUY,
 )
@@ -187,6 +188,40 @@ def _write_v9_manifest(path):
                     "maximum_adverse_r": 0.15,
                     "maximum_spread_multiple": 1.15,
                     "placement_delay_seconds": 2.0,
+                    "pending_expiry_seconds": 20,
+                    "minimum_stop_distance": 0.35,
+                    "minimum_stop_spread_multiple": 1.2,
+                    "maximum_stop_distance": 1.0,
+                    "risk_reward": 1.5,
+                    "tick_size": 0.01,
+                },
+                "modeled_round_trip_cost_r": 0.05,
+                "two_loss_pause_minutes": 15,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _v10_validation():
+    return replace(_validation(), candidate="ONE_MINUTE_CAUSAL_RECLAIM_V10")
+
+
+def _write_v10_manifest(path):
+    path.write_text(
+        json.dumps(
+            {
+                "candidate": "ONE_MINUTE_CAUSAL_RECLAIM_V10",
+                "strategy": {
+                    "history_candles": 60,
+                    "pressure_change_count": 20,
+                    "pressure_window_seconds": 3.0,
+                    "minimum_nonzero_moves": 10,
+                    "minimum_directional_pressure": 0.60,
+                    "minimum_displacement_r": 0.10,
+                    "maximum_adverse_r": 0.15,
+                    "maximum_spread_multiple": 1.10,
+                    "placement_delay_seconds": 5.0,
                     "pending_expiry_seconds": 20,
                     "minimum_stop_distance": 0.35,
                     "minimum_stop_spread_multiple": 1.2,
@@ -399,6 +434,64 @@ def test_promoted_runner_uses_frozen_v9_detector_and_strategy(monkeypatch, tmp_p
     assert result["status"] == "ORDER_PLACED"
     assert runner.runtime["candidate"] == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1"
     assert executor.proposals[0].setup_name == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1"
+    assert executor.proposals[0].volume == 0.01
+
+
+def test_promoted_runner_uses_frozen_v10_reclaim_and_strict_pressure(
+    monkeypatch, tmp_path
+):
+    clock = Clock()
+    broker = FakeBroker(clock)
+    executor = FakeExecutor(broker)
+    manifest = tmp_path / "manifest.json"
+    _write_v10_manifest(manifest)
+    config = MT5OneMinuteV8RunnerConfig(
+        results_dir=tmp_path,
+        candidate_manifest=manifest,
+        promotion_record=tmp_path / "promotion.json",
+        repo_root=tmp_path,
+        volume=0.01,
+        max_runtime_seconds=100,
+    )
+    runner = MT5OneMinuteV8Runner(
+        config,
+        executor=executor,
+        promotion_validation=_v10_validation(),
+        now_func=clock,
+        sleep_func=lambda _seconds: None,
+    )
+    arm = replace(
+        _arm(),
+        candidate="ONE_MINUTE_CAUSAL_RECLAIM_V10",
+        family=FAILED_LOW_BREAK_BUY,
+        trigger_eligible_at=(START + timedelta(seconds=1)).isoformat(),
+        invalidation=99.7,
+    )
+    monkeypatch.setattr(
+        "tradingagents.agents.price_action.one_minute_causal_reclaim_v10.detect_causal_reclaim_arms",
+        lambda candles, candidate_name: (arm,),
+    )
+
+    runner.initialize()
+    runner.run_once()
+    clock.set(1)
+    broker.bid, broker.ask = 99.98, 100.02
+    runner.run_once()
+    clock.set(1.1)
+    broker.bid, broker.ask = 100.21, 100.25
+    runner.run_once()
+    for index in range(1, 21):
+        clock.set(1.1 + index * 0.1)
+        mid = 100.23 + index * 0.01
+        broker.bid, broker.ask = mid - 0.02, mid + 0.02
+        runner.run_once()
+    clock.set(8.1)
+    broker.bid, broker.ask = 100.37, 100.41
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert runner.runtime["candidate"] == "ONE_MINUTE_CAUSAL_RECLAIM_V10"
+    assert executor.proposals[0].strategy_type == "causal_reclaim"
     assert executor.proposals[0].volume == 0.01
 
 
