@@ -1,0 +1,255 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "One Minute Scalper Pre-Restart Diagnostic",
+    "description": "A technical diagnosis of the 48-hour 0.1-volume DEMO run and the implementation repairs required before another order-capable M1 session.",
+    "generatedAt": "2026-07-20T08:10:00Z",
+    "cards": [
+      {
+        "id": "unique_closes",
+        "description": "Unique completed trades, deduplicated by MT5 entry deal ticket.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Unique closed trades", "field": "unique_closes", "format": "number"}]
+      },
+      {
+        "id": "net_profit",
+        "description": "Net account-currency P/L across the exact 48-hour window.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Net P/L", "field": "net_profit", "format": "number"}]
+      },
+      {
+        "id": "profit_factor",
+        "description": "Gross profit divided by the absolute gross loss.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Profit factor", "field": "profit_factor", "format": "number"}]
+      },
+      {
+        "id": "expectancy",
+        "description": "Net account-currency P/L divided by unique closed trades.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Expectancy per close", "field": "expectancy", "format": "number"}]
+      },
+      {
+        "id": "fill_rate",
+        "description": "Unique fills divided by accepted pending orders.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Pending-order fill rate", "field": "fill_rate", "format": "percent"}]
+      },
+      {
+        "id": "current_exposure",
+        "description": "Fresh read-only DEMO probes found no XAUUSD.vx order or position exposure.",
+        "dataset": "headline",
+        "sourceId": "diagnostic_evidence",
+        "metrics": [{"label": "Current open exposure", "field": "current_exposure", "format": "number"}]
+      }
+    ],
+    "charts": [
+      {
+        "id": "setup_net",
+        "title": "Net P/L by attributed setup",
+        "subtitle": "Exact 48-hour DEMO window; 38 unique closes, including seven trades without setup attribution.",
+        "type": "bar",
+        "dataset": "setup_performance",
+        "sourceId": "diagnostic_evidence",
+        "encodings": {
+          "x": {"field": "setup", "type": "nominal", "label": "Setup"},
+          "y": {"field": "net_profit", "type": "quantitative", "label": "Net P/L"}
+        },
+        "yAxisTitle": "Net P/L (account currency)",
+        "valueFormat": "number",
+        "layout": "full"
+      },
+      {
+        "id": "session_net",
+        "title": "Net P/L by entry-owning session",
+        "subtitle": "Chronological session ownership prevents cross-session history lookback from double counting trades.",
+        "type": "bar",
+        "dataset": "session_performance",
+        "sourceId": "diagnostic_evidence",
+        "encodings": {
+          "x": {"field": "session", "type": "ordinal", "label": "Session start"},
+          "y": {"field": "net_profit", "type": "quantitative", "label": "Net P/L"}
+        },
+        "yAxisTitle": "Net P/L (account currency)",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "repair_queue",
+        "title": "Repairs required before another order-capable M1 start",
+        "subtitle": "Ordered by safety and evidence integrity, then execution reliability.",
+        "dataset": "repairs",
+        "sourceId": "diagnostic_evidence",
+        "defaultSort": {"field": "priority_rank", "direction": "asc"},
+        "columns": [
+          {"field": "priority_rank", "label": "Order", "type": "number"},
+          {"field": "priority", "label": "Priority", "type": "text"},
+          {"field": "problem", "label": "Verified problem", "type": "text"},
+          {"field": "evidence", "label": "Evidence", "type": "text"},
+          {"field": "required_fix", "label": "Required fix", "type": "text"},
+          {"field": "restart_acceptance", "label": "Acceptance before restart", "type": "text"}
+        ]
+      },
+      {
+        "id": "gate_state",
+        "title": "Candidate and authorization state",
+        "subtitle": "The current code is mechanically testable but has no valid order-capable M1 authorization.",
+        "dataset": "gates",
+        "sourceId": "diagnostic_evidence",
+        "defaultSort": {"field": "gate", "direction": "asc"},
+        "columns": [
+          {"field": "gate", "label": "Gate", "type": "text"},
+          {"field": "state", "label": "Current state", "type": "text"},
+          {"field": "implication", "label": "Implication", "type": "text"}
+        ]
+      }
+    ],
+    "sources": [
+      {"id": "diagnostic_evidence", "label": "Reconciled M1 diagnostic evidence", "path": "reports/2026-07-20-one-minute-pre-restart-diagnostic/evidence.json"},
+      {"id": "learning_ledger", "label": "Controlled-learning ledger", "path": "runtime/one-minute-experimental-supervisor/learning-ledger.json"},
+      {"id": "supervisor_state", "label": "Final experimental supervisor heartbeat", "path": "runtime/one-minute-experimental-supervisor/heartbeat.json"},
+      {"id": "m1_runbook", "label": "Controlled-learning runbook", "path": "docs/one-minute-controlled-learning-runbook.md"}
+    ],
+    "blocks": [
+      {"id": "title", "type": "markdown", "body": "# One Minute Scalper Pre-Restart Diagnostic"},
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Restart is blocked until lifecycle evidence is repaired and a new candidate is authorized\n\nThe account is **DEMO and flat**, confirmed by three fresh read-only probes, but the current M1 package is not order-ready. The exact 48-hour window produced **38 unique closed trades**, **15 wins / 23 losses**, **-47.40 net P/L**, **0.689 profit factor**, and **-1.247 expectancy per close**. The old experimental authorization has expired; V8 is retired, has zero valid triggers from 10,936 arms, and its frozen hash verification now fails.\n\nThree verified implementation defects must be repaired before any new authorization: cross-session trade attribution, stale-tick-dependent timestamp normalization, and invalid pending-order prices between order check and send. The learning ledger also needs a strict completeness gate because it accepted three unmatched closes and omitted six fills from the most profitable entry session."
+      },
+      {"id": "headline_metrics", "type": "metric-strip", "cardIds": ["unique_closes", "net_profit", "profit_factor", "expectancy", "fill_rate", "current_exposure"]},
+      {
+        "id": "performance_finding",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Losses are concentrated in respect SELL entries, while aggregate expectancy remains negative\n\n`HIGH_RESPECT_SELL` lost **32.80** across eight trades and the seven unattributed trades lost **23.80**. The two impulse families were near or above break-even in this small sample, but that is descriptive—not permission to mutate the live rule set on the same observed window. SELL trades overall lost **45.00**, versus **2.40** for BUY trades."
+      },
+      {"id": "setup_net_block", "type": "chart", "chartId": "setup_net", "layout": "full"},
+      {
+        "id": "session_finding",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Only three entry-owning sessions were profitable\n\nAfter assigning every trade to the first session that recorded its entry ticket, three sessions were profitable, seven were losing, and seven were flat. This ownership rule changes the apparent 14:36 session from **+7.30 to +19.40** and the next session from **+11.80 to -4.40**, proving that the existing per-session lookback totals cannot be summed safely."
+      },
+      {"id": "session_net_block", "type": "chart", "chartId": "session_net", "layout": "full"},
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Scope and metric definitions\n\nThe primary cohort is the bounded **0.1-volume XAUUSD.vx DEMO window from July 16, 08:38 UTC through July 18, 08:38 UTC**, covering 17 sessions and 5,960 runner checks. A fill or close is unique by `entry_deal_ticket`; entry ownership belongs to the first session that recorded that ticket. Profit factor is gross profit divided by absolute gross loss. Expectancy is net account-currency P/L divided by 38 unique closes. Fill rate is 38 unique fills divided by 52 accepted pending orders."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Reconciliation method exposed three conflicting grains\n\nSession summaries and cycle journals were filtered by `started_at_utc` into the exact authorization window. Fill and close rows were deduplicated by MT5 entry deal ticket, then matched across adjacent sessions. The result was compared with the supervisor heartbeat, controlled-learning ledger, launcher logs, candidate manifest verification, current process list, three read-only broker probes, and the focused broker/runner test suite. The broader 86-fill learning ledger is used only for historical diagnostics because it mixes earlier sessions and volumes; it is not the denominator for the 48-hour result."
+      },
+      {
+        "id": "robustness",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Evidence quality is insufficient for promotion but sufficient to prioritize repairs\n\nAll 38 unique fills have a broker close, so no exposure is missing. However, seven trades lack setup attribution, the same historical tickets moved by exactly one hour across session reconciliations, and the learning ledger retained three unmatched closes while excluding six related fills. The 341 focused tests pass, which means these failure modes are missing test cases rather than current red tests. Setup-level profitability therefore has lower confidence than side-level and account-level P/L."
+      },
+      {"id": "repair_table_block", "type": "table", "tableId": "repair_queue", "layout": "full"},
+      {
+        "id": "gate_finding",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## A restart command would correctly fail the current governance gates\n\nThe legacy experimental authorization ended at the 48-hour deadline. V8 is frozen as retired and read-only after 10,936 arms produced zero valid triggers, and manifest verification fails because six hashed implementation/test files changed after the freeze. Rehashing or reviving V8 would violate the evidence-isolation rules."
+      },
+      {"id": "gate_table_block", "type": "table", "tableId": "gate_state", "layout": "full"},
+      {
+        "id": "recommended_next_steps",
+        "type": "markdown",
+        "sourceId": "diagnostic_evidence",
+        "body": "## Recommended next steps\n\n1. Implement the three P0 lifecycle repairs and their missing regression tests without changing M1 signal rules.\n2. Rebuild the research ledger from globally deduplicated tickets and reject any source set with unmatched closes or missing required attribution.\n3. Add broker-health launch qualification and retcode-aware pending-order revalidation.\n4. Freeze a **newly named**, causal M1 candidate on evidence strictly after the learning cutoff; do not tune or revive V8 on its failed window.\n5. Only after that candidate passes the frozen replay and promotion gates, issue a new bounded DEMO authorization at the permitted volume and start from a fresh DEMO-flat proof."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further questions\n\nThe next implementation pass should determine whether the stale reference tick is the sole cause of the one-hour history shift, and whether all five broker-send `10015` rejections occurred because the stop price became crossed between the successful order check and the final send. Those answers affect the precise lifecycle patch, but not the decision to block the current restart."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-20T08:10:00Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {"unique_closes": 38, "net_profit": -47.4, "profit_factor": 0.6892, "expectancy": -1.2474, "fill_rate": 0.7308, "current_exposure": 0}
+      ],
+      "setup_performance": [
+        {"setup": "HIGH_RESPECT_SELL", "trades": 8, "wins": 2, "losses": 6, "net_profit": -32.8, "profit_factor": 0.284},
+        {"setup": "UNATTRIBUTED", "trades": 7, "wins": 2, "losses": 5, "net_profit": -23.8, "profit_factor": 0.277},
+        {"setup": "LOW_RESPECT_BUY", "trades": 1, "wins": 0, "losses": 1, "net_profit": -6.4, "profit_factor": 0.0},
+        {"setup": "CLEAN_HIGH_IMPULSE_BUY", "trades": 12, "wins": 6, "losses": 6, "net_profit": 1.8, "profit_factor": 1.048},
+        {"setup": "CLEAN_LOW_IMPULSE_SELL", "trades": 10, "wins": 5, "losses": 5, "net_profit": 13.8, "profit_factor": 1.462}
+      ],
+      "session_performance": [
+        {"session": "07-16 04:38", "fills": 3, "net_profit": -17.7},
+        {"session": "07-16 07:39", "fills": 4, "net_profit": -6.1},
+        {"session": "07-16 10:40", "fills": 2, "net_profit": -11.6},
+        {"session": "07-16 13:41", "fills": 4, "net_profit": -21.1},
+        {"session": "07-16 14:36", "fills": 6, "net_profit": 19.4},
+        {"session": "07-16 16:16", "fills": 3, "net_profit": -4.4},
+        {"session": "07-16 19:17", "fills": 7, "net_profit": 6.4},
+        {"session": "07-16 23:29", "fills": 0, "net_profit": 0.0},
+        {"session": "07-17 02:30", "fills": 4, "net_profit": 18.9},
+        {"session": "07-17 05:31", "fills": 4, "net_profit": -24.3},
+        {"session": "07-17 08:11", "fills": 1, "net_profit": -6.9},
+        {"session": "07-17 11:12", "fills": 0, "net_profit": 0.0},
+        {"session": "07-17 14:13", "fills": 0, "net_profit": 0.0},
+        {"session": "07-17 17:55", "fills": 0, "net_profit": 0.0},
+        {"session": "07-17 20:55", "fills": 0, "net_profit": 0.0},
+        {"session": "07-17 23:55", "fills": 0, "net_profit": 0.0},
+        {"session": "07-18 02:56", "fills": 0, "net_profit": 0.0}
+      ],
+      "repairs": [
+        {"priority_rank": 1, "priority": "P0", "problem": "Cross-session fills and closes are not globally owned or deduplicated", "evidence": "Three duplicate fill tickets; three unmatched closes in the learner; six fills and +19.40 omitted", "required_fix": "Persistent global ticket ledger; end-of-run reconciliation; first-entry session ownership; strict completeness gate", "restart_acceptance": "One fill/one close globally across restart, zero unmatched trades, unchanged P/L"},
+        {"priority_rank": 2, "priority": "P0", "problem": "History timestamps depend on a stale reference tick", "evidence": "The same two deal tickets shifted by exactly 3,600 seconds across adjacent sessions", "required_fix": "Infer offset only from a fresh tick near an hourly offset; cache verified offset; preserve raw and normalized times", "restart_acceptance": "Repeated history queries return invariant UTC timestamps during stale-tick and reconnect tests"},
+        {"priority_rank": 3, "priority": "P0", "problem": "Pending stop prices become invalid after order_check", "evidence": "Five send rejections and one check skip with MT5 retcode 10015", "required_fix": "Fetch a final quote after order_check; revalidate direction and crossing; allow one bounded rebuild/check or skip", "restart_acceptance": "Zero unclassified 10015 sends in fake-broker races; no market-order fallback"},
+        {"priority_rank": 4, "priority": "P1", "problem": "Telemetry counters and attribution are not decision-safe", "evidence": "orders_rejected mixes broker rejects and skips; seven of 38 trades lack setup attribution", "required_fix": "Separate counter semantics, store retcode histogram, require setup/ticket/side/volume/P&L fields before learning", "restart_acceptance": "Every metric reconciles to ticket-level rows; zero required-field omissions"},
+        {"priority_rank": 5, "priority": "P1", "problem": "Supervisor retries are too aggressive during terminal/feed faults", "evidence": "30 authorization failures, 22 disconnected errors, 224 future and 384 stale tick blocks", "required_fix": "Health-hold with exponential backoff and three consecutive fresh DEMO-flat probes before launch", "restart_acceptance": "No restart storm; health recovery is explicit and bounded"},
+        {"priority_rank": 6, "priority": "Gate", "problem": "No candidate is currently authorized", "evidence": "Legacy authorization expired; V8 retired; V8 manifest verification failed on six hashed files", "required_fix": "Freeze a new named candidate on disjoint future evidence and pass unchanged promotion gates", "restart_acceptance": "Matching manifest and promotion hashes plus fresh DEMO-flat proof"}
+      ],
+      "gates": [
+        {"gate": "Broker account", "state": "PASS — DEMO", "implication": "Three current read-only probes connected successfully"},
+        {"gate": "Initial exposure", "state": "PASS — flat", "implication": "Zero open XAUUSD.vx orders and positions"},
+        {"gate": "Legacy authorization", "state": "FAIL — expired", "implication": "Cannot restart the experimental legacy runner"},
+        {"gate": "V8 evidence", "state": "FAIL — retired", "implication": "10,936 arms yielded zero valid triggers; no tuning on the failed window"},
+        {"gate": "V8 hash lock", "state": "FAIL — mismatch", "implication": "Six frozen implementation/test hashes no longer match"},
+        {"gate": "Exact 48-hour economics", "state": "FAIL — negative", "implication": "PF 0.689 and expectancy -1.247 per unique close"},
+        {"gate": "Lifecycle evidence", "state": "FAIL — incomplete", "implication": "Cross-session duplicates, unmatched learner closes, and timestamp drift"}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "diagnostic_evidence",
+      "label": "Reconciled M1 diagnostic evidence",
+      "path": "reports/2026-07-20-one-minute-pre-restart-diagnostic/evidence.json",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "sql": "SELECT * FROM read_json_auto('reports/2026-07-20-one-minute-pre-restart-diagnostic/evidence.json')",
+        "description": "Loads the reviewed, ticket-deduplicated M1 diagnostic snapshot used by the report.",
+        "executed_at": "2026-07-20T08:10:00Z",
+        "tables_used": ["reports/2026-07-20-one-minute-pre-restart-diagnostic/evidence.json"]
+      }
+    },
+    {"id": "learning_ledger", "label": "Controlled-learning ledger", "path": "runtime/one-minute-experimental-supervisor/learning-ledger.json"},
+    {"id": "supervisor_state", "label": "Final experimental supervisor heartbeat", "path": "runtime/one-minute-experimental-supervisor/heartbeat.json"},
+    {"id": "m1_runbook", "label": "Controlled-learning runbook", "path": "docs/one-minute-controlled-learning-runbook.md"}
+  ]
+}

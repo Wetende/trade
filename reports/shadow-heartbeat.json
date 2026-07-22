@@ -1,0 +1,60 @@
+{
+  "broker_mutation_enabled": false,
+  "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+  "decision": "FAIL_PROSPECTIVE_SHADOW",
+  "heartbeat_utc": "2026-07-22T18:22:26.232916+00:00",
+  "open_order_count": 0,
+  "open_position_count": 0,
+  "report": {
+    "baseline": {
+      "expectancy": -0.1703,
+      "fill_retention": 1.0,
+      "fills": 1384,
+      "gross_loss": -571.42,
+      "gross_profit": 335.74,
+      "losses": 872,
+      "max_loss_streak": 17,
+      "max_session_drawdown": 37.38,
+      "name": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1_shadow_baseline",
+      "net_profit": -235.68,
+      "no_gross_loss": false,
+      "profit_factor": 0.5876,
+      "profitable_session_count": 0,
+      "wins": 512
+    },
+    "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+    "candidate_opportunities_after_start": 4344,
+    "candidate_session_count": 11,
+    "decision": "FAIL_PROSPECTIVE_SHADOW",
+    "gate": {
+      "decision": "FAIL_PROSPECTIVE_SHADOW",
+      "evaluable": true,
+      "passed": false,
+      "reasons": [
+        "WIN_RATE_BELOW_0_60",
+        "PROFIT_FACTOR_BELOW_1_10",
+        "NON_POSITIVE_EXPECTANCY",
+        "NON_POSITIVE_NET_PROFIT"
+      ]
+    },
+    "metrics": {
+      "expectancy": -0.1512,
+      "fill_retention": 0.065,
+      "fills": 90,
+      "gross_loss": -38.86,
+      "gross_profit": 25.25,
+      "losses": 57,
+      "max_loss_streak": 15,
+      "max_session_drawdown": 4.67,
+      "name": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+      "net_profit": -13.61,
+      "no_gross_loss": false,
+      "profit_factor": 0.6498,
+      "profitable_session_count": 3,
+      "wins": 33
+    },
+    "raw_opportunities_after_start": 24719
+  },
+  "report_path": "reports\\2026-07-22-opening-buy-continuation-v1-prospective.json",
+  "schema_version": 1
+}

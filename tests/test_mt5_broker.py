@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -1438,6 +1438,42 @@ def test_mt5_broker_detects_broker_server_time_offset():
     )
 
     assert broker._server_time_offset_seconds(fake, now_utc=now_utc) == 3 * 60 * 60
+
+
+def test_mt5_broker_does_not_infer_timezone_from_stale_tick():
+    fake = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    tick_epoch = fake.symbol_info_tick("XAUUSD").time
+    fresh_now = datetime.fromtimestamp(tick_epoch - (3 * 60 * 60), timezone.utc)
+    stale_now = fresh_now + timedelta(minutes=31)
+
+    assert broker._server_time_offset_seconds(fake, now_utc=fresh_now) == 3 * 3600
+    assert broker._server_time_offset_seconds(fake, now_utc=stale_now) == 3 * 3600
+
+
+def test_mt5_broker_uses_zero_offset_for_unqualified_stale_tick():
+    fake = FakeMT5()
+    broker = MT5Broker(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD",
+        ),
+        mt5_module=fake,
+    )
+    tick_epoch = fake.symbol_info_tick("XAUUSD").time
+    stale_now = datetime.fromtimestamp(tick_epoch + (31 * 60), timezone.utc)
+
+    assert broker._server_time_offset_seconds(fake, now_utc=stale_now) == 0
 
 
 @pytest.mark.parametrize("count", (None, True, False, "2", 2.5, 0, -1))

@@ -10,7 +10,9 @@
     "results/2026-07-15-112146-one-minute-scalper-evidence"
   ],
   "retired_candidate_reports": [
-    "reports/2026-07-15-one-minute-scalper-diagnostic/v8-implementation-status.json"
+    "reports/2026-07-15-one-minute-scalper-diagnostic/v8-implementation-status.json",
+    "reports/2026-07-22-one-minute-causal-microburst-v9-1-discovery.json",
+    "reports/2026-07-22-opening-buy-continuation-v1-retirement.json"
   ],
   "guardrails": {
     "broker_mutation_enabled": false,

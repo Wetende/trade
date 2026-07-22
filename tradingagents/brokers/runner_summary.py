@@ -202,9 +202,13 @@ class RunnerSummaryStore:
             "profile_status_counts": {},
             "hold_reason_counts": {},
             "orders_placed": 0,
+            "orders_not_placed": 0,
             "orders_rejected": 0,
             "orders_skipped": 0,
             "broker_rejections": 0,
+            "broker_retcode_counts": {},
+            "order_check_rejections": 0,
+            "order_check_retcode_counts": {},
             "execution_skip_counts": {},
             "candidate_strategy_counts": {},
             "approved_candidate_strategy_counts": {},
@@ -371,9 +375,20 @@ class RunnerSummaryStore:
         if status == "ORDER_PLACED":
             summary["orders_placed"] = int(summary.get("orders_placed", 0)) + 1
         if status == "ORDER_NOT_PLACED":
+            summary["orders_not_placed"] = int(
+                summary.get("orders_not_placed", 0)
+            ) + 1
+            # Backward-compatible aggregate.  This key historically counted
+            # all non-placements, including deliberate local skips.
             summary["orders_rejected"] = int(summary.get("orders_rejected", 0)) + 1
         if execution.get("status") == "REJECTED":
             summary["broker_rejections"] = int(summary.get("broker_rejections", 0)) + 1
+            broker_result = execution.get("broker_result") or {}
+            retcode = broker_result.get("retcode")
+            retcode_key = str(retcode if retcode is not None else "UNKNOWN")
+            retcodes = Counter(summary.get("broker_retcode_counts", {}))
+            retcodes[retcode_key] += 1
+            summary["broker_retcode_counts"] = dict(retcodes)
         execution_status = str(execution.get("status") or "")
         if execution_status.startswith("SKIPPED"):
             summary["orders_skipped"] = int(summary.get("orders_skipped", 0)) + 1
@@ -381,6 +396,16 @@ class RunnerSummaryStore:
             skip_counts = Counter(summary.get("execution_skip_counts", {}))
             skip_counts[reason_key] += 1
             summary["execution_skip_counts"] = dict(skip_counts)
+        if execution_status == "SKIPPED_ORDER_CHECK":
+            summary["order_check_rejections"] = int(
+                summary.get("order_check_rejections", 0)
+            ) + 1
+            check_result = execution.get("order_check_result") or {}
+            retcode = check_result.get("retcode")
+            retcode_key = str(retcode if retcode is not None else "UNKNOWN")
+            retcodes = Counter(summary.get("order_check_retcode_counts", {}))
+            retcodes[retcode_key] += 1
+            summary["order_check_retcode_counts"] = dict(retcodes)
 
         if execution:
             broker_result = execution.get("broker_result") or {}

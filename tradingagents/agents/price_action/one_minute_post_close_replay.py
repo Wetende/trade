@@ -218,6 +218,15 @@ def detect_replay_arms(
                 window,
                 candidate_name=candidate_name,
             )
+        elif signal_model == "CAUSAL_MICROBURST":
+            from tradingagents.agents.price_action.one_minute_causal_microburst_v9 import (
+                detect_causal_microburst_arms,
+            )
+
+            candidates = detect_causal_microburst_arms(
+                window,
+                candidate_name=candidate_name,
+            )
         elif signal_model == "SHOCK_RECLAIM":
             from tradingagents.agents.price_action.one_minute_shock_reclaim import (
                 detect_shock_reclaim_arms,

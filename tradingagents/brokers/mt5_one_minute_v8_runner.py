@@ -17,7 +17,6 @@ from tradingagents.agents.price_action.one_minute_post_close_state import (
 )
 from tradingagents.agents.price_action.one_minute_quote_pressure_v8 import (
     AtomicV8StateStore,
-    CANDIDATE_NAME,
     TERMINAL_PHASES,
     V8Config,
     V8Phase,
@@ -117,6 +116,30 @@ class MT5OneMinuteV8Runner:
             requested_volume=config.volume,
             repo_root=config.repo_root,
         )
+        self.candidate = self.validation.candidate
+        manifest_file = Path(config.candidate_manifest)
+        manifest = (
+            json.loads(manifest_file.read_text(encoding="utf-8"))
+            if manifest_file.is_file()
+            else None
+        )
+        if manifest is None and promotion_validation is not None:
+            self._frozen_strategy = V8Config(candidate_name=self.candidate)
+            self._signal_model = "REPEATED_LEVEL"
+        elif self.candidate == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1":
+            from tradingagents.agents.price_action.one_minute_causal_microburst_v9_screening import (
+                _strategy,
+            )
+
+            self._frozen_strategy = _strategy(manifest)
+            self._signal_model = "CAUSAL_MICROBURST"
+        else:
+            from tradingagents.agents.price_action.one_minute_quote_pressure_v8_screening import (
+                _strategy,
+            )
+
+            self._frozen_strategy = _strategy(manifest)
+            self._signal_model = "REPEATED_LEVEL"
         self.runtime: dict[str, Any] | None = None
 
     def initialize(self) -> dict[str, Any]:
@@ -156,7 +179,7 @@ class MT5OneMinuteV8Runner:
         )
         self.runtime = {
             "schema_version": self.STATE_SCHEMA_VERSION,
-            "candidate": CANDIDATE_NAME,
+            "candidate": self.candidate,
             "phase": "RUNNING",
             "started_at_utc": now.isoformat(),
             "runtime_deadline_utc": deadline.isoformat() if deadline else None,
@@ -341,7 +364,17 @@ class MT5OneMinuteV8Runner:
         if self.runtime.get("last_closed_candle") == latest_time:
             return None
         self.runtime["last_closed_candle"] = latest_time
-        arms = detect_v8_arms(candles, config=self._strategy_config(snapshot))
+        if self._signal_model == "CAUSAL_MICROBURST":
+            from tradingagents.agents.price_action.one_minute_causal_microburst_v9 import (
+                detect_causal_microburst_arms,
+            )
+
+            arms = detect_causal_microburst_arms(
+                candles,
+                candidate_name=self.candidate,
+            )
+        else:
+            arms = detect_v8_arms(candles, config=self._strategy_config(snapshot))
         if not arms:
             self._save_runtime()
             return None
@@ -370,7 +403,11 @@ class MT5OneMinuteV8Runner:
         if reset_after is not None:
             self.runtime["cooldown_until_utc"] = None
             self.runtime["structural_reset_after_utc"] = None
-        state = start_v8_state(arm, quote)
+        state = start_v8_state(
+            arm,
+            quote,
+            config=self._strategy_config(snapshot),
+        )
         self._set_lifecycle(state, transition={"event": "ARMED"})
         self._event("ARMED", arm_id=arm.arm_id, family=arm.family, direction=arm.direction)
         return self._heartbeat("ARMED", lifecycle=state.as_dict())
@@ -732,7 +769,8 @@ class MT5OneMinuteV8Runner:
 
     def _strategy_config(self, snapshot: dict[str, Any]) -> V8Config:
         symbol = snapshot.get("symbol") or {}
-        return V8Config(
+        return replace(
+            self._frozen_strategy,
             tick_size=float(
                 symbol.get("trade_tick_size") or symbol.get("point") or 0.01
             ),
@@ -751,8 +789,12 @@ class MT5OneMinuteV8Runner:
             broker_symbol=self.executor.config.symbol,
             side=TradeAction(arm.direction),
             order_type=str(decision.order_kind),
-            setup_name=CANDIDATE_NAME,
-            strategy_type="quote_pressure",
+            setup_name=self.candidate,
+            strategy_type=(
+                "causal_microburst"
+                if self._signal_model == "CAUSAL_MICROBURST"
+                else "quote_pressure"
+            ),
             trigger_name=arm.family,
             reaction_type="quote_pressure",
             confirmation_type=arm.confirmation_type,
@@ -760,7 +802,7 @@ class MT5OneMinuteV8Runner:
             candidate_score=state.pressure_score,
             volume_decision="FIXED_NO_BOOST",
             opening_context={
-                "model_name": CANDIDATE_NAME,
+                "model_name": self.candidate,
                 "arm_id": arm.arm_id,
                 "direction": arm.direction,
                 "trigger": arm.family,
@@ -797,7 +839,7 @@ class MT5OneMinuteV8Runner:
             activation_window_minutes=1,
             cancel_if_not_triggered_after=str(decision.expires_at),
             status=OrderStatus.PROPOSED,
-            reason="Frozen V8 quote-pressure gate passed",
+            reason=f"Frozen promoted {self.candidate} gate passed",
         )
 
     def _connect_demo(self) -> dict[str, Any]:
@@ -871,7 +913,7 @@ class MT5OneMinuteV8Runner:
     def _validate_recovered_runtime(self, runtime: dict[str, Any]) -> None:
         if runtime.get("schema_version") != self.STATE_SCHEMA_VERSION:
             raise ValueError("unsupported recovered V8 runtime schema")
-        if runtime.get("candidate") != CANDIDATE_NAME:
+        if runtime.get("candidate") != self.candidate:
             raise ValueError("recovered V8 candidate mismatch")
         if runtime.get("promotion_sha256") != self.validation.promotion_sha256:
             raise ValueError("recovered V8 promotion hash mismatch")
@@ -888,7 +930,7 @@ class MT5OneMinuteV8Runner:
 
     def _heartbeat(self, status: str, **details: Any) -> dict[str, Any]:
         payload = {
-            "candidate": CANDIDATE_NAME,
+            "candidate": self.candidate,
             "status": status,
             "phase": (self.runtime or {}).get("phase"),
             "heartbeat_utc": self._now().isoformat(),

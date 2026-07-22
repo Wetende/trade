@@ -1,9 +1,14 @@
+import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from tradingagents.agents.price_action.one_minute_entry_model import LOW_RESPECT_BUY
+from tradingagents.agents.price_action.one_minute_entry_model import (
+    HIGH_BREAK_BUY,
+    LOW_RESPECT_BUY,
+)
 from tradingagents.agents.price_action.one_minute_post_close_state import PostCloseArm
 from tradingagents.agents.price_action.one_minute_quote_pressure_v8 import CANDIDATE_NAME
 from tradingagents.agents.price_action.one_minute_quote_pressure_v8_promotion import (
@@ -160,6 +165,43 @@ def _validation():
     )
 
 
+def _v9_validation():
+    return replace(
+        _validation(),
+        candidate="ONE_MINUTE_CAUSAL_MICROBURST_V9_1",
+    )
+
+
+def _write_v9_manifest(path):
+    path.write_text(
+        json.dumps(
+            {
+                "candidate": "ONE_MINUTE_CAUSAL_MICROBURST_V9_1",
+                "strategy": {
+                    "history_candles": 60,
+                    "pressure_change_count": 8,
+                    "pressure_window_seconds": 2.0,
+                    "minimum_nonzero_moves": 4,
+                    "minimum_directional_pressure": 0.625,
+                    "minimum_displacement_r": 0.08,
+                    "maximum_adverse_r": 0.15,
+                    "maximum_spread_multiple": 1.15,
+                    "placement_delay_seconds": 2.0,
+                    "pending_expiry_seconds": 20,
+                    "minimum_stop_distance": 0.35,
+                    "minimum_stop_spread_multiple": 1.2,
+                    "maximum_stop_distance": 1.0,
+                    "risk_reward": 1.5,
+                    "tick_size": 0.01,
+                },
+                "modeled_round_trip_cost_r": 0.05,
+                "two_loss_pause_minutes": 15,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _runner(tmp_path, broker, executor, clock, **updates):
     config = MT5OneMinuteV8RunnerConfig(
         results_dir=tmp_path,
@@ -302,6 +344,62 @@ def test_live_fake_broker_path_places_fixed_volume_v8_stop(monkeypatch, tmp_path
     assert runner.runtime["entry_drift_failures"] == 0
     assert runner.runtime["submissions"]["1001"]["entry_drift_compliant"] is True
     assert runner.runtime["evidence_rows"][0]["profit_r"] == pytest.approx(0.1)
+
+
+def test_promoted_runner_uses_frozen_v9_detector_and_strategy(monkeypatch, tmp_path):
+    clock = Clock()
+    broker = FakeBroker(clock)
+    executor = FakeExecutor(broker)
+    manifest = tmp_path / "manifest.json"
+    _write_v9_manifest(manifest)
+    config = MT5OneMinuteV8RunnerConfig(
+        results_dir=tmp_path,
+        candidate_manifest=manifest,
+        promotion_record=tmp_path / "promotion.json",
+        repo_root=tmp_path,
+        volume=0.01,
+        max_runtime_seconds=100,
+    )
+    runner = MT5OneMinuteV8Runner(
+        config,
+        executor=executor,
+        promotion_validation=_v9_validation(),
+        now_func=clock,
+        sleep_func=lambda _seconds: None,
+    )
+    arm = replace(
+        _arm(),
+        candidate="ONE_MINUTE_CAUSAL_MICROBURST_V9_1",
+        family=HIGH_BREAK_BUY,
+        trigger_eligible_at=(START + timedelta(seconds=1)).isoformat(),
+        invalidation=99.9,
+    )
+    monkeypatch.setattr(
+        "tradingagents.agents.price_action.one_minute_causal_microburst_v9.detect_causal_microburst_arms",
+        lambda candles, candidate_name: (arm,),
+    )
+
+    runner.initialize()
+    runner.run_once()
+    clock.set(1)
+    broker.bid, broker.ask = 100.21, 100.25
+    runner.run_once()
+    clock.set(2)
+    broker.bid, broker.ask = 100.22, 100.26
+    runner.run_once()
+    for index in range(1, 9):
+        clock.set(2 + index * 0.1)
+        mid = 100.24 + index * 0.01
+        broker.bid, broker.ask = mid - 0.02, mid + 0.02
+        runner.run_once()
+    clock.set(4.8)
+    broker.bid, broker.ask = 100.30, 100.34
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert runner.runtime["candidate"] == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1"
+    assert executor.proposals[0].setup_name == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1"
+    assert executor.proposals[0].volume == 0.01
 
 
 def test_restart_preserves_original_runtime_and_drain_deadlines(tmp_path):

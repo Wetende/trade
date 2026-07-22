@@ -1423,6 +1423,38 @@ def test_executor_reprices_buy_stop_once_after_invalid_price_race(tmp_path):
     assert result["price_reprice"]["adjustment"]["entry_drift"] == 0.03
 
 
+def test_executor_rechecks_reprice_when_quote_crosses_after_successful_check(tmp_path):
+    broker = _execution_race_broker()
+    broker.check_results = [
+        {"ok": True, "retcode": 10009, "comment": "check ok"},
+        {"ok": True, "retcode": 10009, "comment": "check ok"},
+    ]
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.96,
+                "ask": 2450.16,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+        }
+    ]
+    executor = MT5Executor(
+        replace(_config(), min_stop_spread_multiple=2.0),
+        tmp_path,
+        broker=broker,
+    )
+    _pin_context_submission_time(executor)
+
+    result = executor.execute_proposal(_one_minute_pending_stop_proposal())
+
+    assert result["status"] == "PLACED"
+    assert len(broker.checked_requests) == 2
+    assert len(broker.placed_requests) == 1
+    assert broker.placed_requests[0]["price"] == 2450.18
+    assert result["price_reprice"]["adjustment"]["entry_drift"] == 0.03
+
+
 def test_executor_skips_invalid_price_reprice_when_quote_moved_too_far(tmp_path):
     broker = _execution_race_broker()
     broker.check_results = [

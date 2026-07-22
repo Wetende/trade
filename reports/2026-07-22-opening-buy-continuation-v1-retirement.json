@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+  "status": "FAIL",
+  "retired": true,
+  "order_capability": false,
+  "promotion_record_generated": false,
+  "evidence_report": "reports/2026-07-22-opening-buy-continuation-v1-prospective.json",
+  "evidence_report_sha256": "5472dc6bdfb922df0b1417345828e8807be2b0441dedecc5e69be45dced66e6f",
+  "observed_through_utc": "2026-07-22T18:17:00+00:00",
+  "metrics": {
+    "fills": 90,
+    "wins": 33,
+    "losses": 57,
+    "net_r": -13.61,
+    "profit_factor": 0.6498,
+    "expectancy_r": -0.1512,
+    "maximum_loss_streak": 15
+  },
+  "policy_result": {
+    "demo_start_allowed": false,
+    "held_out_must_remain_unopened": false,
+    "tuning_on_failed_window_allowed": false
+  },
+  "failed_gates": [
+    "WIN_RATE_BELOW_0_60",
+    "PROFIT_FACTOR_BELOW_1_10",
+    "NON_POSITIVE_EXPECTANCY",
+    "NON_POSITIVE_NET_PROFIT"
+  ]
+}

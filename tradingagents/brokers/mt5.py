@@ -678,6 +678,7 @@ class MT5Broker:
         self.config = config
         self._mt5 = mt5_module
         self._connected = False
+        self._verified_server_time_offset_seconds: int | None = None
 
     def _module(self):
         if self._mt5 is not None:
@@ -1743,7 +1744,17 @@ class MT5Broker:
         raw_offset = int(raw_tick_time) - int(current.timestamp())
         rounded_offset = int(round(raw_offset / 3600)) * 3600
         if abs(rounded_offset) > 14 * 3600:
-            return 0
+            return self._verified_server_time_offset_seconds or 0
+
+        # MT5 timestamps may be expressed in a whole-hour broker timezone, but
+        # the latest tick may also simply be stale while the market or terminal
+        # is unavailable.  A stale tick must never be mistaken for a timezone
+        # change because that shifts every history deal and can duplicate a
+        # trade into the following bounded session.
+        residual_seconds = raw_offset - rounded_offset
+        if abs(residual_seconds) > 5 * 60:
+            return self._verified_server_time_offset_seconds or 0
+        self._verified_server_time_offset_seconds = rounded_offset
         return rounded_offset
 
     @staticmethod

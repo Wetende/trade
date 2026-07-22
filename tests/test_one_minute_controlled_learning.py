@@ -182,6 +182,41 @@ def test_controlled_learning_preserves_completed_no_decision_session(tmp_path):
     assert source["observed_through_utc"] == "2026-07-15T18:30:00Z"
 
 
+def test_controlled_learning_owns_repeated_close_by_placing_session(tmp_path):
+    sessions, retired = _sources(tmp_path)
+    first_summary_path = sessions[0] / "mt5_runner" / "summary.json"
+    second_summary_path = sessions[1] / "mt5_runner" / "summary.json"
+    first_trade = json.loads(first_summary_path.read_text(encoding="utf-8"))[
+        "trade_history"
+    ]["closed_trades"][0]
+    repeated = dict(first_trade)
+    repeated["opened_at_utc"] = "2026-07-15T18:01:00+00:00"
+    repeated["closed_at_utc"] = "2026-07-15T18:01:30+00:00"
+    second_summary = json.loads(second_summary_path.read_text(encoding="utf-8"))
+    second_summary["trade_history"]["closed_trades"].append(repeated)
+    second_summary_path.write_text(json.dumps(second_summary), encoding="utf-8")
+
+    ledger = build_controlled_learning_ledger(sessions, [retired], min_samples=1)
+
+    assert ledger["diagnostics"]["summary"]["fills"] == 2
+    sources = ledger["source_registry"]["sessions"]
+    assert [source["filled_trades"] for source in sources] == [1, 1]
+    assert all(source["unmatched_closed_trade_count"] == 0 for source in sources)
+
+
+def test_controlled_learning_rejects_trade_without_owning_placement(tmp_path):
+    sessions, retired = _sources(tmp_path)
+    summary_path = sessions[1] / "mt5_runner" / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    foreign = dict(summary["trade_history"]["closed_trades"][0])
+    foreign["entry_order"] = 999999
+    summary["trade_history"]["closed_trades"].append(foreign)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="without an owning placement"):
+        build_controlled_learning_ledger(sessions, [retired], min_samples=1)
+
+
 def test_evaluation_isolation_rejects_reused_or_old_sources(tmp_path):
     sessions, retired = _sources(tmp_path)
     ledger = build_controlled_learning_ledger(sessions, [retired], min_samples=1)

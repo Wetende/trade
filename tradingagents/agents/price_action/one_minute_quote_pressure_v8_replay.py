@@ -43,12 +43,21 @@ class V8ReplayConfig:
     evidence_end: str | None = None
     capture_events: bool = True
     ordered_ticks: bool = False
+    candidate_name: str = CANDIDATE_NAME
+    signal_model: str = "REPEATED_LEVEL"
+    session_bucket_hours: int = 24
 
     def __post_init__(self) -> None:
         if self.cost_per_fill_r < 0:
             raise ValueError("cost_per_fill_r must be non-negative")
         if self.two_loss_pause_minutes <= 0:
             raise ValueError("two_loss_pause_minutes must be positive")
+        if not str(self.candidate_name).strip():
+            raise ValueError("candidate_name must be non-empty")
+        if not str(self.signal_model).strip():
+            raise ValueError("signal_model must be non-empty")
+        if self.session_bucket_hours <= 0 or 24 % self.session_bucket_hours:
+            raise ValueError("session_bucket_hours must divide 24")
 
 
 @dataclass(frozen=True)
@@ -57,10 +66,11 @@ class V8ReplayResult:
     events: tuple[dict[str, Any], ...]
     counters: V8EvidenceCounters
     broker_mutation_enabled: bool = False
+    candidate: str = CANDIDATE_NAME
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "candidate": CANDIDATE_NAME,
+            "candidate": self.candidate,
             "broker_mutation_enabled": False,
             "rows": [row.as_dict() for row in self.rows],
             "events": list(self.events),
@@ -128,8 +138,8 @@ def replay_v8(
     arms = detect_replay_arms(
         candle_values,
         clean_levels=policy.clean_levels,
-        candidate_name=CANDIDATE_NAME,
-        signal_model="REPEATED_LEVEL",
+        candidate_name=policy.candidate_name,
+        signal_model=policy.signal_model,
     )
     arms = tuple(
         arm
@@ -217,7 +227,10 @@ def replay_v8_arms(
         rows.append(
             V8EvidenceRow(
                 arm_id=arm.arm_id,
-                session_id=parse_utc(arm.confirmation_closed_at).date().isoformat(),
+                session_id=_session_id(
+                    arm.confirmation_closed_at,
+                    policy.session_bucket_hours,
+                ),
                 family=arm.family,
                 direction=arm.direction,
                 armed_at=arm.confirmation_closed_at,
@@ -280,7 +293,7 @@ def replay_v8_arms(
                 event("ARM_SKIPPED", quote, arm, reason="STRUCTURAL_RESET_REQUIRED")
                 continue
             try:
-                state = start_v8_state(arm, quote)
+                state = start_v8_state(arm, quote, config=policy.strategy)
             except ValueError:
                 append_terminal(
                     arm,
@@ -511,7 +524,23 @@ def replay_v8_arms(
         crossed_rejections=crossed,
         geometry_rejections=geometry,
     )
-    return V8ReplayResult(tuple(rows), tuple(events), counters)
+    return V8ReplayResult(
+        tuple(rows),
+        tuple(events),
+        counters,
+        candidate=policy.candidate_name,
+    )
+
+
+def _session_id(timestamp: str, bucket_hours: int) -> str:
+    observed = parse_utc(timestamp)
+    bucket = (observed.hour // bucket_hours) * bucket_hours
+    return observed.replace(
+        hour=bucket,
+        minute=0,
+        second=0,
+        microsecond=0,
+    ).isoformat()
 
 
 __all__ = [

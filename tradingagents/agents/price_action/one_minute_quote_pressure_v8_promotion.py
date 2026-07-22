@@ -15,6 +15,12 @@ from tradingagents.agents.price_action.one_minute_quote_pressure_v8 import (
 )
 
 
+PROMOTABLE_CANDIDATES = {
+    CANDIDATE_NAME,
+    "ONE_MINUTE_CAUSAL_MICROBURST_V9_1",
+}
+
+
 INITIAL_STAGES = ("DISCOVERY", "HELD_OUT", "PROSPECTIVE")
 VOLUME_ONE_STAGES = (*INITIAL_STAGES, "DEMO_0_01")
 
@@ -60,7 +66,8 @@ def validate_v8_promotion(
     manifest = _json_object(manifest_file)
     promotion = _json_object(promotion_file)
     _require(manifest.get("schema_version") == 1, "unsupported candidate manifest schema")
-    _require(manifest.get("candidate") == CANDIDATE_NAME, "candidate manifest mismatch")
+    candidate = str(manifest.get("candidate") or "")
+    _require(candidate in PROMOTABLE_CANDIDATES, "candidate manifest mismatch")
     _require(manifest.get("status") == "FROZEN", "candidate manifest is not frozen")
     _require(
         manifest.get("broker_mutation_enabled") is False,
@@ -69,7 +76,7 @@ def validate_v8_promotion(
     manifest_hash = sha256_file(manifest_file)
 
     _require(promotion.get("schema_version") == 1, "unsupported promotion schema")
-    _require(promotion.get("candidate") == CANDIDATE_NAME, "promotion candidate mismatch")
+    _require(promotion.get("candidate") == candidate, "promotion candidate mismatch")
     _require(promotion.get("approved") is True, "candidate is not approved")
     _require(promotion.get("account_mode") == "DEMO_ONLY", "promotion is not DEMO-only")
     _require(
@@ -118,10 +125,11 @@ def validate_v8_promotion(
             stage=stage,
             root=root,
             manifest_hash=manifest_hash,
+            candidate=candidate,
         )
 
     return V8PromotionValidation(
-        candidate=CANDIDATE_NAME,
+        candidate=candidate,
         manifest_path=str(manifest_file),
         manifest_sha256=manifest_hash,
         promotion_path=str(promotion_file),
@@ -145,7 +153,8 @@ def generate_v8_promotion_record(
     root = Path(repo_root).resolve()
     manifest_file = Path(manifest_path).resolve()
     manifest = _json_object(manifest_file)
-    _require(manifest.get("candidate") == CANDIDATE_NAME, "candidate manifest mismatch")
+    candidate = str(manifest.get("candidate") or "")
+    _require(candidate in PROMOTABLE_CANDIDATES, "candidate manifest mismatch")
     _require(manifest.get("status") == "FROZEN", "candidate manifest is not frozen")
     _require(manifest.get("broker_mutation_enabled") is False, "manifest enables broker mutation")
     try:
@@ -166,6 +175,7 @@ def generate_v8_promotion_record(
             stage=stage,
             root=root,
             manifest_hash=sha256_file(manifest_file),
+            candidate=candidate,
         )
         reports[stage] = {
             "path": _relative_inside(root, report_file),
@@ -182,7 +192,7 @@ def generate_v8_promotion_record(
     generated = generated_at_utc or datetime.now(timezone.utc).isoformat()
     record = {
         "schema_version": 1,
-        "candidate": CANDIDATE_NAME,
+        "candidate": candidate,
         "approved": True,
         "account_mode": "DEMO_ONLY",
         "promotion_kind": "VOLUME_1_DEMO" if cap == 1.0 else "INITIAL_DEMO",
@@ -224,9 +234,10 @@ def _validate_evidence_report(
     stage: str,
     root: Path,
     manifest_hash: str,
+    candidate: str,
 ) -> None:
     _require(report.get("schema_version") == 1, f"evidence schema mismatch: {stage}")
-    _require(report.get("candidate") == CANDIDATE_NAME, f"evidence candidate mismatch: {stage}")
+    _require(report.get("candidate") == candidate, f"evidence candidate mismatch: {stage}")
     _require(report.get("stage") == stage, f"evidence stage mismatch: {stage}")
     _require(report.get("status") == "PASS", f"evidence gate failed: {stage}")
     _require(report.get("retired") is False, f"candidate retired at stage: {stage}")
@@ -265,16 +276,11 @@ def _validate_evidence_report(
         for source in (sources or [])
     )
     if stage == "DISCOVERY":
-        expected = (
-            ("2026-06-22T00:00:00+00:00", "2026-06-29T00:00:00+00:00"),
-            ("2026-06-29T00:00:00+00:00", "2026-07-06T00:00:00+00:00"),
-            ("2026-07-06T00:00:00+00:00", "2026-07-13T00:00:00+00:00"),
-        )
+        expected = _candidate_windows(candidate)[0]
         _require(windows == expected, "discovery evidence windows mismatch")
     elif stage == "HELD_OUT":
         _require(
-            windows
-            == (("2026-07-13T00:00:00+00:00", "2026-07-20T00:00:00+00:00"),),
+            windows == (_candidate_windows(candidate)[1],),
             "held-out evidence window mismatch",
         )
     elif stage == "PROSPECTIVE":
@@ -288,7 +294,7 @@ def _validate_evidence_report(
         )
         registration_payload = _json_object(registration_file)
         _require(
-            registration_payload.get("candidate") == CANDIDATE_NAME
+            registration_payload.get("candidate") == candidate
             and registration_payload.get("status") == "REGISTERED"
             and registration_payload.get("broker_mutation_enabled") is False,
             "prospective registration is invalid",
@@ -302,6 +308,26 @@ def _validate_evidence_report(
         )
         first_start = datetime.fromisoformat(windows[0][0].replace("Z", "+00:00"))
         _require(first_start >= registered_at, "prospective evidence predates registration")
+
+
+def _candidate_windows(
+    candidate: str,
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, str]]:
+    if candidate == "ONE_MINUTE_CAUSAL_MICROBURST_V9_1":
+        from tradingagents.agents.price_action.one_minute_causal_microburst_v9_screening import (
+            DISCOVERY_FOLDS,
+            HELD_OUT_WINDOW,
+        )
+
+        return DISCOVERY_FOLDS, HELD_OUT_WINDOW
+    return (
+        (
+            ("2026-06-22T00:00:00+00:00", "2026-06-29T00:00:00+00:00"),
+            ("2026-06-29T00:00:00+00:00", "2026-07-06T00:00:00+00:00"),
+            ("2026-07-06T00:00:00+00:00", "2026-07-13T00:00:00+00:00"),
+        ),
+        ("2026-07-13T00:00:00+00:00", "2026-07-20T00:00:00+00:00"),
+    )
 
 
 def _path_inside(root: Path, value: Any) -> Path:

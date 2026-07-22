@@ -69,6 +69,7 @@ TERMINAL_PHASES = {
 
 @dataclass(frozen=True)
 class V8Config:
+    candidate_name: str = CANDIDATE_NAME
     history_candles: int = HISTORY_CANDLES
     pressure_change_count: int = PRESSURE_CHANGE_COUNT
     pressure_window_seconds: float = PRESSURE_WINDOW_SECONDS
@@ -88,6 +89,8 @@ class V8Config:
     broker_freeze_distance: float = 0.0
 
     def __post_init__(self) -> None:
+        if not str(self.candidate_name).strip():
+            raise ValueError("candidate_name must be non-empty")
         positive = (
             "history_candles",
             "pressure_change_count",
@@ -246,10 +249,16 @@ def detect_v8_arms(
     )
 
 
-def start_v8_state(arm: PostCloseArm, arm_quote: QuoteObservation) -> V8State:
+def start_v8_state(
+    arm: PostCloseArm,
+    arm_quote: QuoteObservation,
+    *,
+    config: V8Config | None = None,
+) -> V8State:
     """Create an armed V8 lifecycle and freeze its arm-time spread."""
-    if arm.candidate != CANDIDATE_NAME:
-        raise ValueError(f"V8 requires candidate {CANDIDATE_NAME}")
+    policy = config or V8Config()
+    if arm.candidate != policy.candidate_name:
+        raise ValueError(f"quote-pressure lifecycle requires {policy.candidate_name}")
     if not arm_quote.valid:
         raise ValueError("arm quote must be valid")
     if arm_quote.time_utc < parse_utc(arm.confirmation_closed_at):

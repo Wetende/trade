@@ -557,6 +557,36 @@ class MT5Executor:
             "fresh_quote": fresh_quote,
         }
 
+    @staticmethod
+    def _pending_stop_is_valid_for_quote(
+        request: dict[str, Any],
+        snapshot: dict[str, Any],
+    ) -> bool:
+        """Validate a checked stop request against the final pre-send quote."""
+        request_type = str(request.get("type") or "").strip().upper()
+        if request_type not in {"BUY_STOP", "SELL_STOP"}:
+            return True
+        symbol = snapshot.get("symbol") or {}
+        try:
+            entry = float(request["price"])
+            bid = float(symbol["bid"])
+            ask = float(symbol["ask"])
+            point = float(symbol.get("point") or 0.0)
+            stop_distance = float(
+                symbol.get("trade_stops_distance_price") or 0.0
+            )
+            if stop_distance <= 0:
+                stop_distance = float(symbol.get("trade_stops_level") or 0.0) * point
+        except (KeyError, TypeError, ValueError):
+            return False
+        if not all(math.isfinite(value) for value in (entry, bid, ask, stop_distance)):
+            return False
+        if bid <= 0 or ask <= 0 or bid > ask:
+            return False
+        if request_type == "BUY_STOP":
+            return entry + 1e-12 >= ask + max(0.0, stop_distance)
+        return entry - 1e-12 <= bid - max(0.0, stop_distance)
+
     def _active_trade_exists(self) -> bool:
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
@@ -856,13 +886,75 @@ class MT5Executor:
             self.journal.append("ORDER_SKIPPED", result)
             return result
 
-        submitted_at = self._timeline_now_utc()
+        pre_send_observed_at = self._timeline_now_utc()
         snapshot_func = getattr(self.broker, "current_symbol_snapshot", None)
         if callable(snapshot_func):
             pre_send_source = snapshot_func()
         else:
             pre_send_source = {"symbol": connection.get("symbol") or {}}
-        pre_send_quote = _safe_quote_snapshot(pre_send_source, submitted_at)
+        pre_send_quote = _safe_quote_snapshot(
+            pre_send_source,
+            pre_send_observed_at,
+        )
+        if (
+            _is_one_minute_scalper_proposal(proposal)
+            and callable(check_order)
+            and not self._pending_stop_is_valid_for_quote(request, pre_send_source)
+        ):
+            if price_reprice is not None:
+                result = {
+                    "status": "SKIPPED_ORDER_CHECK",
+                    "reason": "PRE_SEND_QUOTE_MOVED_AFTER_BOUNDED_REPRICE",
+                    "proposal": proposal.model_dump(mode="json"),
+                    "request": request,
+                    "order_check_result": order_check_result,
+                    "price_reprice": price_reprice,
+                    "pre_send_quote": pre_send_quote,
+                    "account_safety": account_safety,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+            price_reprice = self._reprice_after_invalid_price(
+                proposal,
+                request,
+                pre_send_source,
+            )
+            self.journal.append(
+                "ORDER_PRE_SEND_REPRICE_EVALUATED",
+                price_reprice,
+            )
+            if price_reprice.get("ok") is not True:
+                result = {
+                    "status": "SKIPPED_ORDER_CHECK",
+                    "reason": price_reprice.get("reason")
+                    or "PRE_SEND_REPRICE_REJECTED",
+                    "proposal": proposal.model_dump(mode="json"),
+                    "request": request,
+                    "order_check_result": order_check_result,
+                    "price_reprice": price_reprice,
+                    "pre_send_quote": pre_send_quote,
+                    "account_safety": account_safety,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+            request = dict(price_reprice["request"])
+            self.journal.append("ORDER_REQUEST_REPRICED_PRE_SEND", request)
+            order_check_result = check_order(request)
+            self.journal.append("ORDER_CHECKED", order_check_result)
+            if order_check_result.get("ok") is False:
+                result = {
+                    "status": "SKIPPED_ORDER_CHECK",
+                    "reason": "ORDER_CHECK_FAILED_AFTER_PRE_SEND_REPRICE",
+                    "proposal": proposal.model_dump(mode="json"),
+                    "request": request,
+                    "order_check_result": order_check_result,
+                    "price_reprice": price_reprice,
+                    "pre_send_quote": pre_send_quote,
+                    "account_safety": account_safety,
+                }
+                self.journal.append("ORDER_SKIPPED", result)
+                return result
+        submitted_at = pre_send_observed_at
         broker_result = self.broker.place_pending_order(request)
         acknowledged_at = self._timeline_now_utc()
         execution_timeline = {

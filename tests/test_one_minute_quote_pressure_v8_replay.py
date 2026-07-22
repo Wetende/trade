@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -12,6 +13,7 @@ from tradingagents.agents.price_action.one_minute_post_close_state import (
 )
 from tradingagents.agents.price_action.one_minute_quote_pressure_v8 import (
     CANDIDATE_NAME,
+    V8Config,
 )
 from tradingagents.agents.price_action.one_minute_quote_pressure_v8_replay import (
     V8ReplayConfig,
@@ -180,3 +182,20 @@ def test_ordered_stream_rejects_non_monotonic_source_quotes():
             [_quote(1, 100.0), _quote(0, 100.0)],
             ordered_ticks=True,
         )
+
+
+def test_replay_supports_independently_named_candidate_and_three_hour_sessions():
+    candidate = "ONE_MINUTE_CAUSAL_MICROBURST_V9_1"
+    arm = _arm("BUY")
+    arm = replace(arm, candidate=candidate)
+    policy = V8ReplayConfig(
+        strategy=V8Config(candidate_name=candidate),
+        candidate_name=candidate,
+        signal_model="CAUSAL_MICROBURST",
+        session_bucket_hours=3,
+    )
+
+    result = replay_v8_arms([arm], _entry_sequence("BUY"), config=policy)
+
+    assert result.candidate == candidate
+    assert result.rows[0].session_id.endswith("12:00:00+00:00")

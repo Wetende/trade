@@ -1,0 +1,142 @@
+{
+  "generated_at_utc": "2026-07-20T08:10:00Z",
+  "scope": {
+    "strategy": "One Minute Scalper only",
+    "symbol": "XAUUSD.vx",
+    "volume": 0.1,
+    "window_start_utc": "2026-07-16T08:38:41Z",
+    "window_end_utc": "2026-07-18T08:38:41Z",
+    "session_count": 17,
+    "trade_grain": "one unique MT5 entry_deal_ticket",
+    "session_ownership": "the first session that recorded the entry deal"
+  },
+  "runtime_window": {
+    "checks": 5960,
+    "accepted_pending_orders": 52,
+    "order_not_placed": 6,
+    "broker_send_rejections": 5,
+    "order_check_skips": 1,
+    "strategy_execution_skips": 22,
+    "raw_fill_rows": 41,
+    "unique_fills": 38,
+    "raw_close_rows": 40,
+    "unique_closes": 38,
+    "wins": 15,
+    "losses": 23,
+    "break_even": 0,
+    "gross_profit": 105.1,
+    "gross_loss": -152.5,
+    "net_profit": -47.4,
+    "profit_factor": 0.6892,
+    "expectancy_per_close": -1.2474,
+    "fill_rate": 0.7308,
+    "profitable_entry_sessions": 3,
+    "losing_entry_sessions": 7,
+    "flat_entry_sessions": 7
+  },
+  "duplicate_reconciliation": {
+    "duplicate_entry_deal_tickets": [72508049, 72521121, 72524675],
+    "duplicate_closed_entry_deal_tickets": [72508049, 72521121],
+    "unclosed_unique_fills": 0,
+    "cross_session_position": {
+      "entry_deal_ticket": 72524675,
+      "position_id": 106862877,
+      "side": "SELL",
+      "entry_price": 3975.08,
+      "exit_price": 3973.87,
+      "profit": 12.1,
+      "outcome": "TP",
+      "closed_at_utc": "2026-07-16T21:16:35.678Z"
+    },
+    "learning_pipeline_effect": {
+      "excluded_entry_session": "2026-07-16-143608-one-minute-experimental-learning-vol01",
+      "unmatched_closes_in_next_session": 3,
+      "fills_missing_from_broader_learning_ledger": 6,
+      "profit_missing_from_broader_learning_ledger": 19.4
+    }
+  },
+  "data_quality": {
+    "trades_missing_setup_attribution": 7,
+    "missing_setup_attribution_rate": 0.1842,
+    "same_ticket_timestamp_shift_seconds": 3600,
+    "future_tick_blocks": 224,
+    "stale_tick_blocks": 384,
+    "rollover_blocks": 60,
+    "runner_broker_errors": 52,
+    "runner_broker_error_breakdown": [
+      {"error": "MT5 initialize failed: Terminal authorization failed", "count": 30},
+      {"error": "MT5 terminal is not connected", "count": 22}
+    ],
+    "invalid_price_retcode": 10015,
+    "invalid_price_broker_send_rejections": 5,
+    "invalid_price_order_check_skips": 1
+  },
+  "current_read_only_safety_probe": {
+    "probe_count": 3,
+    "successful_probes": 3,
+    "trade_mode": "DEMO",
+    "open_order_count": 0,
+    "open_position_count": 0,
+    "tick_times_utc": [
+      "2026-07-20T08:09:10.948Z",
+      "2026-07-20T08:09:15.884Z",
+      "2026-07-20T08:09:20.416Z"
+    ]
+  },
+  "candidate_state": {
+    "legacy_experimental_authorization": "EXPIRED",
+    "v8_candidate": "ONE_MINUTE_QUOTE_PRESSURE_V8",
+    "v8_status": "RETIRED_READ_ONLY",
+    "v8_arms": 10936,
+    "v8_valid_triggers": 0,
+    "v8_placements": 0,
+    "v8_fills": 0,
+    "v8_manifest_verify": "FAILED",
+    "v8_changed_hashed_files": 6,
+    "next_candidate_requirement": "NEW_NAMED_CANDIDATE_REQUIRES_PREREGISTRATION"
+  },
+  "focused_test_baseline": {
+    "command": ".venv/Scripts/python.exe -m pytest tests/test_mt5_runner_summary.py tests/test_mt5_execution.py tests/test_mt5_broker.py -q",
+    "passed": 341,
+    "failed": 0,
+    "interpretation": "The observed cross-session, stale-reference timestamp, and strict-learning-ledger cases are not covered by the passing suite."
+  },
+  "by_setup": [
+    {"setup": "HIGH_RESPECT_SELL", "trades": 8, "wins": 2, "losses": 6, "net_profit": -32.8, "profit_factor": 0.284},
+    {"setup": "UNATTRIBUTED", "trades": 7, "wins": 2, "losses": 5, "net_profit": -23.8, "profit_factor": 0.277},
+    {"setup": "LOW_RESPECT_BUY", "trades": 1, "wins": 0, "losses": 1, "net_profit": -6.4, "profit_factor": 0.0},
+    {"setup": "CLEAN_HIGH_IMPULSE_BUY", "trades": 12, "wins": 6, "losses": 6, "net_profit": 1.8, "profit_factor": 1.048},
+    {"setup": "CLEAN_LOW_IMPULSE_SELL", "trades": 10, "wins": 5, "losses": 5, "net_profit": 13.8, "profit_factor": 1.462}
+  ],
+  "by_side": [
+    {"side": "BUY", "trades": 16, "wins": 8, "losses": 8, "net_profit": -2.4, "profit_factor": 0.953},
+    {"side": "SELL", "trades": 22, "wins": 7, "losses": 15, "net_profit": -45.0, "profit_factor": 0.558}
+  ],
+  "entry_session_results": [
+    {"session": "07-16 04:38", "fills": 3, "wins": 0, "losses": 3, "net_profit": -17.7},
+    {"session": "07-16 07:39", "fills": 4, "wins": 2, "losses": 2, "net_profit": -6.1},
+    {"session": "07-16 10:40", "fills": 2, "wins": 0, "losses": 2, "net_profit": -11.6},
+    {"session": "07-16 13:41", "fills": 4, "wins": 1, "losses": 3, "net_profit": -21.1},
+    {"session": "07-16 14:36", "fills": 6, "wins": 4, "losses": 2, "net_profit": 19.4},
+    {"session": "07-16 16:16", "fills": 3, "wins": 1, "losses": 2, "net_profit": -4.4},
+    {"session": "07-16 19:17", "fills": 7, "wins": 4, "losses": 3, "net_profit": 6.4},
+    {"session": "07-16 23:29", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-17 02:30", "fills": 4, "wins": 3, "losses": 1, "net_profit": 18.9},
+    {"session": "07-17 05:31", "fills": 4, "wins": 0, "losses": 4, "net_profit": -24.3},
+    {"session": "07-17 08:11", "fills": 1, "wins": 0, "losses": 1, "net_profit": -6.9},
+    {"session": "07-17 11:12", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-17 14:13", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-17 17:55", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-17 20:55", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-17 23:55", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0},
+    {"session": "07-18 02:56", "fills": 0, "wins": 0, "losses": 0, "net_profit": 0.0}
+  ],
+  "source_paths": [
+    "results/2026-07-16-043851-one-minute-experimental-learning-vol01 through results/2026-07-18-025612-one-minute-experimental-learning-vol01",
+    "runtime/one-minute-experimental-supervisor/heartbeat.json",
+    "runtime/one-minute-experimental-supervisor/learning-ledger.json",
+    "runtime/one-minute-experimental-supervisor/supervisor.log",
+    "docs/one-minute-controlled-learning-runbook.md",
+    "docs/analysis/2026-07-15-one-minute-quote-pressure-v8-manifest.json"
+  ]
+}

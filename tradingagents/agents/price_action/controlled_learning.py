@@ -13,7 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from tradingagents.agents.price_action.evidence_export import export_session
+from tradingagents.agents.price_action.evidence_export import (
+    export_sessions_reconciled,
+)
 from tradingagents.agents.price_action.evidence_gate import EvidenceSession
 from tradingagents.agents.price_action.failure_learning import build_learning_report
 
@@ -289,7 +291,7 @@ def build_controlled_learning_ledger(
     if not roots:
         raise ValueError("at least one completed session is required")
 
-    sessions = [export_session(root) for root in roots]
+    sessions = export_sessions_reconciled(roots)
     session_ids = [session.session_id for session in sessions]
     if len(session_ids) != len(set(session_ids)):
         raise ValueError("learning sources require unique session ids")

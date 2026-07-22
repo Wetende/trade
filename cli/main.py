@@ -769,6 +769,61 @@ def one_minute_v8_register_prospective(
     console.print(json.dumps(record, indent=2, sort_keys=True))
 
 
+@app.command("one-minute-v9-screen")
+def one_minute_v9_screen(
+    fixture: list[Path] = typer.Option(..., "--fixture"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    output: Path = typer.Option(..., "--output"),
+    stage: str = typer.Option("DISCOVERY", "--stage"),
+    as_of_utc: str | None = typer.Option(None, "--as-of-utc"),
+    discovery_report: Path | None = typer.Option(None, "--discovery-report"),
+    prospective_registration: Path | None = typer.Option(
+        None,
+        "--prospective-registration",
+    ),
+):
+    """Run the frozen, broker-free V9 chronological evidence gate."""
+    from tradingagents.agents.price_action.one_minute_causal_microburst_v9_screening import (
+        screen_v9_fixture_paths,
+    )
+
+    try:
+        report = screen_v9_fixture_paths(
+            fixture,
+            manifest_path=manifest,
+            stage=stage,
+            as_of_utc=as_of_utc,
+            discovery_report_path=discovery_report,
+            prospective_registration_path=prospective_registration,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-v9-register-prospective")
+def one_minute_v9_register_prospective(
+    manifest: Path = typer.Option(..., "--manifest"),
+    held_out_report: Path = typer.Option(..., "--held-out-report"),
+    output: Path = typer.Option(..., "--output"),
+):
+    """Start V9's prospective clock after a passing held-out report."""
+    from tradingagents.agents.price_action.one_minute_causal_microburst_v9_screening import (
+        register_v9_prospective,
+    )
+
+    try:
+        record = register_v9_prospective(
+            manifest_path=manifest,
+            held_out_report_path=held_out_report,
+            output_path=output,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(json.dumps(record, indent=2, sort_keys=True))
+
+
 @app.command("one-minute-v8-audit-demo")
 def one_minute_v8_audit_demo(
     session: list[Path] = typer.Option(..., "--session"),

@@ -1,0 +1,125 @@
+{
+  "baseline": {
+    "expectancy": -0.1703,
+    "fill_retention": 1.0,
+    "fills": 1384,
+    "gross_loss": -571.42,
+    "gross_profit": 335.74,
+    "losses": 872,
+    "max_loss_streak": 17,
+    "max_session_drawdown": 37.38,
+    "name": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1_shadow_baseline",
+    "net_profit": -235.68,
+    "no_gross_loss": false,
+    "profit_factor": 0.5876,
+    "profitable_session_count": 0,
+    "wins": 512
+  },
+  "broker_mutation_enabled": false,
+  "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+  "candidate_opportunities_after_start": 4344,
+  "candidate_session_count": 11,
+  "decision": "FAIL_PROSPECTIVE_SHADOW",
+  "evidence_window": {
+    "complete": true,
+    "earliest_closed_candle_utc": "2026-06-26T10:14:00+00:00",
+    "effective_candle_count": 25000,
+    "latest_closed_candle_utc": "2026-07-22T18:17:00+00:00",
+    "prospective_start_utc": "2026-07-08T17:22:35.709192+00:00",
+    "requested_candle_count": 25000,
+    "returned_candle_count": 25000
+  },
+  "gate": {
+    "decision": "FAIL_PROSPECTIVE_SHADOW",
+    "evaluable": true,
+    "passed": false,
+    "reasons": [
+      "WIN_RATE_BELOW_0_60",
+      "PROFIT_FACTOR_BELOW_1_10",
+      "NON_POSITIVE_EXPECTANCY",
+      "NON_POSITIVE_NET_PROFIT"
+    ]
+  },
+  "manifest": {
+    "buy_continuation_policy_version": 1,
+    "candidate": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+    "continuation_expiry_seconds": 120,
+    "direction_filter": "BUY",
+    "entry_policy": "POST_CLOSE_FIXED_PENDING_ENTRY",
+    "final_target": 0.9,
+    "queue_policy_version": null,
+    "source_fixture_hash": null,
+    "target_grid_version": null,
+    "template_filter": [
+      "BREAK_HOLD",
+      "BREAK_RETEST_HOLD"
+    ]
+  },
+  "metrics": {
+    "expectancy": -0.1512,
+    "fill_retention": 0.065,
+    "fills": 90,
+    "gross_loss": -38.86,
+    "gross_profit": 25.25,
+    "losses": 57,
+    "max_loss_streak": 15,
+    "max_session_drawdown": 4.67,
+    "name": "OPENING_STATE_BUY_CONTINUATION_EXTENDED_V1",
+    "net_profit": -13.61,
+    "no_gross_loss": false,
+    "profit_factor": 0.6498,
+    "profitable_session_count": 3,
+    "wins": 33
+  },
+  "prospective_start": "2026-07-08T17:22:35.7091920+00:00",
+  "raw_opportunities_after_start": 24719,
+  "replay_config": {
+    "absolute_pending_expiry": true,
+    "candle_close_delay_seconds": 60.0,
+    "continuation_expiry_seconds": 120,
+    "max_entry_distance": 10.0,
+    "max_quote_drift": 0.6,
+    "minimum_stop_distance": 0.35,
+    "minimum_stop_spread_multiple": 1.2,
+    "placement_delay_seconds": 5.0,
+    "reaction_expiry_seconds": 20,
+    "risk_reward": 0.9,
+    "skip_if_entry_crossed_at_placement": true
+  },
+  "safety": {
+    "account_safety": {
+      "passed": true,
+      "reason": null,
+      "require_demo": true,
+      "trade_mode": "DEMO"
+    },
+    "connected": true,
+    "open_order_count": 0,
+    "open_position_count": 0,
+    "symbol": {
+      "ask": 4138.82,
+      "bid": 4138.53,
+      "digits": 2,
+      "expiration_mode": 15,
+      "filling_mode": 1,
+      "name": "XAUUSD.vx",
+      "order_mode": 63,
+      "point": 0.01,
+      "spread": 29,
+      "spread_price": 0.2899999999999636,
+      "supports_limit_orders": true,
+      "supports_order_time_gtc": true,
+      "supports_order_time_specified": true,
+      "supports_stop_orders": true,
+      "tick_time_utc": "2026-07-22T18:18:50.782000+00:00",
+      "trade_allowed": true,
+      "trade_exemode": 2,
+      "trade_freeze_distance_price": 0.0,
+      "trade_freeze_level": 0,
+      "trade_stops_distance_price": 0.01,
+      "trade_stops_level": 1,
+      "tradeapi_disabled": false
+    }
+  },
+  "schema_version": 1
+}

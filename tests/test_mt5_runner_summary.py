@@ -306,6 +306,8 @@ def test_runner_summary_records_rejection_retcode_comment(tmp_path):
     )
 
     assert summary["broker_rejections"] == 1
+    assert summary["orders_not_placed"] == 1
+    assert summary["broker_retcode_counts"] == {"10015": 1}
     assert summary["latest_execution"]["retcode"] == 10015
     assert summary["latest_execution"]["comment"] == "Invalid price"
     assert summary["latest_execution"]["request_type"] == "SELL_LIMIT"
@@ -332,6 +334,8 @@ def test_runner_summary_records_latest_order_check_context(tmp_path):
 
     assert summary["latest_execution"]["status"] == "SKIPPED_ORDER_CHECK"
     assert summary["latest_execution"]["order_check"]["retcode"] == 10030
+    assert summary["order_check_rejections"] == 1
+    assert summary["order_check_retcode_counts"] == {"10030": 1}
 
 
 def test_runner_summary_counts_statuses_by_entry_profile(tmp_path):
