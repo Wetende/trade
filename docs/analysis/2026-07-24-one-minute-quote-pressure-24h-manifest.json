@@ -1,0 +1,53 @@
+{
+  "artifact_hashes": {
+    "cli/main.py": "0f412b94b41d853722f4deee809f3346b845ce2597faeadc7f9ca331105669b2",
+    "docs/superpowers/specs/2026-07-24-one-minute-quote-pressure-24h-feasibility.md": "ee59c7b95434c2f39648d0354c22701d12adc14967488c087bc9a81e17946b1c",
+    "reports/2026-07-24-quote-pressure-feasibility-development-fold1.json": "9ea15b4814575461257d3f6ff15fcc4329097df497747864de045be72f0fff89",
+    "reports/2026-07-24-quote-pressure-feasibility-development-fold2.json": "6b3dd5fffb8937f73d18bf6cfc6de890677e9c3f6b740cdf42e777cc542eccb9",
+    "reports/2026-07-24-quote-pressure-feasibility-development-fold3.json": "994751c71e7eeca80e0fd46e03bcec540742c7b58c538d4ad4e34657444a96a3",
+    "scripts/freeze-one-minute-quote-pressure-24h.py": "365f27ea71f2c3e1db4bdc73f389aaa6d8e27d16b53e561ff77efca5ebaf14b5",
+    "scripts/start-one-minute-quote-pressure-24h.ps1": "d53742559026fccb8cd11ecb726fda793cfc48f137bdbb06a35afd339668b593",
+    "scripts/watch-one-minute-quote-pressure-24h.py": "984995442de58bca9decb2b8cc6f61f1fafa67bed3bb9483d5f3183eaf868437",
+    "tests/test_one_minute_quote_pressure_feasibility.py": "226cc14e80c7d0f9f87c40e13c0a975c00a20ba95e4c82fd43ccccf347b36b4c",
+    "tests/test_post_close_fixture_collection.py": "107f4e9c44d7c40c6dbadc4bfe5020c5e416c371cff0e99c579618c03122f6c3",
+    "tradingagents/agents/price_action/one_minute_quote_pressure_feasibility.py": "e817de43e4d48155ff482aca3098c9cb56f085d90aea5c6f4d57a5aab20ff9cd",
+    "tradingagents/agents/price_action/post_close_fixture_collection.py": "cf61025b60ae1eae65b58daaad2499687a25d2c2de131d10b149f6512f669e7a",
+    "tradingagents/brokers/mode_gate.py": "e553cecae40929ca5922e9ae4e90f394664752cd82146ac3b2d37cacd885888c",
+    "tradingagents/brokers/mt5.py": "78b8725e4842ab8081594adb0275d97359165199c4a4593ff0a8afaeeb90d42f"
+  },
+  "broker_mutation_enabled": false,
+  "config": {
+    "maximum_adverse_r": 0.15,
+    "maximum_spread_multiple": 1.1,
+    "maximum_stop_distance": 1.0,
+    "minimum_directional_pressure": 0.6,
+    "minimum_displacement_r": 0.1,
+    "minimum_sample_complete_rate": 0.15,
+    "minimum_session_coverage": 0.75,
+    "minimum_strict_events": 30,
+    "minimum_strict_feasible_rate": 0.05,
+    "minimum_windows": 1000,
+    "pressure_change_count": 20,
+    "pressure_window_seconds": 3.0,
+    "session_hours": 3
+  },
+  "data_quality": {
+    "demo_read_only_flat_required": true,
+    "minimum_tick_minute_candle_coverage": 0.995,
+    "retry_incomplete_recent_partition": true,
+    "unique_candle_timestamps": true
+  },
+  "evidence_role": "FUTURE_24H",
+  "evidence_window": [
+    "2026-07-26T22:00:00+00:00",
+    "2026-07-27T22:00:00+00:00"
+  ],
+  "fail_action": "REQUIRE_EXPLICIT_PLAYBOOK_REVISION_OR_STOP",
+  "frozen_at_utc": "2026-07-24T21:13:34.641579+00:00",
+  "order_capability": false,
+  "pass_action": "PERMIT_SEPARATELY_NAMED_V11_DEVELOPMENT_ONLY",
+  "probe": "ONE_MINUTE_QUOTE_PRESSURE_FEASIBILITY_24H_V1",
+  "promotion_capability": false,
+  "schema_version": 1,
+  "status": "FROZEN"
+}

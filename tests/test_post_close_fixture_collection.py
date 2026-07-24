@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from tradingagents.agents.price_action.post_close_fixture_collection import (
+    assess_fixture_data_quality,
     collect_post_close_fixture,
     parse_evidence_timestamp,
 )
@@ -85,6 +86,33 @@ def test_collect_post_close_fixture_retains_exact_context_and_exclusive_end():
         "2026-06-15T00:00:00+00:00"
     ]
     assert all(call[0] != "order_send" for call in broker.calls)
+    assert result["data_quality"]["passed"] is True
+    assert result["data_quality"]["tick_minute_candle_coverage"] == 1.0
+
+
+def test_fixture_quality_rejects_ticks_without_matching_closed_candles():
+    start = datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc)
+    candles = [
+        {"timestamp": start.isoformat()},
+    ]
+    ticks = [
+        {"time": start.isoformat()},
+        {"time": (start + timedelta(minutes=1)).isoformat()},
+    ]
+
+    quality = assess_fixture_data_quality(
+        candles,
+        ticks,
+        start_utc=start,
+        end_utc=start + timedelta(minutes=2),
+    )
+
+    assert quality["passed"] is False
+    assert quality["tick_minute_candle_coverage"] == 0.5
+    assert quality["missing_tick_minutes"] == 1
+    assert quality["reasons"] == [
+        "TICK_MINUTE_CANDLE_COVERAGE_BELOW_MINIMUM"
+    ]
 
 
 def test_collect_post_close_fixture_refuses_real_order_capable_config():

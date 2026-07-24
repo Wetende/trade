@@ -946,6 +946,8 @@ def one_minute_post_close_collect(
     end: str = typer.Option(..., "--end"),
     output: Path = typer.Option(..., "--output"),
     context_candles: int = typer.Option(60, "--context-candles", min=2),
+    attempts: int = typer.Option(5, "--attempts", min=1, max=10),
+    retry_seconds: int = typer.Option(60, "--retry-seconds", min=0, max=300),
 ):
     """Collect a bounded read-only MT5 fixture for post-close research."""
     _load_runtime_env()
@@ -965,13 +967,39 @@ def one_minute_post_close_collect(
         config = MT5ConnectionConfig.from_env()
         broker = MT5Broker(config)
         connection = broker.connect()
-        fixture = collect_post_close_fixture(
-            broker,
-            connection=connection,
-            start_utc=start_utc,
-            end_utc=end_utc,
-            context_candles=context_candles,
-        )
+        fixture = None
+        for attempt in range(1, attempts + 1):
+            try:
+                fixture = collect_post_close_fixture(
+                    broker,
+                    connection=connection,
+                    start_utc=start_utc,
+                    end_utc=end_utc,
+                    context_candles=context_candles,
+                )
+                break
+            except MT5BrokerError as exc:
+                message = str(exc)
+                retryable = any(
+                    marker in message
+                    for marker in (
+                        "MT5 copy_",
+                        "MT5 returned",
+                        "fixture data quality failed",
+                    )
+                )
+                if not retryable or attempt == attempts:
+                    raise
+                console.print(
+                    f"[yellow]collection attempt {attempt}/{attempts} failed; "
+                    f"retrying in {retry_seconds}s: {message}[/yellow]"
+                )
+                if retry_seconds:
+                    import time
+
+                    time.sleep(retry_seconds)
+        if fixture is None:  # pragma: no cover - loop either succeeds or raises
+            raise MT5BrokerError("post-close fixture collection produced no result")
         _write_json_atomic(output, fixture)
         console.print(
             json.dumps(
@@ -981,6 +1009,7 @@ def one_minute_post_close_collect(
                     "evidence_end": fixture["evidence_end"],
                     "candle_count": len(fixture["candles"]),
                     "tick_count": len(fixture["ticks"]),
+                    "data_quality": fixture["data_quality"],
                     "broker_mutation_enabled": False,
                 },
                 indent=2,
@@ -1015,6 +1044,49 @@ def one_minute_post_close_multi_screen(
         manifest_path=manifest,
         stage=normalized_stage,
     )
+    _write_json_atomic(output, report)
+    console.print(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command("one-minute-quote-pressure-feasibility")
+def one_minute_quote_pressure_feasibility(
+    fixture: Path = typer.Option(..., "--fixture"),
+    output: Path = typer.Option(..., "--output"),
+    evidence_role: str = typer.Option("DEVELOPMENT_ONLY", "--evidence-role"),
+    manifest: Path | None = typer.Option(None, "--manifest"),
+):
+    """Measure whether MT5 can supply the frozen M1 quote-pressure sample."""
+    from tradingagents.agents.price_action.one_minute_quote_pressure_feasibility import (
+        FeasibilityConfig,
+        analyze_feasibility_path,
+        validate_feasibility_manifest,
+    )
+
+    role = evidence_role.strip().upper()
+    if role not in {"DEVELOPMENT_ONLY", "FUTURE_24H"}:
+        raise typer.BadParameter("evidence role must be DEVELOPMENT_ONLY or FUTURE_24H")
+    frozen = None
+    if role == "FUTURE_24H":
+        if manifest is None:
+            raise typer.BadParameter("FUTURE_24H evidence requires a frozen manifest")
+        try:
+            frozen = validate_feasibility_manifest(manifest)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    report = analyze_feasibility_path(
+        fixture,
+        config=FeasibilityConfig(),
+        evidence_role=role,
+    )
+    if frozen is not None:
+        if [report["evidence_start"], report["evidence_end"]] != frozen["evidence_window"]:
+            raise typer.BadParameter("fixture window differs from frozen 24-hour window")
+        from tradingagents.agents.price_action.one_minute_quote_pressure_v8_promotion import (
+            sha256_file,
+        )
+
+        report["manifest_path"] = str(manifest.resolve())
+        report["manifest_sha256"] = sha256_file(manifest)
     _write_json_atomic(output, report)
     console.print(json.dumps(report, indent=2, sort_keys=True))
 
