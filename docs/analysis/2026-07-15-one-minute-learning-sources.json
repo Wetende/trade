@@ -12,7 +12,8 @@
   "retired_candidate_reports": [
     "reports/2026-07-15-one-minute-scalper-diagnostic/v8-implementation-status.json",
     "reports/2026-07-22-one-minute-causal-microburst-v9-1-discovery.json",
-    "reports/2026-07-22-opening-buy-continuation-v1-retirement.json"
+    "reports/2026-07-22-opening-buy-continuation-v1-retirement.json",
+    "reports/2026-07-24-one-minute-causal-reclaim-v10-discovery-corrected-data.json"
   ],
   "guardrails": {
     "broker_mutation_enabled": false,
