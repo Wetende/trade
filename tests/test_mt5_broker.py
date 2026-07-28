@@ -3098,3 +3098,22 @@ def test_safe_mt5_connection_status_excludes_private_account_metadata():
     assert status["symbol"]["tradeapi_disabled"] is False
     assert status["open_order_count"] == 0
     assert status["open_position_count"] == 0
+
+
+def test_safe_mt5_connection_status_does_not_invent_terminal_permissions():
+    status = safe_mt5_connection_status(
+        {
+            "connected": True,
+            "account": {"trade_mode_label": "DEMO"},
+            "symbol": {"name": "XAUUSD", "bid": 3340.10, "ask": 3340.35},
+        },
+        account_safety={
+            "require_demo": True,
+            "trade_mode": "DEMO",
+            "passed": True,
+            "reason": None,
+        },
+    )
+
+    assert "trade_allowed" not in status["symbol"]
+    assert "tradeapi_disabled" not in status["symbol"]

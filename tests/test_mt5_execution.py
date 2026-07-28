@@ -1135,6 +1135,35 @@ def test_executor_places_pending_order_when_no_active_trade(tmp_path):
     assert result["order_check_result"]["ok"] is True
 
 
+def test_snapshot_state_journals_fresh_terminal_permissions(tmp_path):
+    broker = FakeBroker()
+    broker.symbol_snapshots = [
+        {
+            "symbol": {
+                **broker.symbol_info,
+                "bid": 2449.80,
+                "ask": 2450.10,
+                "spread_price": 0.30,
+            },
+            "tick": {"time_utc": "2026-07-01T14:00:02+00:00"},
+            "terminal": {
+                "trade_allowed": True,
+                "tradeapi_disabled": False,
+            },
+        }
+    ]
+    executor = MT5Executor(_config(), tmp_path, broker=broker)
+
+    state = executor.snapshot_state()
+
+    assert state["connection"]["symbol"]["trade_allowed"] is True
+    assert state["connection"]["symbol"]["tradeapi_disabled"] is False
+    journal_path = tmp_path / "XAUUSD" / "execution_journal" / "mt5_events.jsonl"
+    event = json.loads(journal_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert event["event_type"] == "STATE_SNAPSHOT"
+    assert event["payload"]["connection"]["symbol"]["trade_allowed"] is True
+
+
 def test_executor_skips_identical_consumed_opening_after_restart(tmp_path):
     stable_state = tmp_path / "stable-state"
     first_broker = FakeBroker()

@@ -70,10 +70,10 @@ def safe_mt5_connection_status(
         )
         if source_symbol.get(key) is not None
     }
-    symbol["trade_allowed"] = bool(terminal.get("trade_allowed", False))
-    symbol["tradeapi_disabled"] = bool(
-        terminal.get("tradeapi_disabled", False)
-    )
+    if terminal.get("trade_allowed") is not None:
+        symbol["trade_allowed"] = bool(terminal["trade_allowed"])
+    if terminal.get("tradeapi_disabled") is not None:
+        symbol["tradeapi_disabled"] = bool(terminal["tradeapi_disabled"])
     tick_time = tick.get("time_utc")
     if tick_time is None:
         tick_time = source_symbol.get("server_time")

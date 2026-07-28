@@ -37,6 +37,8 @@ ARTIFACT_PATHS = (
     "tradingagents/brokers/mt5_execution.py",
     "tradingagents/brokers/execution_state.py",
     "tradingagents/brokers/mt5_runner.py",
+    "tests/test_mt5_broker.py",
+    "tests/test_mt5_execution.py",
     "tests/test_one_minute_experimental_demo.py",
     "tests/test_one_minute_scalper.py",
 )

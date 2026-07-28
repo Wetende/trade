@@ -278,6 +278,27 @@ class MT5Executor:
     def _timeline_now_utc() -> datetime:
         return datetime.now(timezone.utc)
 
+    def _safe_connection_status(
+        self,
+        connection: dict[str, Any],
+        account_safety: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return truthful capability telemetry without inventing false flags."""
+        symbol_snapshot = None
+        snapshot = getattr(self.broker, "current_symbol_snapshot", None)
+        if callable(snapshot):
+            try:
+                symbol_snapshot = snapshot()
+            except Exception:
+                # Connection/account safety still has to be journaled. Unknown
+                # terminal permissions are omitted rather than recorded false.
+                symbol_snapshot = None
+        return safe_mt5_connection_status(
+            connection,
+            account_safety=account_safety,
+            symbol_snapshot=symbol_snapshot,
+        )
+
     def _rebuild_expiration_fallback_request(
         self,
         proposal: OrderProposal,
@@ -2750,10 +2771,7 @@ class MT5Executor:
         orders = self.broker.open_orders(self.config.symbol)
         positions = self.broker.open_positions(self.config.symbol)
         state = {
-            "connection": safe_mt5_connection_status(
-                connection,
-                account_safety=account_safety,
-            ),
+            "connection": self._safe_connection_status(connection, account_safety),
             "account_safety": account_safety,
             "orders": orders,
             "positions": positions,
