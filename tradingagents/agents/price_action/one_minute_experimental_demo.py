@@ -26,6 +26,7 @@ ARTIFACT_PATHS = (
     "docs/superpowers/specs/2026-07-28-one-minute-scalper-design.md",
     "reports/2026-07-27-one-minute-quote-pressure-24h-feasibility.json",
     "reports/2026-07-28-one-minute-execution-funnel-repair.json",
+    "reports/2026-07-28-one-minute-live-funnel-diagnostic/artifact.json",
     "scripts/start-one-minute-experimental-demo.ps1",
     "scripts/start-one-minute-experimental-supervisor.ps1",
     "scripts/one-minute-experimental-supervisor-worker.ps1",
@@ -40,6 +41,7 @@ ARTIFACT_PATHS = (
     "tradingagents/brokers/mt5_runner.py",
     "tests/test_mt5_broker.py",
     "tests/test_mt5_execution.py",
+    "tests/test_mt5_runner.py",
     "tests/test_one_minute_experimental_demo.py",
     "tests/test_one_minute_scalper.py",
 )
@@ -137,6 +139,7 @@ def generate_experimental_demo_record(
                 "crossed, moved-away, invalidated, and unsafe geometry are rejected",
                 "continuation stops that exceed one unit may become risk-capped structural pullback limits only outside the spread and within the moved-away allowance",
                 "effective stop risk is at least 1.2 spreads and no wider than one price unit",
+                "session-risk pricing reconnects and retries one transient MT5 failure without consuming the approved candle",
                 "quote counts are not represented as order flow",
                 "the firewall is experimental and is not promotion evidence",
             ],

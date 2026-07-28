@@ -50,6 +50,10 @@ cannot obtain order capability through this lane.
 - Session risk budget: 20 account-currency units (2R at the one-unit maximum
   stop assumption), reserving broker-calculated proposed stop risk plus a 0.05R
   cost buffer.
+- Before pricing that risk, re-establish the MT5 session and retry one transient
+  broker-connection failure in-cycle. If both attempts fail, remain fail-closed
+  without calling `order_check` or `order_send`, but do not consume the approved
+  candle; it may be reconsidered only while the same proposal is still current.
 - Two consecutive losses cause a persistent 15-minute cooldown. A fresh
   closed-candle structure is required after cooldown because old proposals are
   expired and duplicate state is durable.

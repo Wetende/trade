@@ -272,13 +272,13 @@ class MT5Runner:
                 "last_processed_by_profile": last_processed_by_profile,
             }
         )
-        self._save_state(state)
 
         selected, decision, rejection_reason = self._select_directional_candidate(
             processed_rows
         )
         analysis_health_gate = self._analysis_health_gate(processed_rows)
         if decision == "DIRECTIONAL_CONFLICT_HOLD":
+            self._save_state(state)
             conflict_reasons = [
                 *analysis_health_gate["reasons"],
                 "directional_conflict",
@@ -309,6 +309,7 @@ class MT5Runner:
             )
 
         if selected is None:
+            self._save_state(state)
             if not multi_profile_result and len(processed_rows) == 1:
                 profile, as_of, proposal, analysis, _status = processed_rows[0]
                 return self._write_heartbeat(
@@ -357,6 +358,7 @@ class MT5Runner:
         selected_method = _method_for_profile(profile)
         block = self._blocked_strategy(proposal)
         if block is not None:
+            self._save_state(state)
             execution = {
                 "status": "SKIPPED_BLOCKED_STRATEGY",
                 "reason": "BLOCKED_STRATEGY_RULE",
@@ -389,21 +391,45 @@ class MT5Runner:
             proposal,
         )
         if session_risk_budget is not None and not session_risk_budget["accepted"]:
+            retryable_preflight = bool(session_risk_budget.get("retryable"))
+            if not retryable_preflight:
+                self._save_state(state)
             execution = {
-                "status": "SKIPPED_SESSION_RISK",
+                "status": (
+                    "DEFERRED_BROKER_PREFLIGHT"
+                    if retryable_preflight
+                    else "SKIPPED_SESSION_RISK"
+                ),
                 "reason": session_risk_budget["reason"],
                 "proposal": proposal.model_dump(mode="json"),
                 "session_risk_budget": session_risk_budget,
             }
             payload = {
-                "status": "ORDER_BLOCKED_SESSION_RISK",
+                "status": (
+                    "ORDER_DEFERRED_BROKER_PREFLIGHT"
+                    if retryable_preflight
+                    else "ORDER_BLOCKED_SESSION_RISK"
+                ),
                 "started_at_utc": started_at,
                 "entry_profile": profile,
                 "selected_method": selected_method,
                 "selected_profile": profile,
-                "mode_decision": f"{selected_method}_SESSION_RISK_BLOCKED",
+                "mode_decision": (
+                    f"{selected_method}_BROKER_PREFLIGHT_RETRY"
+                    if retryable_preflight
+                    else f"{selected_method}_SESSION_RISK_BLOCKED"
+                ),
                 "mode_rejection_reason": session_risk_budget["reason"],
-                "health_gate": health_gate(False, ["session_risk_budget"]),
+                "health_gate": health_gate(
+                    False,
+                    [
+                        (
+                            "broker_preflight"
+                            if retryable_preflight
+                            else "session_risk_budget"
+                        )
+                    ],
+                ),
                 "candidate_methods": self._candidate_methods(processed_rows),
                 "as_of": as_of,
                 "proposal": proposal.model_dump(mode="json"),
@@ -416,9 +442,19 @@ class MT5Runner:
                 payload.pop("entry_profile", None)
             return self._write_heartbeat(payload)
 
+        # Risk pricing is the last retryable preflight. Commit the candle before
+        # handing control to execution so an ambiguous send result cannot cause
+        # a duplicate order on the next cycle.
+        self._save_state(state)
         execution = self.executor.execute_proposal(proposal)
+        if session_risk_budget is not None:
+            execution = {
+                **execution,
+                "session_risk_budget": session_risk_budget,
+            }
         if execution.get("status") == "PLACED":
             self._record_owned_entry_order(state, execution)
+        self._save_state(state)
         payload = {
             "status": (
                 "ORDER_PLACED"
@@ -596,29 +632,90 @@ class MT5Runner:
         volume = getattr(proposal, "volume", None)
         if volume in (None, ""):
             volume = getattr(getattr(self.executor, "config", None), "volume", None)
-        estimator = getattr(getattr(self.executor, "broker", None), "estimate_stop_loss_account_currency", None)
-        try:
-            if not callable(estimator):
-                raise ValueError("stop-risk estimator is unavailable")
-            proposed_risk = float(estimator(side, float(volume), float(entry), float(stop)))
-            if not math.isfinite(proposed_risk) or proposed_risk <= 0:
-                raise ValueError("stop-risk estimate is invalid")
-            maximum_stop = (
-                float(entry) - 1.0
-                if side == "BUY"
-                else float(entry) + 1.0
-            )
-            maximum_one_risk = float(
-                estimator(side, float(volume), float(entry), maximum_stop)
-            )
-            if not math.isfinite(maximum_one_risk) or maximum_one_risk <= 0:
-                raise ValueError("maximum one-unit stop risk is invalid")
-        except (TypeError, ValueError) as exc:
-            return {
-                "accepted": False,
-                "reason": "SESSION_RISK_UNPRICED",
-                "error": str(exc),
-            }
+        broker = getattr(self.executor, "broker", None)
+        estimator = getattr(
+            broker,
+            "estimate_stop_loss_account_currency",
+            None,
+        )
+        connector = getattr(broker, "connect", None)
+        pricing_attempts = []
+        proposed_risk = None
+        maximum_one_risk = None
+        for attempt in range(1, 3):
+            try:
+                if not callable(estimator):
+                    raise ValueError("stop-risk estimator is unavailable")
+                if callable(connector):
+                    connector()
+                proposed_risk = float(
+                    estimator(
+                        side,
+                        float(volume),
+                        float(entry),
+                        float(stop),
+                    )
+                )
+                if not math.isfinite(proposed_risk) or proposed_risk <= 0:
+                    raise ValueError("stop-risk estimate is invalid")
+                maximum_stop = (
+                    float(entry) - 1.0
+                    if side == "BUY"
+                    else float(entry) + 1.0
+                )
+                maximum_one_risk = float(
+                    estimator(
+                        side,
+                        float(volume),
+                        float(entry),
+                        maximum_stop,
+                    )
+                )
+                if (
+                    not math.isfinite(maximum_one_risk)
+                    or maximum_one_risk <= 0
+                ):
+                    raise ValueError("maximum one-unit stop risk is invalid")
+                pricing_attempts.append(
+                    {
+                        "attempt": attempt,
+                        "status": "PRICED",
+                    }
+                )
+                break
+            except MT5BrokerError as exc:
+                pricing_attempts.append(
+                    {
+                        "attempt": attempt,
+                        "status": "RETRYABLE_BROKER_ERROR",
+                        "error": str(exc),
+                    }
+                )
+                if attempt == 2:
+                    return {
+                        "accepted": False,
+                        "reason": "SESSION_RISK_UNPRICED",
+                        "retryable": True,
+                        "pricing_attempt_count": len(pricing_attempts),
+                        "pricing_attempts": pricing_attempts,
+                        "error": str(exc),
+                    }
+            except (TypeError, ValueError) as exc:
+                return {
+                    "accepted": False,
+                    "reason": "SESSION_RISK_UNPRICED",
+                    "retryable": False,
+                    "pricing_attempt_count": len(pricing_attempts) + 1,
+                    "pricing_attempts": [
+                        *pricing_attempts,
+                        {
+                            "attempt": attempt,
+                            "status": "INVALID_RISK_INPUT",
+                            "error": str(exc),
+                        },
+                    ],
+                    "error": str(exc),
+                }
 
         realized_loss = max(0.0, -realized_net)
         limit = float(self.config.max_session_loss)
@@ -639,6 +736,8 @@ class MT5Runner:
             "required_currency": round(required, 10),
             "budget_currency": round(limit, 10),
             "remaining_currency": round(limit - realized_loss, 10),
+            "pricing_attempt_count": len(pricing_attempts),
+            "pricing_attempts": pricing_attempts,
         }
 
     def _entry_cooldown_payload(

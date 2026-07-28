@@ -1,0 +1,382 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Why the M1 Runner Placed No Orders",
+    "description": "Interim diagnostic of the active July 28 ONE_MINUTE_SCALPER DEMO session.",
+    "generatedAt": "2026-07-28T19:36:42.478800Z",
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Why the M1 Runner Placed No Orders"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "sourceId": "active_session",
+        "body": "## Executive Summary\n\n- **A verified execution defect blocked both valid setups.** The engine approved two SELL proposals, but each was lost before `order_check` because the session-risk estimator encountered a transient `MT5 terminal is not connected` result. No broker order was attempted.\n- **The signal remains much slower than the intended scalper behavior.** Across 142 completed M1 evaluations, the engine produced 67 candidate arms but approved only two setups—1.4% of evaluated minutes and 3.0% of arms.\n- **Broker and risk controls were not the cause of the zero-order result.** The two proposals never reached broker validation, while fresh snapshots before and after each failure showed a connected DEMO account with zero exposure.\n- **The next safe action is an execution-lifecycle repair after drained-flat completion.** Reconnect and retry stop-risk estimation within the proposal window, test duplicate prevention, freeze new hashes, and restart at volume 0.1. Do not loosen signal rules on this incomplete window."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "evaluated_minutes",
+          "candidate_arms",
+          "approved_setups",
+          "orders_placed"
+        ]
+      },
+      {
+        "id": "execution_defect_finding",
+        "type": "markdown",
+        "sourceId": "active_session",
+        "body": "## Two valid proposals were lost before broker validation\n\nAt 3:07 PM and 3:10 PM New York time, the engine approved risk-capped SELL pullbacks with one-unit stops and 1.5R targets. The runner then called the account-currency stop-risk estimator. A transient terminal connection flag raised `MT5BrokerError` before the execution layer could reconnect, build a broker request, run `order_check`, or submit an order.\n\nBecause the candle was already marked processed, the bounded retry loop recovered connectivity on the next cycle but could not retry either still-valid proposal. This is an execution-lifecycle defect, not a strategy rejection."
+      },
+      {
+        "id": "approved_proposal_table",
+        "type": "table",
+        "tableId": "approved_proposals"
+      },
+      {
+        "id": "frequency_finding",
+        "type": "markdown",
+        "sourceId": "active_session",
+        "body": "## The current confirmation design is still low-frequency\n\nThe execution defect explains why two approved setups became zero orders. It does not explain the broader scarcity. Of 67 arms, 40 failed because the next candle moved opposite the armed direction and 20 failed because it did not retest the frozen zone. Those two conditions removed 89.6% of arms before geometry or broker checks.\n\nThat design currently behaves like a selective two-candle setup engine, not a many-trades-per-hour scalper. A frequency change would be a signal-rule change and must be designed from multiple completed sessions, then tested prospectively; it should not be tuned on this single incomplete window."
+      },
+      {
+        "id": "arm_outcome_chart",
+        "type": "chart",
+        "chartId": "candidate_arm_outcomes"
+      },
+      {
+        "id": "recommended_next_steps",
+        "type": "markdown",
+        "body": "## Recommended next steps\n\n1. Let the active session reach its runtime deadline and drain to verified flat.\n2. Repair stop-risk preflight with a bounded DEMO reconnect/retry, while keeping the $20/2R budget and failing closed if risk still cannot be priced.\n3. Prevent an approved proposal from being irreversibly consumed by a retryable preflight failure; preserve one-active-lifecycle and duplicate-order protection.\n4. Add tests for a transient disconnect immediately after an approved proposal, recovery within the pending window, persistent disconnect, restart, and exactly-once submission.\n5. Freeze the repaired hashes, commit and push, then restart the 0.1 DEMO supervisor.\n6. Measure prospective approved, checked, placed, filled, and closed rates before deciding whether the signal design itself needs a separately preregistered frequency repair."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- After the connection repair, how many approved proposals reach `order_check`, placement, fill, and close per hour?\n- Does the current two-candle reconfirmation produce enough completed trades to learn expectancy, or does the next design need an explicit minimum opportunity-rate gate?\n- Are transient terminal disconnects concentrated around the minute boundary or account-currency risk calculation?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\nThis is an interim snapshot of an active DEMO session, not promotion evidence and not a profit claim. The observed signal frequency may vary by market regime. The two execution failures prove a lifecycle defect but are too few to estimate its long-run incidence. M15/M30 behavior, REAL trading, volume increases, and signal tuning from this single session remain out of scope."
+      }
+    ],
+    "cards": [
+      {
+        "id": "evaluated_minutes",
+        "dataset": "headline",
+        "sourceId": "active_session",
+        "description": "Distinct closed M1 candles processed in the snapshot window.",
+        "metrics": [
+          {
+            "label": "Evaluated minutes",
+            "field": "evaluated_minutes",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "candidate_arms",
+        "dataset": "headline",
+        "sourceId": "active_session",
+        "description": "Candidate arms evaluated across all six symmetric families.",
+        "metrics": [
+          {
+            "label": "Candidate arms",
+            "field": "candidate_arms",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "approved_setups",
+        "dataset": "headline",
+        "sourceId": "active_session",
+        "description": "Setups that passed signal and geometry gates.",
+        "metrics": [
+          {
+            "label": "Approved setups",
+            "field": "approved_setups",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "orders_placed",
+        "dataset": "headline",
+        "sourceId": "active_session",
+        "description": "Pending orders acknowledged as placed by MT5.",
+        "metrics": [
+          {
+            "label": "Orders placed",
+            "field": "orders_placed",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "candidate_arm_outcomes",
+        "title": "Candidate-arm outcomes",
+        "subtitle": "67 arms evaluated from 1:14 PM through 3:35 PM New York time",
+        "type": "horizontalBar",
+        "intent": "comparison",
+        "question": "Which gates removed candidate arms before order placement?",
+        "rationale": "Sorted horizontal bars make the long rejection labels and their relative contribution directly comparable.",
+        "dataset": "arm_outcomes",
+        "sourceId": "active_session",
+        "encodings": {
+          "x": {
+            "field": "outcome",
+            "type": "nominal",
+            "label": "Outcome"
+          },
+          "y": {
+            "field": "count",
+            "type": "quantitative",
+            "aggregate": "none",
+            "label": "Candidate arms"
+          },
+          "tooltip": [
+            {
+              "field": "count",
+              "type": "quantitative",
+              "label": "Arms"
+            },
+            {
+              "field": "share_of_arms",
+              "type": "quantitative",
+              "format": "percent",
+              "label": "Share of arms"
+            },
+            {
+              "field": "stage",
+              "type": "nominal",
+              "label": "Funnel stage"
+            }
+          ]
+        },
+        "valueFormat": "number",
+        "layout": "full",
+        "maxRows": 8
+      }
+    ],
+    "tables": [
+      {
+        "id": "approved_proposals",
+        "title": "Approved proposals and preflight outcomes",
+        "subtitle": "Both qualifying setups failed before order_check; no broker mutation was attempted",
+        "dataset": "approved_proposals",
+        "sourceId": "active_session",
+        "defaultSort": {
+          "field": "time_new_york",
+          "direction": "asc"
+        },
+        "density": "spacious",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "time_new_york",
+            "label": "Time",
+            "type": "text"
+          },
+          {
+            "field": "family",
+            "label": "Family",
+            "type": "text"
+          },
+          {
+            "field": "entry_mode",
+            "label": "Entry mode",
+            "type": "text"
+          },
+          {
+            "field": "entry",
+            "label": "Entry",
+            "format": "number"
+          },
+          {
+            "field": "stop",
+            "label": "Stop",
+            "format": "number"
+          },
+          {
+            "field": "target",
+            "label": "Target",
+            "format": "number"
+          },
+          {
+            "field": "risk_r",
+            "label": "Risk",
+            "format": "number"
+          },
+          {
+            "field": "execution_status",
+            "label": "Execution result",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "active_session",
+        "label": "July 28 active ONE_MINUTE_SCALPER session",
+        "path": "results/2026-07-28-131552-one-minute-experimental-learning-vol01"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-28T19:36:42.478800Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "evaluated_minutes": 142,
+          "candidate_arms": 67,
+          "approved_setups": 2,
+          "orders_placed": 0,
+          "runner_errors": 2,
+          "fills": 0,
+          "closed_trades": 0,
+          "unhealthy_data_checks": 0
+        }
+      ],
+      "arm_outcomes": [
+        {
+          "outcome": "Opposite-direction second candle",
+          "technical_reason": "RECONFIRMATION_CANDLE_WEAK",
+          "stage": "Reconfirmation",
+          "count": 40,
+          "share_of_arms": 0.597,
+          "approved": false,
+          "rank": 1
+        },
+        {
+          "outcome": "Frozen zone not retested",
+          "technical_reason": "FROZEN_ZONE_NOT_RETESTED",
+          "stage": "Reconfirmation",
+          "count": 20,
+          "share_of_arms": 0.2985,
+          "approved": false,
+          "rank": 2
+        },
+        {
+          "outcome": "Approved setup",
+          "technical_reason": "ORDER_GEOMETRY_ACCEPTED",
+          "stage": "Signal and geometry passed",
+          "count": 2,
+          "share_of_arms": 0.0299,
+          "approved": true,
+          "rank": 3
+        },
+        {
+          "outcome": "Stop already crossed",
+          "technical_reason": "BUY_STOP_ALREADY_CROSSED",
+          "stage": "Quote safety",
+          "count": 2,
+          "share_of_arms": 0.0299,
+          "approved": false,
+          "rank": 4
+        },
+        {
+          "outcome": "Risk-capped pullback too far",
+          "technical_reason": "RISK_CAPPED_PULLBACK_TOO_FAR",
+          "stage": "Geometry",
+          "count": 2,
+          "share_of_arms": 0.0299,
+          "approved": false,
+          "rank": 5
+        },
+        {
+          "outcome": "Frozen story not reconfirmed",
+          "technical_reason": "FROZEN_STORY_NOT_RECONFIRMED",
+          "stage": "Reconfirmation",
+          "count": 1,
+          "share_of_arms": 0.0149,
+          "approved": false,
+          "rank": 6
+        }
+      ],
+      "approved_proposals": [
+        {
+          "time_new_york": "3:07 PM",
+          "time_utc": "2026-07-28T19:08:02.467151Z",
+          "family": "HIGH_RESPECT_SELL",
+          "direction": "SELL",
+          "entry_mode": "RISK_CAPPED_PULLBACK",
+          "entry": 4024.84,
+          "stop": 4025.84,
+          "target": 4023.34,
+          "risk_r": 1.0,
+          "reward_r": 1.5,
+          "decision_bid": 4024.29,
+          "decision_ask": 4024.61,
+          "execution_status": "Preflight connection error",
+          "order_attempted": false,
+          "order_check_reached": false,
+          "error": "MT5 terminal is not connected"
+        },
+        {
+          "time_new_york": "3:10 PM",
+          "time_utc": "2026-07-28T19:11:00.843024Z",
+          "family": "FAILED_HIGH_BREAK_SELL",
+          "direction": "SELL",
+          "entry_mode": "RISK_CAPPED_PULLBACK",
+          "entry": 4024.58,
+          "stop": 4025.58,
+          "target": 4023.08,
+          "risk_r": 1.0,
+          "reward_r": 1.5,
+          "decision_bid": 4024.09,
+          "decision_ask": 4024.4,
+          "execution_status": "Preflight connection error",
+          "order_attempted": false,
+          "order_check_reached": false,
+          "error": "MT5 terminal is not connected"
+        }
+      ]
+    },
+    "accessIssues": []
+  },
+  "sources": [
+    {
+      "id": "active_session",
+      "label": "July 28 active ONE_MINUTE_SCALPER session",
+      "path": "results/2026-07-28-131552-one-minute-experimental-learning-vol01",
+      "query": {
+        "engine": "sqlite",
+        "language": "SQL",
+        "sql": "WITH funnel_records(record_type, label, count_value, share_value, time_new_york, family, entry, stop, target, execution_status) AS (VALUES ('headline', 'evaluated_minutes', 142, NULL, NULL, NULL, NULL, NULL, NULL, NULL), ('headline', 'candidate_arms', 67, NULL, NULL, NULL, NULL, NULL, NULL, NULL), ('headline', 'approved_setups', 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL), ('headline', 'orders_placed', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Opposite-direction second candle', 40, 0.5970, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Frozen zone not retested', 20, 0.2985, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Approved setup', 2, 0.0299, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Stop already crossed', 2, 0.0299, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Risk-capped pullback too far', 2, 0.0299, NULL, NULL, NULL, NULL, NULL, NULL), ('arm_outcome', 'Frozen story not reconfirmed', 1, 0.0149, NULL, NULL, NULL, NULL, NULL, NULL), ('approved_proposal', 'Preflight connection error', 1, NULL, '3:07 PM', 'HIGH_RESPECT_SELL', 4024.84, 4025.84, 4023.34, 'MT5 terminal is not connected'), ('approved_proposal', 'Preflight connection error', 1, NULL, '3:10 PM', 'FAILED_HIGH_BREAK_SELL', 4024.58, 4025.58, 4023.08, 'MT5 terminal is not connected')) SELECT * FROM funnel_records ORDER BY record_type, count_value DESC;",
+        "description": "Packages the reviewed aggregation from the active runner summary, per-candle engine telemetry, order proposals, cycle journal, and execution journal.",
+        "executed_at": "2026-07-28T19:36:42.478800Z",
+        "tables_used": [
+          "mt5_runner/summary.json",
+          "mt5_runner/cycles.jsonl",
+          "XAUUSD.vx/engine_telemetry/*.json",
+          "XAUUSD.vx/order_proposals/*.json",
+          "XAUUSD.vx/execution_journal/mt5_events.jsonl"
+        ],
+        "filters": [
+          "Current session only",
+          "Closed M1 evaluations through 2026-07-28 15:35 America/New_York",
+          "Candidate-arm outcomes are mutually exclusive terminal outcomes"
+        ],
+        "metric_definitions": [
+          "Evaluated minutes = count of engine telemetry payloads.",
+          "Candidate arms = count of candidate_evaluations across telemetry payloads.",
+          "Approved setups = candidate evaluations with approved=true.",
+          "Orders placed = runner summary orders_placed.",
+          "Share of arms = outcome count divided by 67 candidate arms."
+        ]
+      }
+    }
+  ]
+}

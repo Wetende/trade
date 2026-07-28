@@ -86,6 +86,36 @@ class FakeExecutor:
         return dict(self.history_result)
 
 
+class RetryableRiskExecutor(FakeExecutor):
+    def __init__(self, *, pricing_failures):
+        super().__init__(active=False)
+        self.pricing_failures = pricing_failures
+        self.connect_calls = 0
+        self.risk_pricing_calls = 0
+
+    def connect(self):
+        self.connect_calls += 1
+        return {"connected": True}
+
+    def estimate_stop_loss_account_currency(
+        self,
+        side,
+        volume,
+        entry_price,
+        stop_loss,
+    ):
+        self.risk_pricing_calls += 1
+        if self.pricing_failures > 0:
+            self.pricing_failures -= 1
+            raise MT5BrokerError("MT5 terminal is not connected")
+        return super().estimate_stop_loss_account_currency(
+            side,
+            volume,
+            entry_price,
+            stop_loss,
+        )
+
+
 class MonotonicClock:
     def __init__(self, times):
         self._times = list(times)
@@ -213,6 +243,101 @@ def test_experimental_runner_reserves_stop_risk_against_session_loss_cap(tmp_pat
     assert budget["reason"] == "SESSION_RISK_BUDGET_EXCEEDED"
     assert budget["cost_buffer_currency"] == 0.37
     assert budget["required_currency"] == 24.67
+
+
+def test_session_risk_pricing_reconnects_and_places_same_proposal(tmp_path):
+    executor = RetryableRiskExecutor(pricing_failures=1)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_session_loss=20.0,
+            reserve_stop_risk_against_session_limit=True,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    result = runner.run_once()
+
+    assert result["status"] == "ORDER_PLACED"
+    assert len(executor.executed) == 1
+    assert executor.connect_calls == 2
+    assert executor.risk_pricing_calls == 3
+    budget = result["execution"]["session_risk_budget"]
+    assert budget["accepted"] is True
+    assert budget["pricing_attempt_count"] == 2
+    assert [row["status"] for row in budget["pricing_attempts"]] == [
+        "RETRYABLE_BROKER_ERROR",
+        "PRICED",
+    ]
+
+
+def test_persistent_risk_preflight_failure_does_not_consume_candle(tmp_path):
+    executor = RetryableRiskExecutor(pricing_failures=2)
+    runner = MT5Runner(
+        MT5RunnerConfig(
+            results_dir=tmp_path,
+            poll_seconds=5,
+            max_cycles=1,
+            max_session_loss=20.0,
+            reserve_stop_risk_against_session_limit=True,
+        ),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    deferred = runner.run_once()
+
+    assert deferred["status"] == "ORDER_DEFERRED_BROKER_PREFLIGHT"
+    assert deferred["execution"]["status"] == "DEFERRED_BROKER_PREFLIGHT"
+    assert deferred["execution"]["session_risk_budget"]["retryable"] is True
+    assert executor.executed == []
+    saved_state = (
+        json.loads(runner.state_path.read_text(encoding="utf-8"))
+        if runner.state_path.exists()
+        else {}
+    )
+    assert "last_processed_as_of" not in saved_state
+
+    recovered = runner.run_once()
+
+    assert recovered["status"] == "ORDER_PLACED"
+    assert len(executor.executed) == 1
+    assert executor.connect_calls == 3
+
+
+def test_execution_handoff_error_keeps_candle_consumed_to_prevent_duplicate(
+    tmp_path,
+):
+    class AmbiguousExecutionExecutor(FakeExecutor):
+        def __init__(self):
+            super().__init__(active=False)
+            self.execute_calls = 0
+
+        def execute_proposal(self, proposal):
+            self.execute_calls += 1
+            raise MT5BrokerError("order result was unavailable")
+
+    executor = AmbiguousExecutionExecutor()
+    runner = MT5Runner(
+        MT5RunnerConfig(results_dir=tmp_path, poll_seconds=5, max_cycles=1),
+        executor=executor,
+        analysis_func=lambda: ("2026-05-28 10:15", proposed_order()),
+    )
+
+    try:
+        runner.run_once()
+    except MT5BrokerError:
+        pass
+    else:
+        raise AssertionError("ambiguous execution result should propagate")
+
+    repeated = runner.run_once()
+
+    assert repeated["status"] == "CANDLE_ALREADY_PROCESSED"
+    assert executor.execute_calls == 1
 
 
 def test_runner_propagates_engine_data_health_to_health_gate(tmp_path):
