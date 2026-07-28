@@ -11,27 +11,34 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-CANDIDATE_NAME = "ONE_MINUTE_ENTRY_MODEL_EXPERIMENTAL_V1"
+CANDIDATE_NAME = "ONE_MINUTE_SCALPER"
 EXPERIMENTAL_VOLUME = 0.1
 MAX_TOTAL_HOURS = 48.0
 MAX_SESSION_HOURS = 3.0
 MAX_SESSION_LOSS = 20.0
-BLOCKED_STRATEGY_RULES = (
-    "FAILED_HIGH_BREAK_SELL:*",
-    "FAILED_LOW_BREAK_BUY:*",
-)
+BLOCKED_STRATEGY_RULES: tuple[str, ...] = ()
 MIN_CANDIDATE_SCORE = 8.0
-MIN_STOP_SPREAD_MULTIPLE = 2.2
+MIN_STOP_SPREAD_MULTIPLE = 1.2
 ARTIFACT_PATHS = (
+    ".gitattributes",
     "cli/main.py",
+    "docs/analysis/2026-07-15-one-minute-learning-sources.json",
+    "docs/superpowers/specs/2026-07-28-one-minute-scalper-design.md",
+    "reports/2026-07-27-one-minute-quote-pressure-24h-feasibility.json",
     "scripts/start-one-minute-experimental-demo.ps1",
+    "scripts/start-one-minute-experimental-supervisor.ps1",
+    "scripts/one-minute-experimental-supervisor-worker.ps1",
+    "tradingagents/default_config.py",
     "tradingagents/agents/price_action/one_minute_entry_model.py",
+    "tradingagents/agents/price_action/one_minute_scalper.py",
     "tradingagents/agents/price_action/decision.py",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py",
     "tradingagents/brokers/mt5.py",
     "tradingagents/brokers/mt5_execution.py",
     "tradingagents/brokers/execution_state.py",
     "tradingagents/brokers/mt5_runner.py",
+    "tests/test_one_minute_experimental_demo.py",
+    "tests/test_one_minute_scalper.py",
 )
 
 
@@ -122,8 +129,10 @@ def generate_experimental_demo_record(
             "minimum_candidate_score": MIN_CANDIDATE_SCORE,
             "minimum_stop_to_spread_multiple": MIN_STOP_SPREAD_MULTIPLE,
             "basis": [
-                "failed-break BUY and SELL triggers were 0-for-7 in the learning set",
-                "tight stop-to-spread trades formed a strongly losing cluster",
+                "all six families require a second fully closed M1 candle",
+                "crossed, moved-away, invalidated, and unsafe geometry are rejected",
+                "stops are at least 1.2 spreads and no wider than one price unit",
+                "quote counts are not represented as order flow",
                 "the firewall is experimental and is not promotion evidence",
             ],
         },
@@ -211,6 +220,11 @@ def validate_experimental_demo_record(
     _require(runtime_config.get("require_demo_account") is True, "runtime must require DEMO")
     _require(runtime_config.get("allow_real_orders") is False, "REAL orders must be disabled")
     _require(
+        str(runtime_config.get("signal_model") or "").strip().upper()
+        == CANDIDATE_NAME,
+        "runtime signal model mismatch",
+    )
+    _require(
         abs(
             _finite_float(
                 runtime_config.get("max_session_loss"),
@@ -248,6 +262,24 @@ def validate_experimental_demo_record(
         )
         <= 1e-12,
         "runtime minimum stop-spread multiple mismatch",
+    )
+    _require(
+        abs(_finite_float(runtime_config.get("reaction_pending_seconds"), "reaction expiry") - 20.0)
+        <= 1e-12,
+        "runtime reaction expiry mismatch",
+    )
+    _require(
+        abs(_finite_float(runtime_config.get("impulse_pending_seconds"), "impulse expiry") - 20.0)
+        <= 1e-12,
+        "runtime impulse expiry mismatch",
+    )
+    _require(
+        int(runtime_config.get("loss_streak_cooldown_count") or 0) == 2,
+        "runtime loss-streak count mismatch",
+    )
+    _require(
+        int(runtime_config.get("loss_streak_cooldown_seconds") or 0) == 900,
+        "runtime loss-streak cooldown mismatch",
     )
     return ExperimentalDemoValidation(
         candidate=CANDIDATE_NAME,
@@ -310,6 +342,7 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
     temporary.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     temporary.replace(path)
 

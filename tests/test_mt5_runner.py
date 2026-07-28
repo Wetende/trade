@@ -211,7 +211,8 @@ def test_experimental_runner_reserves_stop_risk_against_session_loss_cap(tmp_pat
     budget = result["execution"]["session_risk_budget"]
     assert budget["accepted"] is False
     assert budget["reason"] == "SESSION_RISK_BUDGET_EXCEEDED"
-    assert budget["required_currency"] == 24.3
+    assert budget["cost_buffer_currency"] == 0.37
+    assert budget["required_currency"] == 24.67
 
 
 def test_runner_propagates_engine_data_health_to_health_gate(tmp_path):

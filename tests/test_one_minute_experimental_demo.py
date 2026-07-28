@@ -27,7 +27,12 @@ def _runtime():
         "volume_boost_enabled": False,
         "blocked_strategy_rules": BLOCKED_STRATEGY_RULES,
         "minimum_candidate_score": 8.0,
-        "minimum_stop_spread_multiple": 2.2,
+        "minimum_stop_spread_multiple": 1.2,
+        "signal_model": "ONE_MINUTE_SCALPER",
+        "reaction_pending_seconds": 20.0,
+        "impulse_pending_seconds": 20.0,
+        "loss_streak_cooldown_count": 2,
+        "loss_streak_cooldown_seconds": 900,
     }
 
 

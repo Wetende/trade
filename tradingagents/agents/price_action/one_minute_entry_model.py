@@ -2483,7 +2483,7 @@ def _payload(
     }
 
 
-def analyze_one_minute_entry(
+def _analyze_legacy_one_minute_entry(
     symbol: str,
     as_of: str,
     timeframe_data: dict[str, Any],
@@ -2765,6 +2765,42 @@ def analyze_one_minute_entry(
         candidate_evaluations=candidate_evaluations,
         selected_candidate=selected_telemetry,
         message=f"One Minute Scalper selected {selected.trigger} from the latest closed candle.",
+    )
+
+
+def analyze_one_minute_entry(
+    symbol: str,
+    as_of: str,
+    timeframe_data: dict[str, Any],
+    market_timezone: str = "America/New_York",
+    session_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Route order-capable M1 sessions to the causal closed-candle model.
+
+    The legacy selector remains available for historical replay only.  Runtime
+    launchers must explicitly select ``ONE_MINUTE_SCALPER`` so old fixtures and
+    retired-candidate reports remain reproducible without restoring their order
+    capability.
+    """
+    config = session_config or {}
+    signal_model = str(config.get("fast_signal_model") or "LEGACY_REPLAY").strip().upper()
+    if signal_model == "ONE_MINUTE_SCALPER":
+        from tradingagents.agents.price_action.one_minute_scalper import (
+            analyze_one_minute_scalper,
+        )
+
+        return analyze_one_minute_scalper(
+            symbol,
+            as_of,
+            timeframe_data,
+            session_config=config,
+        )
+    return _analyze_legacy_one_minute_entry(
+        symbol,
+        as_of,
+        timeframe_data,
+        market_timezone=market_timezone,
+        session_config=config,
     )
 
 

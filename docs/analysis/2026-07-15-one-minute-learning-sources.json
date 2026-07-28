@@ -15,6 +15,9 @@
     "reports/2026-07-22-opening-buy-continuation-v1-retirement.json",
     "reports/2026-07-24-one-minute-causal-reclaim-v10-discovery-corrected-data.json"
   ],
+  "feasibility_reports": [
+    "reports/2026-07-27-one-minute-quote-pressure-24h-feasibility.json"
+  ],
   "guardrails": {
     "broker_mutation_enabled": false,
     "live_rule_mutation_enabled": false,

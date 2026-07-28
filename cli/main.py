@@ -123,6 +123,7 @@ def _load_runtime_env() -> None:
         "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
         "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
         "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
+        "TRADINGAGENTS_FAST_SIGNAL_MODEL": "fast_signal_model",
         "TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS": "fast_reaction_pending_seconds",
         "TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS": "fast_impulse_pending_seconds",
         "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
@@ -188,6 +189,9 @@ def _load_runtime_env() -> None:
     ]
     DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
         "fast_history_window_candles"
+    ]
+    DEFAULT_CONFIG["price_action"]["fast_signal_model"] = DEFAULT_CONFIG[
+        "fast_signal_model"
     ]
     DEFAULT_CONFIG["price_action"]["fast_reaction_pending_seconds"] = DEFAULT_CONFIG[
         "fast_reaction_pending_seconds"
@@ -1789,6 +1793,19 @@ def mt5_run(
                         ),
                         "minimum_stop_spread_multiple": DEFAULT_CONFIG.get(
                             "fast_min_stop_spread_multiple"
+                        ),
+                        "signal_model": DEFAULT_CONFIG.get("fast_signal_model"),
+                        "reaction_pending_seconds": DEFAULT_CONFIG.get(
+                            "fast_reaction_pending_seconds"
+                        ),
+                        "impulse_pending_seconds": DEFAULT_CONFIG.get(
+                            "fast_impulse_pending_seconds"
+                        ),
+                        "loss_streak_cooldown_count": DEFAULT_CONFIG.get(
+                            "runner_loss_streak_cooldown_count"
+                        ),
+                        "loss_streak_cooldown_seconds": DEFAULT_CONFIG.get(
+                            "runner_loss_streak_cooldown_seconds"
                         ),
                     },
                 )

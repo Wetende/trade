@@ -603,6 +603,16 @@ class MT5Runner:
             proposed_risk = float(estimator(side, float(volume), float(entry), float(stop)))
             if not math.isfinite(proposed_risk) or proposed_risk <= 0:
                 raise ValueError("stop-risk estimate is invalid")
+            maximum_stop = (
+                float(entry) - 1.0
+                if side == "BUY"
+                else float(entry) + 1.0
+            )
+            maximum_one_risk = float(
+                estimator(side, float(volume), float(entry), maximum_stop)
+            )
+            if not math.isfinite(maximum_one_risk) or maximum_one_risk <= 0:
+                raise ValueError("maximum one-unit stop risk is invalid")
         except (TypeError, ValueError) as exc:
             return {
                 "accepted": False,
@@ -612,7 +622,8 @@ class MT5Runner:
 
         realized_loss = max(0.0, -realized_net)
         limit = float(self.config.max_session_loss)
-        required = realized_loss + proposed_risk
+        cost_buffer = maximum_one_risk * 0.05
+        required = realized_loss + proposed_risk + cost_buffer
         accepted = required <= limit + 1e-9
         return {
             "accepted": accepted,
@@ -623,6 +634,8 @@ class MT5Runner:
             ),
             "realized_loss_currency": round(realized_loss, 10),
             "proposed_stop_risk_currency": round(proposed_risk, 10),
+            "cost_buffer_currency": round(cost_buffer, 10),
+            "maximum_one_risk_currency": round(maximum_one_risk, 10),
             "required_currency": round(required, 10),
             "budget_currency": round(limit, 10),
             "remaining_currency": round(limit - realized_loss, 10),

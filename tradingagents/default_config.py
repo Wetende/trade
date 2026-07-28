@@ -42,6 +42,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_FAST_TIMEFRAME": "fast_timeframe",
     "TRADINGAGENTS_FAST_CONFIRMATION_TIMEFRAME": "fast_confirmation_timeframe",
     "TRADINGAGENTS_FAST_HISTORY_WINDOW_CANDLES": "fast_history_window_candles",
+    "TRADINGAGENTS_FAST_SIGNAL_MODEL": "fast_signal_model",
     "TRADINGAGENTS_FAST_REACTION_PENDING_SECONDS": "fast_reaction_pending_seconds",
     "TRADINGAGENTS_FAST_IMPULSE_PENDING_SECONDS": "fast_impulse_pending_seconds",
     "TRADINGAGENTS_FAST_MIN_CANDIDATE_SCORE": "fast_min_candidate_score",
@@ -162,6 +163,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "fast_timeframe": "1m",
     "fast_confirmation_timeframe": "1m",
     "fast_history_window_candles": 60,
+    "fast_signal_model": "LEGACY_REPLAY",
     "fast_reaction_pending_seconds": 20.0,
     "fast_impulse_pending_seconds": 45.0,
     "fast_min_candidate_score": 8.0,
@@ -212,6 +214,9 @@ DEFAULT_CONFIG["price_action"]["fast_confirmation_timeframe"] = DEFAULT_CONFIG[
 ]
 DEFAULT_CONFIG["price_action"]["fast_history_window_candles"] = DEFAULT_CONFIG[
     "fast_history_window_candles"
+]
+DEFAULT_CONFIG["price_action"]["fast_signal_model"] = DEFAULT_CONFIG[
+    "fast_signal_model"
 ]
 DEFAULT_CONFIG["price_action"]["fast_reaction_pending_seconds"] = DEFAULT_CONFIG[
     "fast_reaction_pending_seconds"
