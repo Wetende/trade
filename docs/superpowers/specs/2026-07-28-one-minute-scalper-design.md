@@ -20,18 +20,29 @@ cannot obtain order capability through this lane.
   high/low break, or failed high/low break. The arm freezes its level, zone,
   direction, invalidation, timestamp, and family.
 - Candle 60 must arrive after the arm and within three minutes. It must retest
-  the frozen zone and close directionally in a way that reconfirms that same
-  story. A weak, mixed, late, or different story is rejected.
+  the frozen zone, remain directionally aligned, and close beyond the frozen
+  story boundary. Candle 59 already created the classified signal, so candle 60
+  is not required to create a second independent rejection, engulfing, or
+  strong-close signal. An opposite-direction, late, invalidated, or different
+  story is rejected.
 - The first fresh bid/ask snapshot after confirmation is used only for
   execution safety. Tick counts are not used, and the system makes no claim of
   true order-flow imbalance because the feed has no depth or traded volume.
-- Place a stop one tick beyond the confirmation extreme. Reject an already
-  crossed, moved-away, invalidated, stale, or malformed quote.
+- Prefer a continuation stop one tick beyond the confirmation extreme. If its
+  structural risk would exceed one price unit, retain the structural stop and
+  use a risk-capped pullback entry exactly one unit from that stop only when the
+  resulting limit is outside the spread and no farther than the existing
+  moved-away allowance. Reject an already crossed, distant, invalidated,
+  stale, or malformed quote.
+- Rejected stop geometry retains its attempted entry, stop, and risk distance
+  in telemetry so the learning ledger can distinguish a near miss from an
+  unbounded structure without changing the live rule.
 
 ## Geometry and lifecycle
 
-- Structural stop: at least the broker minimum and 1.2 current spreads, never
-  wider than 1.00 price unit.
+- Structural stop risk: at least the broker minimum and 1.2 current spreads,
+  never wider than 1.00 price unit from the effective continuation or pullback
+  entry.
 - Target: 1.5R.
 - Pending expiry: 20 seconds, also bounded by the next M1 candle boundary.
 - One arm/order/position lifecycle at a time.

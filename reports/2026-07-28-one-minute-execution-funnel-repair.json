@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "candidate": "ONE_MINUTE_SCALPER",
+  "frozen_at_utc": "2026-07-28T17:12:32.4981675Z",
+  "evidence_role": "HYPOTHESIS_GENERATION_ONLY",
+  "profit_claim": false,
+  "problem_statement": {
+    "observed_arms": 255,
+    "order_proposals": 0,
+    "orders_placed": 0,
+    "cause": "The second closed candle was required to create another full legacy signal even though the first candle had already classified and frozen the story. The few stories that survived that redundant gate were then usually rejected because a continuation stop beyond the confirmation extreme exceeded the one-unit risk limit.",
+    "baseline_rejections": {
+      "RECONFIRMATION_CANDLE_WEAK": 175,
+      "FROZEN_ZONE_NOT_RETESTED": 62,
+      "STRUCTURAL_STOP_TOO_WIDE": 14,
+      "BUY_STOP_ALREADY_CROSSED": 3,
+      "SELL_STOP_ALREADY_CROSSED": 1
+    }
+  },
+  "source_sessions": [
+    {
+      "path": "results/2026-07-28-025133-one-minute-experimental-learning-vol01",
+      "arms": 104,
+      "completion_status": "COMPLETED_DRAINED_FLAT"
+    },
+    {
+      "path": "results/2026-07-28-055204-one-minute-experimental-learning-vol01",
+      "arms": 61,
+      "completion_status": "COMPLETED_DRAINED_FLAT"
+    },
+    {
+      "path": "results/2026-07-28-085235-one-minute-experimental-learning-vol01",
+      "arms": 69,
+      "completion_status": "COMPLETED_DRAINED_FLAT"
+    },
+    {
+      "path": "results/2026-07-28-115315-one-minute-experimental-learning-vol01",
+      "arms": 21,
+      "completion_status": "INCOMPLETE_MISSING_EXIT_RESULT",
+      "use": "DIAGNOSTIC_INPUT_ONLY_NOT_A_COMPLETED_LEARNING_SOURCE"
+    }
+  ],
+  "repair_hypothesis": {
+    "reconfirmation": "The second fully closed candle must be directionally aligned, retest the frozen zone, and close beyond the frozen story boundary. It confirms the existing story and is not required to create a second independent rejection, engulfing, or strong-close signal.",
+    "geometry": "A safe continuation stop remains preferred. When its structural risk exceeds one price unit, retain the structural stop and permit a risk-capped pullback limit exactly one unit from that stop only if the entry is outside the spread and inside the existing moved-away allowance.",
+    "symmetry": "The same causal and geometric conditions apply to all three BUY and all three SELL families."
+  },
+  "historical_diagnostic_replay": {
+    "interpretation": "Funnel feasibility only; this replay is not validation and cannot establish expectancy.",
+    "arms": 255,
+    "would_reach_order_proposal": 8,
+    "accepted_entry_modes": {
+      "RISK_CAPPED_PULLBACK": 8
+    },
+    "outcomes": {
+      "RECONFIRMATION_CANDLE_WEAK": 123,
+      "FROZEN_ZONE_NOT_RETESTED": 102,
+      "RISK_CAPPED_PULLBACK": 8,
+      "RISK_CAPPED_PULLBACK_TOO_FAR": 10,
+      "RISK_CAPPED_PULLBACK_INSIDE_SPREAD": 3,
+      "BUY_STOP_ALREADY_CROSSED": 5,
+      "SELL_STOP_ALREADY_CROSSED": 1,
+      "BUY_STORY_MOVED_AWAY": 1,
+      "SELL_STORY_MOVED_AWAY": 1,
+      "FROZEN_STORY_NOT_RECONFIRMED": 1
+    },
+    "accepted_risk_distance": {
+      "minimum": 1.0,
+      "maximum": 1.0
+    },
+    "risk_reward": 1.5
+  },
+  "unchanged_safety_invariants": {
+    "account_mode": "DEMO_ONLY",
+    "volume": 0.1,
+    "max_session_loss": 20.0,
+    "max_session_r": 2.0,
+    "volume_boost": false,
+    "one_active_lifecycle": true,
+    "pending_expiry_seconds": 20,
+    "deadline": "2026-07-30T06:47:22.982125Z",
+    "deadline_extended": false,
+    "m15_m30_modified": false
+  },
+  "prospective_rule": "Only sessions started after the repaired code and authorization hashes are frozen may supply outcome evidence for this repair. No single session may mutate the live rule."
+}

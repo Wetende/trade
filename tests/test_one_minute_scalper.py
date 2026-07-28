@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from tradingagents.agents.execution.order_proposal import build_order_proposal
 from tradingagents.agents.price_action.models import Candle
 from tradingagents.agents.price_action.one_minute_entry_model import (
     FAILED_HIGH_BREAK_SELL,
@@ -18,6 +19,7 @@ from tradingagents.agents.price_action.one_minute_scalper import (
     build_order_geometry,
     reconfirm_arm,
 )
+from tradingagents.brokers.mt5 import MT5ConnectionConfig, MT5OrderRequestBuilder
 
 
 BUY_FAMILIES = (LOW_RESPECT_BUY, HIGH_BREAK_BUY, FAILED_LOW_BREAK_BUY)
@@ -76,6 +78,24 @@ def _confirmation(family: str) -> Candle:
     )
 
 
+def _directional_hold_confirmation(family: str) -> Candle:
+    if family == HIGH_BREAK_BUY:
+        values = (100.14, 100.40, 100.10, 100.16)
+    elif family in BUY_FAMILIES:
+        values = (100.09, 100.30, 99.90, 100.11)
+    elif family == LOW_BREAK_SELL:
+        values = (99.86, 99.90, 99.60, 99.84)
+    else:
+        values = (99.91, 100.10, 99.70, 99.89)
+    return Candle(
+        timestamp="2026-07-28T12:59:00+00:00",
+        open=values[0],
+        high=values[1],
+        low=values[2],
+        close=values[3],
+    )
+
+
 @pytest.mark.parametrize("family", BUY_FAMILIES + SELL_FAMILIES)
 def test_all_six_symmetric_families_require_and_pass_second_closed_candle(family):
     result = reconfirm_arm(_arm(family), _confirmation(family))
@@ -83,6 +103,17 @@ def test_all_six_symmetric_families_require_and_pass_second_closed_candle(family
     assert result.accepted is True
     assert result.reason == "RECONFIRMATION_ACCEPTED"
     assert result.confirmation_type != "mixed"
+
+
+@pytest.mark.parametrize("family", BUY_FAMILIES + SELL_FAMILIES)
+def test_all_six_families_accept_directional_story_hold_without_second_full_signal(
+    family,
+):
+    result = reconfirm_arm(_arm(family), _directional_hold_confirmation(family))
+
+    assert result.accepted is True
+    assert result.reason == "RECONFIRMATION_ACCEPTED"
+    assert result.confirmation_type == "directional_hold"
 
 
 def test_weak_or_noncausal_second_candle_is_rejected():
@@ -102,8 +133,24 @@ def test_weak_or_noncausal_second_candle_is_rejected():
         close=100.47,
     )
 
-    assert reconfirm_arm(arm, weak).reason == "RECONFIRMATION_CANDLE_WEAK"
+    assert reconfirm_arm(arm, weak).reason == "FROZEN_STORY_NOT_RECONFIRMED"
     assert reconfirm_arm(arm, late).reason == "RECONFIRMATION_TIME_INVALID"
+
+
+def test_opposite_direction_second_candle_is_rejected_as_weak():
+    arm = _arm(LOW_RESPECT_BUY)
+    opposite = Candle(
+        timestamp="2026-07-28T12:59:00+00:00",
+        open=100.20,
+        high=100.25,
+        low=99.90,
+        close=100.05,
+    )
+
+    result = reconfirm_arm(arm, opposite)
+
+    assert result.accepted is False
+    assert result.reason == "RECONFIRMATION_CANDLE_WEAK"
 
 
 def test_direction_safe_geometry_is_tick_snapped_and_bounded():
@@ -127,15 +174,68 @@ def test_direction_safe_geometry_is_tick_snapped_and_bounded():
     )
 
     assert buy.accepted is True
+    assert buy.entry_mode == "CONTINUATION_STOP"
     assert buy.entry_price == 100.53
     assert buy.stop_loss == 99.64
     assert buy.risk_distance <= 1.0
     assert buy.take_profit > buy.entry_price
     assert sell.accepted is True
+    assert sell.entry_mode == "CONTINUATION_STOP"
     assert sell.entry_price == 99.47
     assert sell.stop_loss == 100.36
     assert sell.risk_distance <= 1.0
     assert sell.take_profit < sell.entry_price
+
+
+def test_too_wide_continuation_uses_one_unit_structural_pullback():
+    result = build_order_geometry(
+        _arm(LOW_RESPECT_BUY),
+        Candle(
+            timestamp="2026-07-28T12:59:00+00:00",
+            open=100.20,
+            high=101.50,
+            low=100.10,
+            close=101.30,
+        ),
+        bid=101.00,
+        ask=101.20,
+        spread=0.20,
+        minimum_stop_distance=0.35,
+        tick_size=0.01,
+    )
+
+    assert result.accepted is True
+    assert result.reason == "ORDER_GEOMETRY_ACCEPTED"
+    assert result.entry_mode == "RISK_CAPPED_PULLBACK"
+    assert result.entry_price == 100.80
+    assert result.stop_loss == 99.80
+    assert result.take_profit == 102.30
+    assert result.risk_distance == 1.00
+
+
+def test_risk_capped_pullback_rejects_inside_spread_and_preserves_original_risk():
+    result = build_order_geometry(
+        _arm(LOW_RESPECT_BUY),
+        Candle(
+            timestamp="2026-07-28T12:59:00+00:00",
+            open=100.20,
+            high=101.50,
+            low=100.10,
+            close=101.30,
+        ),
+        bid=100.70,
+        ask=101.00,
+        spread=0.30,
+        minimum_stop_distance=0.35,
+        tick_size=0.01,
+    )
+
+    assert result.accepted is False
+    assert result.reason == "RISK_CAPPED_PULLBACK_INSIDE_SPREAD"
+    assert result.entry_mode == "RISK_CAPPED_PULLBACK"
+    assert result.entry_price == 101.51
+    assert result.stop_loss == 99.80
+    assert result.risk_distance == 1.71
 
 
 def test_crossed_moved_away_and_invalidated_quotes_fail_closed():
@@ -218,6 +318,125 @@ def test_public_runtime_route_uses_new_model_and_produces_direct_pending_proposa
     assert payload["setups"][0]["entry_price"] > 100.45
     assert payload["telemetry"]["selected_candidate"]["trigger"] == LOW_RESPECT_BUY
     assert payload["telemetry"]["selected_candidate"]["signal_quality"]["quote_pressure_used"] is False
+
+
+def test_public_runtime_route_accepts_directional_hold_without_requiring_second_signal(
+    monkeypatch,
+):
+    arm = _arm(LOW_RESPECT_BUY)
+    monkeypatch.setattr(
+        "tradingagents.agents.price_action.one_minute_scalper.detect_post_close_arms",
+        lambda *args, **kwargs: (arm,),
+    )
+    history = _history()
+    history[-1] = _directional_hold_confirmation(LOW_RESPECT_BUY)
+
+    payload = analyze_one_minute_entry(
+        "XAUUSD.vx",
+        "2026-07-28 13:00 UTC",
+        {"1m": history},
+        session_config={
+            "fast_signal_model": CANDIDATE_NAME,
+            "current_bid_price": 100.00,
+            "current_ask_price": 100.20,
+            "current_spread_price": 0.20,
+            "minimum_stop_distance_price": 0.35,
+            "fast_min_stop_spread_multiple": 1.2,
+            "fast_volume_boost_enabled": False,
+        },
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["recommendation"] == "BUY"
+    assert (
+        payload["telemetry"]["selected_candidate"]["confirmation_type"]
+        == "directional_hold"
+    )
+
+
+def test_public_runtime_route_uses_risk_capped_pullback_when_stop_entry_is_too_wide(
+    monkeypatch,
+):
+    arm = _arm(LOW_RESPECT_BUY)
+    monkeypatch.setattr(
+        "tradingagents.agents.price_action.one_minute_scalper.detect_post_close_arms",
+        lambda *args, **kwargs: (arm,),
+    )
+    history = _history()
+    history[-1] = Candle(
+        timestamp="2026-07-28T12:59:00+00:00",
+        open=100.20,
+        high=101.50,
+        low=100.10,
+        close=101.30,
+    )
+
+    payload = analyze_one_minute_entry(
+        "XAUUSD.vx",
+        "2026-07-28 13:00 UTC",
+        {"1m": history},
+        session_config={
+            "fast_signal_model": CANDIDATE_NAME,
+            "current_bid_price": 101.00,
+            "current_ask_price": 101.20,
+            "current_spread_price": 0.20,
+            "minimum_stop_distance_price": 0.35,
+            "fast_min_stop_spread_multiple": 1.2,
+            "fast_volume_boost_enabled": False,
+        },
+    )
+
+    assert payload["status"] == "SETUP_FOUND"
+    assert payload["setups"][0]["entry_mode"] == "RISK_CAPPED_PULLBACK"
+    assert payload["setups"][0]["entry_price"] < 101.00
+    assert payload["setups"][0]["risk_distance"] == 1.00
+    assert (
+        payload["telemetry"]["selected_candidate"]["entry_mode"]
+        == "RISK_CAPPED_PULLBACK"
+    )
+
+    proposal = build_order_proposal(
+        {
+            "company_of_interest": "XAUUSD.vx",
+            "broker_symbol": "XAUUSD.vx",
+            "timeframe": "1m",
+            "confirmation_timeframe": "1m",
+            "as_of": "2026-07-28 13:00 UTC",
+            "market_timezone": "UTC",
+            "entry_profile": "fast",
+            "engine_payload": payload,
+        }
+    )
+    request = MT5OrderRequestBuilder(
+        MT5ConnectionConfig(
+            login=123456789,
+            password="secret",
+            server="ExampleBroker-Demo",
+            symbol="XAUUSD.vx",
+            volume=0.1,
+            min_stop_distance_price=0.35,
+            min_stop_spread_multiple=1.2,
+        )
+    ).build_pending_order_request(
+        proposal,
+        {
+            "name": "XAUUSD.vx",
+            "digits": 2,
+            "point": 0.01,
+            "trade_tick_size": 0.01,
+            "trade_stops_level": 1,
+            "trade_freeze_level": 0,
+            "supports_limit_orders": True,
+            "bid": 101.00,
+            "ask": 101.20,
+        },
+    )
+
+    assert proposal.order_type == "AUTO"
+    assert proposal.opening_context["entry_mode"] == "RISK_CAPPED_PULLBACK"
+    assert request["type"] == "BUY_LIMIT"
+    assert request["volume"] == 0.1
+    assert request["type_filling"] == "ORDER_FILLING_RETURN"
 
 
 def test_public_runtime_route_requires_sixty_fully_closed_candles():

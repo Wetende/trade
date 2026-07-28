@@ -2,8 +2,8 @@
 
 The first closed candle creates an immutable clean-level story.  Only the next
 fully closed M1 candle may reconfirm it.  A fresh quote is then used solely to
-prove that a direction-safe pending stop has not already been crossed or moved
-away; quote counts are deliberately not treated as order flow.
+prove that a direction-safe pending entry has not already been crossed, moved
+away, or invalidated; quote counts are deliberately not treated as order flow.
 """
 
 from __future__ import annotations
@@ -13,12 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import Any, Iterable
 
-from tradingagents.agents.price_action.candles import (
-    candle_range,
-    is_bearish,
-    is_bullish,
-    normalize_candles,
-)
+from tradingagents.agents.price_action.candles import is_bearish, is_bullish, normalize_candles
 from tradingagents.agents.price_action.models import Candle
 from tradingagents.agents.price_action.one_minute_entry_model import (
     FAILED_HIGH_BREAK_SELL,
@@ -58,9 +53,6 @@ SELL_FAMILIES = {
     LOW_BREAK_SELL,
     FAILED_HIGH_BREAK_SELL,
 }
-BREAK_FAMILIES = {HIGH_BREAK_BUY, LOW_BREAK_SELL}
-
-
 @dataclass(frozen=True)
 class Reconfirmation:
     accepted: bool
@@ -73,6 +65,7 @@ class OrderGeometry:
     accepted: bool
     reason: str
     direction: str
+    entry_mode: str | None = None
     entry_price: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
@@ -123,40 +116,48 @@ def reconfirm_arm(arm: PostCloseArm, confirmation: Candle) -> Reconfirmation:
     family = arm.family
     direction = arm.direction
     confirmation_type = _confirmation_type(family, _arm_candle(arm), confirmation)
-    if family in BREAK_FAMILIES:
-        confirmation_type = (
-            "strong_close"
-            if _strong_directional_close(direction, confirmation)
-            else "mixed"
-        )
-    if confirmation_type == "mixed":
+    direction_aligned = (
+        (direction == "BUY" and is_bullish(confirmation))
+        or (direction == "SELL" and is_bearish(confirmation))
+    )
+    if direction not in {"BUY", "SELL"}:
+        return Reconfirmation(False, "UNKNOWN_SCALPER_DIRECTION", "mixed")
+    if not direction_aligned:
         return Reconfirmation(False, "RECONFIRMATION_CANDLE_WEAK", confirmation_type)
+    if confirmation_type == "mixed":
+        # The first candle already created the fully classified signal.  The
+        # second candle only has to prove that the frozen story still holds;
+        # requiring it to create another legacy rejection/engulfing signal
+        # makes two independent triggers a prerequisite for one entry.
+        confirmation_type = "directional_hold"
 
     if family in {LOW_RESPECT_BUY, FAILED_LOW_BREAK_BUY}:
         zone_tested = float(confirmation.low) <= float(arm.zone_high)
         story_held = (
-            is_bullish(confirmation)
-            and float(confirmation.close) >= float(arm.zone_high)
+            direction_aligned and float(confirmation.close) >= float(arm.zone_high)
         )
     elif family in {HIGH_RESPECT_SELL, FAILED_HIGH_BREAK_SELL}:
         zone_tested = float(confirmation.high) >= float(arm.zone_low)
         story_held = (
-            is_bearish(confirmation)
-            and float(confirmation.close) <= float(arm.zone_low)
+            direction_aligned and float(confirmation.close) <= float(arm.zone_low)
         )
     elif family == HIGH_BREAK_BUY:
         zone_tested = float(confirmation.low) <= (
             float(arm.zone_high) + float(arm.break_margin)
         )
-        story_held = float(confirmation.close) >= (
-            float(arm.zone_high) + float(arm.break_margin)
+        story_held = (
+            direction_aligned
+            and float(confirmation.close)
+            >= float(arm.zone_high) + float(arm.break_margin)
         )
     elif family == LOW_BREAK_SELL:
         zone_tested = float(confirmation.high) >= (
             float(arm.zone_low) - float(arm.break_margin)
         )
-        story_held = float(confirmation.close) <= (
-            float(arm.zone_low) - float(arm.break_margin)
+        story_held = (
+            direction_aligned
+            and float(confirmation.close)
+            <= float(arm.zone_low) - float(arm.break_margin)
         )
     else:
         return Reconfirmation(False, "UNKNOWN_SCALPER_FAMILY", confirmation_type)
@@ -178,19 +179,6 @@ def _arm_candle(arm: PostCloseArm) -> Candle:
     )
 
 
-def _strong_directional_close(direction: str, candle: Candle) -> bool:
-    total = candle_range(candle)
-    if total <= 0:
-        return False
-    body = abs(float(candle.close) - float(candle.open))
-    close_position = (float(candle.close) - float(candle.low)) / total
-    if direction == "BUY":
-        return is_bullish(candle) and body >= total * 0.45 and close_position >= 0.82
-    if direction == "SELL":
-        return is_bearish(candle) and body >= total * 0.45 and close_position <= 0.18
-    return False
-
-
 def build_order_geometry(
     arm: PostCloseArm,
     confirmation: Candle,
@@ -204,7 +192,7 @@ def build_order_geometry(
     risk_reward: float = RISK_REWARD,
     tick_size: float = DEFAULT_TICK_SIZE,
 ) -> OrderGeometry:
-    """Build a direction-safe stop order, failing closed on drift or geometry."""
+    """Build a direction-safe pending entry, failing closed on unsafe geometry."""
     direction = arm.direction
     if (
         not all(math.isfinite(float(value)) for value in (bid, ask, spread))
@@ -241,7 +229,52 @@ def build_order_geometry(
         stop = _snap_down(min(structural_stop, entry - minimum_risk), tick)
         risk = entry - stop
         if risk > maximum_risk + 1e-12:
-            return OrderGeometry(False, "STRUCTURAL_STOP_TOO_WIDE", direction)
+            continuation_entry = entry
+            continuation_risk = risk
+            entry = _snap_down(stop + maximum_risk, tick)
+            risk = entry - stop
+            if entry > float(bid) - tick + 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_INSIDE_SPREAD",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(continuation_entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(continuation_risk, 10),
+                )
+            if float(ask) - entry > moved_away_limit + 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_TOO_FAR",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(continuation_entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(continuation_risk, 10),
+                )
+            if risk < minimum_risk - 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_BELOW_MINIMUM",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(risk, 10),
+                )
+            target = _snap_up(entry + risk * float(risk_reward), tick)
+            return OrderGeometry(
+                True,
+                "ORDER_GEOMETRY_ACCEPTED",
+                direction,
+                entry_mode="RISK_CAPPED_PULLBACK",
+                entry_price=round(entry, 10),
+                stop_loss=round(stop, 10),
+                take_profit=round(target, 10),
+                risk_distance=round(risk, 10),
+                reward_distance=round(abs(target - entry), 10),
+            )
         target = _snap_up(entry + risk * float(risk_reward), tick)
     elif direction == "SELL":
         entry = _snap_below(float(confirmation.low), tick)
@@ -258,7 +291,52 @@ def build_order_geometry(
         stop = _snap_up(max(structural_stop, entry + minimum_risk), tick)
         risk = stop - entry
         if risk > maximum_risk + 1e-12:
-            return OrderGeometry(False, "STRUCTURAL_STOP_TOO_WIDE", direction)
+            continuation_entry = entry
+            continuation_risk = risk
+            entry = _snap_up(stop - maximum_risk, tick)
+            risk = stop - entry
+            if entry < float(ask) + tick - 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_INSIDE_SPREAD",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(continuation_entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(continuation_risk, 10),
+                )
+            if entry - float(bid) > moved_away_limit + 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_TOO_FAR",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(continuation_entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(continuation_risk, 10),
+                )
+            if risk < minimum_risk - 1e-12:
+                return OrderGeometry(
+                    False,
+                    "RISK_CAPPED_PULLBACK_BELOW_MINIMUM",
+                    direction,
+                    entry_mode="RISK_CAPPED_PULLBACK",
+                    entry_price=round(entry, 10),
+                    stop_loss=round(stop, 10),
+                    risk_distance=round(risk, 10),
+                )
+            target = _snap_down(entry - risk * float(risk_reward), tick)
+            return OrderGeometry(
+                True,
+                "ORDER_GEOMETRY_ACCEPTED",
+                direction,
+                entry_mode="RISK_CAPPED_PULLBACK",
+                entry_price=round(entry, 10),
+                stop_loss=round(stop, 10),
+                take_profit=round(target, 10),
+                risk_distance=round(risk, 10),
+                reward_distance=round(abs(target - entry), 10),
+            )
         target = _snap_down(entry - risk * float(risk_reward), tick)
     else:
         return OrderGeometry(False, "INVALID_DIRECTION", direction)
@@ -270,6 +348,7 @@ def build_order_geometry(
         True,
         "ORDER_GEOMETRY_ACCEPTED",
         direction,
+        entry_mode="CONTINUATION_STOP",
         entry_price=round(entry, 10),
         stop_loss=round(stop, 10),
         take_profit=round(target, 10),
@@ -305,6 +384,7 @@ def _candidate_row(
         "score": 10.0 if accepted else 0.0,
         "minimum_required_score": 8.0,
         "approved": accepted,
+        "entry_mode": geometry.entry_mode if geometry else None,
         "score_reasons": (
             ["CLEAN_LEVEL_ARM", "SECOND_CLOSED_CANDLE_RECONFIRMED", "QUOTE_SAFE"]
             if accepted
@@ -330,6 +410,7 @@ def _candidate_row(
             "zone_high": arm.zone_high,
             "tolerance": arm.tolerance,
             "touch_count": arm.touch_count,
+            "entry_mode": geometry.entry_mode if geometry else None,
         },
         "signal_quality": {
             "quote_pressure_used": False,
@@ -508,6 +589,7 @@ def analyze_one_minute_scalper(
         "approved": True,
         "reason": "Causal closed-candle reconfirmation and quote-safe stop geometry passed.",
         "entry_price": geometry.entry_price,
+        "entry_mode": geometry.entry_mode,
         "stop_loss": geometry.stop_loss,
         "take_profit": geometry.take_profit,
         "risk_distance": risk_distance,
@@ -534,6 +616,7 @@ def analyze_one_minute_scalper(
         "direction": arm.direction,
         "zone": asdict(zone),
         "entry_price": geometry.entry_price,
+        "entry_mode": geometry.entry_mode,
         "stop_loss": geometry.stop_loss,
         "take_profit": geometry.take_profit,
         "confirmation_candle": asdict(confirmation),
@@ -601,7 +684,6 @@ def detect_reconfirmed_arms(
 
 
 __all__ = [
-    "BREAK_FAMILIES",
     "BUY_FAMILIES",
     "CANDIDATE_NAME",
     "HISTORY_CANDLES",
