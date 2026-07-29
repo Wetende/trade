@@ -31,6 +31,30 @@ def _relationship(direction: str, context: str | None) -> str:
     return "aligned" if aligned else "opposed"
 
 
+def _evidence_reaction_type(
+    trigger: str | None,
+    reaction_type: str | None,
+) -> str:
+    """Translate current M1 story telemetry into the frozen evidence taxonomy."""
+    normalized = str(reaction_type or "").strip().lower()
+    if normalized in {"impulse_break", "respect", "fakeout"}:
+        return normalized
+    if normalized == "break":
+        return "impulse_break"
+    if normalized == "closed_candle_reconfirmation":
+        family = str(trigger or "").strip().upper()
+        if family.startswith("FAILED_") and "_BREAK_" in family:
+            return "fakeout"
+        if "_RESPECT_" in family:
+            return "respect"
+        if "_BREAK_" in family:
+            return "impulse_break"
+    raise ValueError(
+        "unsupported evidence reaction type: "
+        f"reaction_type={reaction_type!r}, trigger={trigger!r}"
+    )
+
+
 def _export_session(
     session_root: str | Path,
     *,
@@ -85,14 +109,17 @@ def _export_session(
             else cycle["heartbeat_utc"]
         )
         direction = selected.get("direction") or proposal.get("side")
+        trigger = selected.get("trigger") or proposal.get("trigger_name")
+        reaction_type = _evidence_reaction_type(
+            trigger,
+            selected.get("reaction_type") or proposal.get("reaction_type"),
+        )
         decisions.append(
             EvidenceDecision(
                 as_of=placed_at,
-                trigger=selected.get("trigger")
-                or proposal.get("trigger_name"),
+                trigger=trigger,
                 direction=direction,
-                reaction_type=selected.get("reaction_type")
-                or proposal.get("reaction_type"),
+                reaction_type=reaction_type,
                 approved=bool(selected.get("approved", True)),
                 touch_count=int(
                     selected.get("touch_count")

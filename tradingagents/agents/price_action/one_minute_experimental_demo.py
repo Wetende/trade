@@ -34,6 +34,7 @@ ARTIFACT_PATHS = (
     "tradingagents/agents/price_action/one_minute_entry_model.py",
     "tradingagents/agents/price_action/one_minute_scalper.py",
     "tradingagents/agents/price_action/decision.py",
+    "tradingagents/agents/price_action/evidence_export.py",
     "tradingagents/agents/price_action/one_minute_experimental_demo.py",
     "tradingagents/brokers/mt5.py",
     "tradingagents/brokers/mt5_execution.py",
@@ -42,6 +43,7 @@ ARTIFACT_PATHS = (
     "tests/test_mt5_broker.py",
     "tests/test_mt5_execution.py",
     "tests/test_mt5_runner.py",
+    "tests/test_one_minute_evidence_export.py",
     "tests/test_one_minute_experimental_demo.py",
     "tests/test_one_minute_scalper.py",
 )

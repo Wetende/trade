@@ -113,6 +113,34 @@ def test_export_session_preserves_unfilled_order_without_fake_outcome(tmp_path):
     assert exported.trades[0].profit is None
 
 
+def test_export_session_maps_closed_candle_families_to_evidence_taxonomy(
+    tmp_path,
+):
+    cases = (
+        ("HIGH_RESPECT_SELL", "respect"),
+        ("LOW_RESPECT_BUY", "respect"),
+        ("HIGH_BREAK_BUY", "impulse_break"),
+        ("LOW_BREAK_SELL", "impulse_break"),
+        ("FAILED_HIGH_BREAK_SELL", "fakeout"),
+        ("FAILED_LOW_BREAK_BUY", "fakeout"),
+    )
+    for index, (trigger, expected) in enumerate(cases):
+        session_root = tmp_path / f"closed-candle-{index}"
+        _write_session(session_root)
+        cycles_path = session_root / "mt5_runner" / "cycles.jsonl"
+        cycle = json.loads(cycles_path.read_text(encoding="utf-8"))
+        cycle["proposal"]["trigger_name"] = trigger
+        cycle["proposal"]["reaction_type"] = "closed_candle_reconfirmation"
+        selected = cycle["analysis"]["telemetry"]["selected_candidate"]
+        selected["trigger"] = trigger
+        selected["reaction_type"] = "closed_candle_reconfirmation"
+        cycles_path.write_text(json.dumps(cycle) + "\n", encoding="utf-8")
+
+        exported = export_session(session_root)
+
+        assert exported.decisions[0].reaction_type == expected
+
+
 def test_export_session_excludes_closed_trade_without_session_placement(tmp_path):
     session_root = tmp_path / "session-c"
     _write_session(session_root)

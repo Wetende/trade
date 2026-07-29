@@ -75,3 +75,8 @@ Execution, lifecycle, telemetry, data-health, and safety defects may be fixed
 between sessions with tests and new hashes. Signal rules are never mutated
 during a session or tuned from one failed window, and no automatic promotion is
 permitted.
+
+The evidence exporter preserves the legacy research taxonomy without changing
+live signals: closed-candle respect families export as `respect`, clean break
+families as `impulse_break`, and failed-break families as `fakeout`. Unknown
+family/reaction combinations fail closed instead of being silently relabeled.
